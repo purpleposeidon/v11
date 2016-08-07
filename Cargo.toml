@@ -1,0 +1,11 @@
+[package]
+name = "v11"
+version = "0.1.0"
+authors = ["neptunepink <purpleposeidon@gmail.com>"]
+
+[dependencies]
+rustc-serialize = "*"
+itertools = "0.4.16"
+joinkit = "0.2.0"
+
+# OwningRef: https://kimundi.github.io/owning-ref-rs/owning_ref/struct.OwningRef.html
