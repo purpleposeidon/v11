@@ -31,7 +31,7 @@ fn bad_name() {
 }
 
 #[test]
-fn table_test() {
+fn small_table() {
     let mut universe = ::Universe::new();
     cheese::default().register(&mut universe);
 
@@ -45,3 +45,36 @@ fn table_test() {
     }
 }
 
+#[test]
+fn large_table() {
+    let mut universe = ::Universe::new();
+    cheese::default().register(&mut universe);
+    let mut cheese = cheese::default().write(&universe);
+    for x in 10..1000 {
+        cheese.push(cheese::Row {
+            mass: x,
+            holes: 2000,
+            kind: CheeseKind::Swiss,
+        });
+    }
+}
+
+#[test]
+fn walk_table() {
+    let mut universe = ::Universe::new();
+    cheese::default().register(&mut universe);
+    {
+        let mut cheese = cheese::write(&universe);
+        for x in 10..1000 {
+            cheese.push(cheese::Row {
+                mass: x,
+                holes: 2000,
+                kind: CheeseKind::Swiss,
+            });
+        }
+    }
+    let cheese = cheese::read(&universe);
+    for i in cheese.range() {
+        println!("{:?}", cheese.row(i));
+    }
+}
