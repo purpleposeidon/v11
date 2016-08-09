@@ -53,15 +53,15 @@ macro_rules! table_impl {
         [$TN:ident, head = $HEAD:ident],
         $($CN:ident: ($CT:ty, $DCT:ty),)*
     ) => {
-        use $crate::{Universe, OpaqueIndex, Action, RowIndexIterator, Col};
-        use $crate::intern::GenericTable;
-        use super::table_use::*;
-
         use std::iter::Iterator;
-        use std::sync::*;
-        use std::ops::Range;
         use std::marker::PhantomData;
+        use std::sync::{RwLockReadGuard, RwLockWriteGuard};
+
+        use $crate::{Universe, OpaqueIndex, Action, RowIndexIterator, Col};
+        use $crate::intern::{GenericTable, VoidIter};
+
         #[allow(unused_imports)]
+        use super::table_use::*;
 
         /**
          * A structure holding a row's data. This is used to pass rows around through methods;
@@ -71,6 +71,10 @@ macro_rules! table_impl {
         #[derive(Debug, PartialEq, Copy, Clone)]
         pub struct Row {
             $(pub $CN: $CT,)*
+        }
+
+        fn fab(i: usize) -> OpaqueIndex<Row> {
+            unsafe { OpaqueIndex::fabricate(i) }
         }
 
         /**
@@ -89,22 +93,29 @@ macro_rules! table_impl {
                 self.$HEAD.len()
             }
 
-            fn fab(i: usize) -> OpaqueIndex<Row> {
-                unsafe { OpaqueIndex::fabricate(i) }
+            /// Retrieves a structure containing a copy of the value in each column.
+            pub fn row(&self, i: OpaqueIndex<Row>) -> Row {
+                Row {
+                    $($CN: self.$CN[i],)*
+                }
             }
 
-            pub fn range(&self) -> Range<OpaqueIndex<Row>> {
-                Write::fab(0)..Write::fab(self.rows())
+            pub fn range(&self) -> RowIndexIterator<Row> {
+                RowIndexIterator {
+                    i: 0,
+                    end: self.rows(),
+                    rt: PhantomData,
+                }
             }
 
             fn set(&mut self, index: usize, row: Row) {
                 // why not s/usize/OpaqueIndex & pub?
-                let index = Write::fab(index);
+                let index = fab(index);
                 $(self.$CN[index] = row.$CN;)*
             }
 
             fn get(&self, index: usize) -> Row {
-                let index = Write::fab(index);
+                let index = fab(index);
                 Row {
                     $($CN: self.$CN[index],)*
                 }
@@ -138,6 +149,9 @@ macro_rules! table_impl {
              * This function of course can not be used to insert entries into an empty table.
              *
              * Similar to `Vec.retain`, but also allows insertion.
+             *
+             * If you want to visit without inserting, you will still need to provide a type for an
+             * un-used iterator.
              * */
             pub fn visit<IT, F>(&mut self, mut closure: F)
                 where IT: Iterator<Item=Row>,
@@ -185,9 +199,14 @@ macro_rules! table_impl {
                             break;
                         }
                         flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
-                        for row in displaced_buffer.iter() {
+                        while let Some(row) = displaced_buffer.pop_front() {
                             $(self.$CN.push(row.$CN);)*
+                            if skip > 0 {
+                                skip -= 1;
+                                index += 1;
+                            }
                         }
+                        continue;
                     }
                     if let Some(replacement) = displaced_buffer.pop_front() {
                         // Swap between '`here`' and the first displaced row.
@@ -264,6 +283,7 @@ macro_rules! table_impl {
                                 }
                             }
                             flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer);
+                            index += 1;
                         }
                     }
                 }
@@ -284,14 +304,14 @@ macro_rules! table_impl {
                 // structures.
                 let indices = {
                     let mut indices: Vec<usize> = (0..self.rows()).collect();
-                    indices.sort_by_key(|i| { self.$HEAD[Write::fab(*i)] });
+                    indices.sort_by_key(|i| { self.$HEAD[fab(*i)] });
                     indices
                 };
                 $({
                     let mut tmp = Vec::with_capacity(indices.len());
                     {
                         for i in indices.iter() {
-                            tmp.push(self.$CN[Write::fab(*i)]);
+                            tmp.push(self.$CN[fab(*i)]);
                             // This has us potentially jumping around a lot, altho of course
                             // often times the table will already be at least mostly-sorted.
                             // (Well, it'll tend to be mostly sorted already, right?)
@@ -307,6 +327,15 @@ macro_rules! table_impl {
                 *self._is_sorted = true;
             }
         }
+
+        /**
+         * If calling `Write.visit` with a closure that does not `Add` values,
+         * there's no reasonable way to the type of the iterator that is never
+         * used... until now!
+         *
+         * `$TN.visit(|table, i| -> $TN::ClearVisit { … })`
+         * */
+        pub type ClearVisit = Action<Row, VoidIter<Row>>;
 
         /**
          * The table, locked for reading.
@@ -332,6 +361,7 @@ macro_rules! table_impl {
                 }
             }
 
+            /// Retrieves a structure containing a copy of the value in each column.
             pub fn row(&self, i: OpaqueIndex<Row>) -> Row {
                 Row {
                     $($CN: self.$CN[i],)*
@@ -346,6 +376,8 @@ macro_rules! table_impl {
         pub fn read(universe: &Universe) -> Read { default().read(universe) }
         /// Locks the table for writing (with the default name).
         pub fn write(universe: &Universe) -> Write { default().write(universe) }
+        /// Sorts the table, and then re-locks for writing (with the default name).
+        pub fn sorted(universe: &Universe) -> Read { default().sorted(universe) }
 
         /**
          * Creates a TableLoader with the default table name, $TN.
@@ -356,8 +388,8 @@ macro_rules! table_impl {
 
         /**
          * Creates a TableLoader with a custom table name.
-         * (Beware that creating arbitrary numbers of identical tables runs against the spirit of
-         * Data Driven Programming.)
+         * (But beware that creating arbitrary numbers of identical tables runs contrary to the
+         * spirit of Data Driven Programming.)
          * */
         pub fn with_name(name: &str) -> TableLoader {
             TableLoader {
@@ -433,7 +465,8 @@ macro_rules! table_impl {
                 //      maybe
                 // Or forcefully stop all other threads.
                 // (Actually what would be best is a way to convert a RwLockWriteGuard into a
-                // RwLockReadGuard.)
+                // RwLockReadGuard. Perhaps Rust could add something for converting between lock
+                // types?)
             }
 
             /** Registers the table. */

@@ -66,7 +66,6 @@ impl GenericTable {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}:{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
-        println!("get_column: {} {}", name, type_name);
         c.data.downcast_ref().unwrap()
     }
 
@@ -77,7 +76,6 @@ impl GenericTable {
             panic!("Table {} doesn't have a {} column.", my_name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}:{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
-        println!("get_column_mut: {} {}", name, type_name);
         c.data.downcast_mut().unwrap()
     }
 
@@ -140,6 +138,13 @@ impl<D: Storable> Col<D> {
         self.data.drain(range)
     }
     pub fn append(&mut self, other: &mut Vec<D>) { self.data.append(other) }
+}
+
+
+pub struct VoidIter<I>(I);
+impl<I> Iterator for VoidIter<I> {
+    type Item = I;
+    fn next(&mut self) -> Option<I> { None }
 }
 
 /* Still need to get a JOIN solution! */
