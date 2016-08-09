@@ -43,9 +43,8 @@ impl GenericTable {
         }
     }
 
-    pub fn add_column<D, C>(mut self, name: &str, type_name: &'static str, inst: C) -> Self
-    where D: Any + Storable + 'static,
-          C: ConcreteCol<D> + Any {
+    pub fn add_column<D>(mut self, name: &str, type_name: &'static str, inst: Col<D>) -> Self
+    where D: Any + Storable + 'static {
         // Why is the 'static necessary??? Does it refer to the vtable or something?
         check_name(name);
         for c in self.columns.iter() {
@@ -61,9 +60,8 @@ impl GenericTable {
         self
     }
 
-    pub fn get_column<D, C>(&self, name: &str, type_name: &str) -> &C
-    where D: Any + Storable + 'static,
-          C: ConcreteCol<D> + Any {
+    pub fn get_column<D>(&self, name: &str, type_name: &str) -> &Col<D>
+    where D: Any + Storable + 'static {
         let c = self.columns.iter().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
@@ -72,7 +70,8 @@ impl GenericTable {
         c.data.downcast_ref().unwrap()
     }
 
-    pub fn get_column_mut<D: Any + Storable + 'static, C: ConcreteCol<D> + Any>(&mut self, name: &str, type_name: &str) -> &mut C {
+    pub fn get_column_mut<D>(&mut self, name: &str, type_name: &str) -> &mut Col<D>
+    where D: Any + Storable + 'static {
         let my_name = &self.name;
         let c = self.columns.iter_mut().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", my_name, name);
@@ -129,6 +128,18 @@ fn check_name(name: &str) {
         if c >= '0' && c <= '9' { continue; }
         panic!("Invalid name {}", name);
     }
+}
+
+impl<D: Storable> Col<D> {
+    pub fn new() -> Self { Col { data: Vec::new() } }
+    pub fn clear(&mut self) { self.data.clear() }
+    pub fn len(&self) -> usize { self.data.len() }
+    pub fn push(&mut self, d: D) { self.data.push(d) }
+    pub fn truncate(&mut self, l: usize) { self.data.truncate(l) }
+    pub fn drain(&mut self, range: ::std::ops::Range<usize>) -> ::std::vec::Drain<D> {
+        self.data.drain(range)
+    }
+    pub fn append(&mut self, other: &mut Vec<D>) { self.data.append(other) }
 }
 
 /* Still need to get a JOIN solution! */

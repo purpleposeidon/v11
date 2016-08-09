@@ -41,8 +41,8 @@ macro_rules! table {
             /* public? Mmm. */
             table_impl! {
                 [$TN, head = $HEAD_COL_NAME],
-                $HEAD_COL_NAME: ($HEAD_COL_TYPE, Vec<$HEAD_COL_TYPE>),
-                $($CN: ($CT, Vec<$CT>),)*
+                $HEAD_COL_NAME: ($HEAD_COL_TYPE, Col<$HEAD_COL_TYPE>),
+                $($CN: ($CT, Col<$CT>),)*
             }
         }
     };
@@ -53,13 +53,14 @@ macro_rules! table_impl {
         [$TN:ident, head = $HEAD:ident],
         $($CN:ident: ($CT:ty, $DCT:ty),)*
     ) => {
-        use $crate::{Universe, OpaqueIndex, Action};
+        use $crate::{Universe, OpaqueIndex, Action, RowIndexIterator, Col};
         use $crate::intern::GenericTable;
         use super::table_use::*;
 
         use std::iter::Iterator;
         use std::sync::*;
         use std::ops::Range;
+        use std::marker::PhantomData;
         #[allow(unused_imports)]
 
         /**
@@ -88,16 +89,22 @@ macro_rules! table_impl {
                 self.$HEAD.len()
             }
 
-            pub fn range(&self) -> Range<usize> {
-                0..self.rows()
+            fn fab(i: usize) -> OpaqueIndex<Row> {
+                unsafe { OpaqueIndex::fabricate(i) }
+            }
+
+            pub fn range(&self) -> Range<OpaqueIndex<Row>> {
+                Write::fab(0)..Write::fab(self.rows())
             }
 
             fn set(&mut self, index: usize, row: Row) {
                 // why not s/usize/OpaqueIndex & pub?
+                let index = Write::fab(index);
                 $(self.$CN[index] = row.$CN;)*
             }
 
             fn get(&self, index: usize) -> Row {
+                let index = Write::fab(index);
                 Row {
                     $($CN: self.$CN[index],)*
                 }
@@ -134,7 +141,7 @@ macro_rules! table_impl {
              * */
             pub fn visit<IT, F>(&mut self, mut closure: F)
                 where IT: Iterator<Item=Row>,
-                       F: FnMut(&mut Write, OpaqueIndex) -> Action<Row, IT> {
+                       F: FnMut(&mut Write, OpaqueIndex<Row>) -> Action<Row, IT> {
                 // This algorithm is probably close to maximum efficiency?
                 // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
                 // for internal temporary usage.
@@ -201,7 +208,7 @@ macro_rules! table_impl {
                     // This first loop, it's going to be fine.
                     // If remove has been used, then there are worries.
                     let action = if skip == 0 {
-                        closure(self, OpaqueIndex(index))
+                        closure(self, OpaqueIndex::new(index))
                     } else {
                         skip -= 1;
                         Action::Continue
@@ -276,15 +283,15 @@ macro_rules! table_impl {
                 // TODO: Lots of work implementing custom sorting algorithms for various SOA
                 // structures.
                 let indices = {
-                    let mut indices: Vec<usize> = self.range().collect();
-                    indices.sort_by_key(|i| { self.$HEAD[*i] });
+                    let mut indices: Vec<usize> = (0..self.rows()).collect();
+                    indices.sort_by_key(|i| { self.$HEAD[Write::fab(*i)] });
                     indices
                 };
                 $({
                     let mut tmp = Vec::with_capacity(indices.len());
                     {
                         for i in indices.iter() {
-                            tmp.push(self.$CN[*i]);
+                            tmp.push(self.$CN[Write::fab(*i)]);
                             // This has us potentially jumping around a lot, altho of course
                             // often times the table will already be at least mostly-sorted.
                             // (Well, it'll tend to be mostly sorted already, right?)
@@ -317,8 +324,18 @@ macro_rules! table_impl {
                 self.$HEAD.len()
             }
 
-            pub fn range(&self) -> Range<usize> {
-                0..self.rows()
+            pub fn range(&self) -> RowIndexIterator<Row> {
+                RowIndexIterator {
+                    i: 0,
+                    end: self.rows(),
+                    rt: PhantomData,
+                }
+            }
+
+            pub fn row(&self, i: OpaqueIndex<Row>) -> Row {
+                Row {
+                    $($CN: self.$CN[i],)*
+                }
             }
 
             // TODO: iter()
@@ -363,7 +380,7 @@ macro_rules! table_impl {
                 let _lock = table.read().unwrap();
                 use std::mem::transmute;
                 let _is_sorted = unsafe { transmute(&_lock.is_sorted) };
-                $( let $CN = unsafe { transmute(_lock.get_column::<$CT, $DCT>(stringify!($CN), stringify!($CT))) }; )*
+                $( let $CN = unsafe { transmute(_lock.get_column::<$CT>(stringify!($CN), stringify!($CT))) }; )*
                 Read {
                     _lock: _lock,
                     _is_sorted: _is_sorted,
@@ -379,7 +396,7 @@ macro_rules! table_impl {
                 let mut _lock = table.write().unwrap();
                 use std::mem::transmute;
                 let mut _is_sorted = unsafe { transmute(&mut _lock.is_sorted) };
-                $( let $CN = unsafe { transmute(_lock.get_column_mut::<$CT, $DCT>(stringify!($CN), stringify!($CT))) }; )*
+                $( let $CN = unsafe { transmute(_lock.get_column_mut::<$CT>(stringify!($CN), stringify!($CT))) }; )*
                 Write {
                     _lock: _lock,
                     _is_sorted: _is_sorted,
@@ -422,7 +439,7 @@ macro_rules! table_impl {
             /** Registers the table. */
             pub fn register(&self, universe: &mut Universe) {
                 let table = GenericTable::new(self.name);
-                $(let table = table.add_column::<$CT, $DCT>(stringify!($CN), stringify!($CT), Vec::new());)*
+                $(let table = table.add_column::<$CT>(stringify!($CN), stringify!($CT), Col::new());)*
                 universe.add_table(table);
             }
         }

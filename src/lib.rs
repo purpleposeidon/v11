@@ -77,54 +77,75 @@ impl Universe {
     }
 }
 
-/**
- * A column that's been locked for reading or writing and can be indexed using `OpaqueIndex`.
- * */
-pub trait ConcreteCol<D: Storable> {
-    fn get(&self, index: usize) -> &D;
-    fn get_mut(&mut self, index: usize) -> &mut D;
-}
-impl<D: Storable> ::std::ops::Index<OpaqueIndex> for ConcreteCol<D> {
-    type Output = D;
-    fn index(&self, index: OpaqueIndex) -> &D { self.get(index.0) }
-}
-impl<D: Storable> ::std::ops::IndexMut<OpaqueIndex> for ConcreteCol<D> {
-    fn index_mut(&mut self, index: OpaqueIndex) -> &mut D { self.get_mut(index.0) }
-}
 
-impl<D: Storable> ConcreteCol<D> for Vec<D> {
-    fn get<'a>(&'a self, index: usize) -> &'a D {
-        use std::ops::Index;
-        Vec::<D>::index(self, index)
-    }
-    fn get_mut<'a>(&'a mut self, index: usize) -> &'a mut D {
-        use std::ops::IndexMut;
-        Vec::<D>::index_mut(self, index)
-    }
-}
-
-
-
-
+use std::marker::PhantomData;
 
 /** An index into a table. It is a bad idea to be dependent on the contents of this value, as
 * tables may be sorted asynchronously/you would have to keep things updated, etc. Consider using an
 * explicit index column.
 *
-* TODO: Add a lifetime & table-type parameter to guarantee more safety.
+* TODO: Add a lifetime to guarantee more safety.
 * */
-pub struct OpaqueIndex(usize);
-impl OpaqueIndex {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpaqueIndex<T> {
+    i: usize,
+    t: PhantomData<T>
+}
+impl<T> OpaqueIndex<T> {
     /** Get the underlying index value. */
     pub unsafe fn extricate(&self) -> usize {
-        self.0
+        self.i
     }
 
     /** Create a phoney OpaqueIndex. */
-    pub unsafe fn fabricate(i: usize) -> OpaqueIndex {
-        OpaqueIndex(i)
+    pub unsafe fn fabricate(i: usize) -> OpaqueIndex<T> {
+        OpaqueIndex::new(i)
+    }
+
+    fn new(i: usize) -> OpaqueIndex<T> {
+        OpaqueIndex {
+            i: i,
+            t: PhantomData,
+        }
     }
 }
+
+pub struct RowIndexIterator<Row> {
+    i: usize,
+    end: usize,
+    rt: PhantomData<Row>,
+}
+impl<Row> Iterator for RowIndexIterator<Row> {
+    type Item = OpaqueIndex<Row>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.i >= self.end { return None; }
+        let ret = OpaqueIndex {
+            i: self.i,
+            t: PhantomData,
+        };
+        self.i += 1;
+        Some(ret)
+    }
+}
+
+
+
+
+/**
+ * A column that's been locked for reading or writing and can be indexed using `OpaqueIndex`.
+ * */
+pub struct Col<D: Storable> {
+    data: Vec<D>,
+}
+impl<D: Storable, T> ::std::ops::Index<OpaqueIndex<T>> for Col<D> {
+    type Output = D;
+    fn index(&self, index: OpaqueIndex<T>) -> &D { &self.data[index.i] }
+}
+impl<D: Storable, T> ::std::ops::IndexMut<OpaqueIndex<T>> for Col<D> {
+    fn index_mut(&mut self, index: OpaqueIndex<T>) -> &mut D { &mut self.data[index.i] }
+}
+
+
 
 
 
