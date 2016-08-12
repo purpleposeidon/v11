@@ -368,6 +368,14 @@ macro_rules! table_impl {
                 }
             }
 
+            pub fn dump(&self) -> Vec<Row> {
+                let mut ret = Vec::with_capacity(self.rows());
+                for i in self.range() {
+                    ret.push(self.row(i));
+                }
+                ret
+            }
+
             // TODO: iter()
             // TODO: Join
         }

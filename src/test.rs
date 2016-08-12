@@ -129,26 +129,6 @@ fn visit_break_immediate() {
 }
 
 #[test]
-fn visit_break() {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
-    let mut easy = easy::write(&universe);
-    for n in 0..10 {
-        easy.push(easy::Row {x: n});
-    }
-    dump(&mut easy);
-    easy.visit(|_, i| -> easy::ClearVisit {
-        if unsafe { i.extricate() } > 5 {
-            ::Action::Break
-        } else {
-            ::Action::Remove
-        }
-    });
-    println!("Stuff removed!");
-    dump(&mut easy);
-}
-
-#[test]
 fn visit_add() {
     fn dump(easy: &mut easy::Write) {
         for i in easy.range() {
@@ -172,4 +152,45 @@ fn visit_add() {
         //println!("d = {}", d);
         //dump(&mut easy);
     }
+}
+
+// These two aren't very good tests. Just don't panic, I guess.
+#[test]
+fn visit_remove_break() {
+    fn b() -> easy::ClearVisit { ::Action::Break }
+    visit_remove_and(b);
+}
+
+#[test]
+fn visit_remove_continue() {
+    fn c() -> easy::ClearVisit { ::Action::Continue }
+    visit_remove_and(c);
+}
+
+fn visit_remove_and<A: Fn() -> easy::ClearVisit>(act: A) {
+    let mut universe = ::Universe::new();
+    easy::default().register(&mut universe);
+    let mut easy = easy::write(&universe);
+    for n in 0..10 {
+        easy.push(easy::Row {x: n});
+    }
+    dump(&mut easy);
+    let mut n = 0;
+    easy.visit(|_, _| -> easy::ClearVisit {
+        n += 1;
+        if n > 5 {
+            act()
+        } else {
+            ::Action::Remove
+        }
+    });
+    println!("After stuff was removed:");
+    dump(&mut easy);
+}
+
+#[test]
+fn remove_one() {
+    let mut universe = ::Universe::new();
+    easy::default().register(&mut universe);
+    let mut easy = easy::write(&universe);
 }
