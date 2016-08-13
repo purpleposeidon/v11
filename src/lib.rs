@@ -15,10 +15,12 @@ extern crate joinkit;
 use std::sync::*;
 use std::collections::HashMap;
 use rustc_serialize::{Decodable, Encodable};
+use std::marker::PhantomData;
+use std::any::Any;
 
 
 pub mod macros;
-
+pub mod property;
 pub mod intern;
 
 #[cfg(test)]
@@ -34,7 +36,7 @@ pub use intern::*;
  * */
 // We really do want to be able to store floats, which means that we can't use proper Eq or
 // PartialEq...
-pub trait Storable : Default + Sync + Copy + Sized + Decodable + Encodable + PartialOrd /* + !Drop */ { }
+pub trait Storable : Default + Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable + PartialOrd /* + !Drop */ { }
 
 macro_rules! storables_table {
     ($($T:ty),*,) => {
@@ -56,13 +58,16 @@ storables_table! {
  * */
 pub struct Universe {
     tables: HashMap<String, RwLock<GenericTable>>,
-    /* TODO: Properties. */
+    properties: Vec<(String, Box<Any>)>,
+    // A vec would be better. Would require some global static stuff to assign id's to properties.
+    // Kinda needs const_fn.
 }
 impl Universe {
     /** Create a new Universe. */
     pub fn new() -> Universe {
         Universe {
             tables: HashMap::new(),
+            properties: Vec::new(),
         }
     }
 
@@ -77,8 +82,6 @@ impl Universe {
     }
 }
 
-
-use std::marker::PhantomData;
 
 /** An index into a table. It is a bad idea to be dependent on the contents of this value, as
 * tables may be sorted asynchronously/you would have to keep things updated, etc. Consider using an
@@ -169,6 +172,4 @@ pub enum Action<I, IT: Iterator<Item=I>> {
 
 
 /* Still need to get a JOIN solution! */
-
-
 

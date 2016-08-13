@@ -18,9 +18,10 @@
  * }
  * ```
  *
- * This generates a module named `name_of_table` with `load()` and `register()` functions.
- * Since non-standard types are unpleasant to refer to, a "mod table_use" should be created at the
- * same depth as the `table!` invocation.
+ * This generates a module with the given name, defining functions for loading & registering the
+ * table.
+ * Since non-standard types are unpleasant to refer to, a "mod table_use" must define all extra
+ * types used in the table's columns.
  *
  * Table and column names must be valid rust identifiers, and must match the regex
  * "[A-Za-z][A-Za-z_0-9]*".
