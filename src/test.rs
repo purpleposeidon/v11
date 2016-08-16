@@ -214,6 +214,127 @@ fn remove_one() {
 }
 
 table! {
+    [pub sortie],
+    i: [usize; VecCol<usize>],
+}
+
+#[test]
+fn sort() {
+    let mut universe = ::Universe::new();
+    sortie::default().register(&mut universe);
+    println!("Input:");
+    let orig_len = {
+        let mut sortie = sortie::write(&universe);
+        for i in 0..40 {
+            let i = 40 - i;
+            println!("{}", i);
+            sortie.push(sortie::Row { i: i });
+        }
+        sortie.rows()
+    };
+    let sortie = sortie::sorted(&universe);
+    println!("Sorted:");
+    for i in sortie.range() {
+        println!("{}", sortie.i[i]);
+    }
+    assert_eq!(orig_len, sortie.rows());
+}
+
+table! {
+    [pub bsortie],
+    i: [bool; BoolCol],
+}
+
+#[test]
+fn bool_col_unit() {
+    let mut bc = ::BoolCol::new();
+    let v = &[true, false, true];
+    for i in v {
+        bc.push(*i);
+    }
+    println!("");
+    println!("Start:");
+    for i in bc.data.iter() {
+        println!("{}", i);
+    }
+    println!("Cleared:");
+    bc.clear();
+    for i in bc.data.iter() {
+        println!("{}", i);
+    }
+    println!("Really Cleared:");
+    bc.data.clear();
+    for i in bc.data.iter() {
+        println!("{}", i);
+    }
+    println!("Append:");
+    bc.append(&mut vec![true, true]);
+    for i in bc.data.iter() {
+        println!("{}", i);
+    }
+    println!("{:?}", bc);
+}
+
+#[test]
+fn bsort() {
+    let mut universe = ::Universe::new();
+    bsortie::default().register(&mut universe);
+    let orig_len = {
+        let mut bsortie = bsortie::write(&universe);
+        bsortie.push(bsortie::Row { i: false });
+        bsortie.push(bsortie::Row { i: false });
+        bsortie.push(bsortie::Row { i: true });
+        bsortie.push(bsortie::Row { i: false });
+        bsortie.push(bsortie::Row { i: true });
+        bsortie.rows()
+    };
+    let bsortie = bsortie::sorted(&universe);
+    println!("Sorted:");
+    for i in bsortie.range() {
+        println!("{:?}", bsortie.row(i));
+    }
+    assert_eq!(orig_len, bsortie.rows());
+    assert_eq!(bsortie.dump().iter().map(|r| { r.i }).collect::<Vec<_>>(), &[false, false, false, true, true]);
+}
+
+table! {
     [pub bits],
-    b: [bool; BoolCol],
+    a: [bool; BoolCol],
+    b: [bool; VecCol<bool>],
+}
+
+
+#[test]
+fn bool_col() {
+    let mut universe = ::Universe::new();
+    bits::default().register(&mut universe);
+    {
+        let mut bits = bits::write(&universe);
+        bits.push(bits::Row { a: true, b: true });
+        bits.push(bits::Row { a: false, b: false });
+        bits.push(bits::Row { a: true, b: true });
+        bits.push(bits::Row { a: false, b: false });
+        println!("{}", bits.rows());
+    }
+    {
+        {
+            let bits = bits::sorted(&universe);
+            println!("{}", bits.rows());
+        }
+        {
+            let bits = bits::sorted(&universe);
+            println!("{}", bits.rows());
+        }
+        let bits = bits::sorted(&universe);
+        println!("");
+        println!("");
+        for i in bits.range() {
+            println!("{:?}", i);
+        }
+        for i in bits.range() {
+            println!("{:?}", i);
+            println!("{:?}", bits.row(i));
+        }
+    }
+    //let bits = bits::write(&universe);
 }

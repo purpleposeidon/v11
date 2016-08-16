@@ -149,7 +149,10 @@ impl BoolCol {
     pub fn len(&self) -> usize { self.data.len() }
     pub fn clear(&mut self) {
         self.flush();
-        self.data.clear();
+        // BitVec.clear: "Clears all bits in this vector." Leaving the size the same. bro. pls.
+        // https://github.com/contain-rs/bit-vec/issues/16
+        // Anyways.
+        self.data.truncate(0);
     }
     pub fn push(&mut self, d: bool) {
         self.flush();

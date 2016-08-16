@@ -135,6 +135,7 @@ impl<Row> Iterator for RowIndexIterator<Row> {
 
 
 
+#[derive(Debug)]
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }
@@ -147,6 +148,7 @@ impl<E: Storable, T> ::std::ops::IndexMut<OpaqueIndex<T>> for VecCol<E> {
 }
 
 
+#[derive(Debug)]
 pub struct BoolCol {
     data: bit_vec::BitVec,
     ref_id: Option<usize>,
