@@ -16,15 +16,15 @@ mod table_use {
 use self::table_use::*;
 
 table! {
-    [cheese],
-    mass: usize,
-    holes: u16,
-    kind: CheeseKind,
+    [pub cheese],
+    mass: [usize; VecCol<usize>],
+    holes: [u16; VecCol<u16>],
+    kind: [CheeseKind; VecCol<CheeseKind>],
 }
 
 table! {
-    [easy],
-    x: i32,
+    [pub easy],
+    x: [i32; VecCol<i32>],
 }
 
 
@@ -193,4 +193,27 @@ fn remove_one() {
     let mut universe = ::Universe::new();
     easy::default().register(&mut universe);
     let mut easy = easy::write(&universe);
+    for i in 0..2 {
+        easy.push(easy::Row { x: i });
+    }
+    let mut first = true;
+    println!("Start");
+    dump(&mut easy);
+    assert!(easy.rows() == 2);
+    easy.visit(|_, _| -> easy::ClearVisit {
+        if first {
+            first = false;
+            ::Action::Remove
+        } else {
+            ::Action::Break
+        }
+    });
+    println!("");
+    dump(&mut easy);
+    assert!(easy.rows() == 1);
+}
+
+table! {
+    [pub bits],
+    b: [bool; BoolCol],
 }

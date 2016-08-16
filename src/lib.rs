@@ -11,6 +11,7 @@
 extern crate rustc_serialize;
 extern crate itertools;
 extern crate joinkit;
+extern crate bit_vec;
 
 use std::sync::*;
 use std::collections::HashMap;
@@ -134,20 +135,52 @@ impl<Row> Iterator for RowIndexIterator<Row> {
 
 
 
-/**
- * A column that's been locked for reading or writing and can be indexed using `OpaqueIndex`.
- * */
-pub struct Col<D: Storable> {
-    data: Vec<D>,
+pub struct VecCol<E: Storable> {
+    data: Vec<E>,
 }
-impl<D: Storable, T> ::std::ops::Index<OpaqueIndex<T>> for Col<D> {
-    type Output = D;
-    fn index(&self, index: OpaqueIndex<T>) -> &D { &self.data[index.i] }
+impl<E: Storable, T> ::std::ops::Index<OpaqueIndex<T>> for VecCol<E> {
+    type Output = E;
+    fn index(&self, index: OpaqueIndex<T>) -> &E { &self.data[index.i] }
 }
-impl<D: Storable, T> ::std::ops::IndexMut<OpaqueIndex<T>> for Col<D> {
-    fn index_mut(&mut self, index: OpaqueIndex<T>) -> &mut D { &mut self.data[index.i] }
+impl<E: Storable, T> ::std::ops::IndexMut<OpaqueIndex<T>> for VecCol<E> {
+    fn index_mut(&mut self, index: OpaqueIndex<T>) -> &mut E { &mut self.data[index.i] }
 }
 
+
+pub struct BoolCol {
+    data: bit_vec::BitVec,
+    ref_id: Option<usize>,
+    ref_val: bool,
+}
+impl BoolCol {
+    fn flush(&mut self) {
+        match self.ref_id {
+            Some(i) => {
+                self.data.set(i, self.ref_val);
+                self.ref_id = None;
+            },
+            _ => (),
+        }
+    }
+}
+impl<T> ::std::ops::Index<OpaqueIndex<T>> for BoolCol {
+    type Output = bool;
+    fn index(&self, index: OpaqueIndex<T>) -> &bool {
+        if index.i == self.ref_id.unwrap_or(index.i + 1) {
+            &self.ref_val
+        } else {
+            &self.data[index.i]
+        }
+    }
+}
+impl<T> ::std::ops::IndexMut<OpaqueIndex<T>> for BoolCol {
+    fn index_mut(&mut self, index: OpaqueIndex<T>) -> &mut bool {
+        self.flush();
+        self.ref_id = Some(index.i);
+        self.ref_val = self.data[index.i];
+        &mut self.ref_val
+    }
+}
 
 
 

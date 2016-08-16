@@ -43,8 +43,7 @@ impl GenericTable {
         }
     }
 
-    pub fn add_column<D>(mut self, name: &str, type_name: &'static str, inst: Col<D>) -> Self
-    where D: Any + Storable + 'static {
+    pub fn add_column(mut self, name: &str, type_name: String, inst: Box<Any>) -> Self {
         // Why is the 'static necessary??? Does it refer to the vtable or something?
         check_name(name);
         for c in self.columns.iter() {
@@ -54,14 +53,13 @@ impl GenericTable {
         }
         self.columns.push(GenericColumn {
             name: name.to_string(),
-            data: Box::new(inst) as Box<Any>,
-            stored_type_name: type_name.to_string(),
+            data: inst,
+            stored_type_name: type_name,
         });
         self
     }
 
-    pub fn get_column<D>(&self, name: &str, type_name: &str) -> &Col<D>
-    where D: Any + Storable + 'static {
+    pub fn get_column<C: Any>(&self, name: &str, type_name: String) -> &C {
         let c = self.columns.iter().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
@@ -69,8 +67,7 @@ impl GenericTable {
         c.data.downcast_ref().unwrap()
     }
 
-    pub fn get_column_mut<D>(&mut self, name: &str, type_name: &str) -> &mut Col<D>
-    where D: Any + Storable + 'static {
+    pub fn get_column_mut<C: Any>(&mut self, name: &str, type_name: String) -> &mut C {
         let my_name = &self.name;
         let c = self.columns.iter_mut().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", my_name, name);
@@ -128,16 +125,55 @@ fn check_name(name: &str) {
     }
 }
 
-impl<D: Storable> Col<D> {
-    pub fn new() -> Self { Col { data: Vec::new() } }
-    pub fn clear(&mut self) { self.data.clear() }
+impl<D: Storable> VecCol<D> {
+    pub fn new() -> Self { VecCol { data: Vec::new() } }
     pub fn len(&self) -> usize { self.data.len() }
+    pub fn clear(&mut self) { self.data.clear() }
     pub fn push(&mut self, d: D) { self.data.push(d) }
     pub fn truncate(&mut self, l: usize) { self.data.truncate(l) }
-    pub fn drain(&mut self, range: ::std::ops::Range<usize>) -> ::std::vec::Drain<D> {
-        self.data.drain(range)
+    pub fn remove_slice(&mut self, range: ::std::ops::Range<usize>) {
+        self.data.drain(range);
     }
     pub fn append(&mut self, other: &mut Vec<D>) { self.data.append(other) }
+}
+
+impl BoolCol {
+    pub fn new() -> BoolCol {
+        BoolCol {
+            data: ::bit_vec::BitVec::new(),
+            ref_id: None,
+            ref_val: false,
+        }
+    }
+
+    pub fn len(&self) -> usize { self.data.len() }
+    pub fn clear(&mut self) {
+        self.flush();
+        self.data.clear();
+    }
+    pub fn push(&mut self, d: bool) {
+        self.flush();
+        self.data.push(d);
+    }
+    pub fn truncate(&mut self, l: usize) {
+        self.flush();
+        self.data.truncate(l);
+    }
+    pub fn remove_slice(&mut self, range: ::std::ops::Range<usize>) {
+        self.flush();
+        for i in range.clone() {
+            let v = self.data[range.end + i];
+            self.data.set(i, v);
+        }
+        self.truncate(range.end);
+    }
+    pub fn append(&mut self, other: &mut Vec<bool>) {
+        self.flush();
+        self.data.reserve(other.len());
+        for v in other {
+            self.data.push(*v);
+        }
+    }
 }
 
 

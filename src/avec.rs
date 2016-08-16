@@ -1,7 +1,4 @@
-/*
-NO! Premature optimization! If we did this we'd have to implement all kinds of sorting algorithms & crap!
-It is predictable that we will want it tho. But it's better to suffer by lacking it than to never ship.
-*/
+// TODO: This needs a non-slice-based sorting algorithm. (Or maybe a merge-sort would work nicely?)
 
 pub struct ArrayVec<D> {
     bits: usize,

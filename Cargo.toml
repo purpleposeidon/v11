@@ -7,5 +7,6 @@ authors = ["neptunepink <purpleposeidon@gmail.com>"]
 rustc-serialize = "*"
 itertools = "0.4.16"
 joinkit = "0.2.0"
+bit-vec = "0.4.3"
 
 # OwningRef: https://kimundi.github.io/owning-ref-rs/owning_ref/struct.OwningRef.html

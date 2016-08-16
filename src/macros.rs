@@ -11,9 +11,9 @@
  * }
  * use self::table_use::*; /* recommended */
  * table! {
- *      [name_of_table],
- *      column_name_1: column_type_1,
- *      column_name_2: column_type_2,
+ *      [pub name_of_table],
+ *      column_name_1: [element_type; Col<element_type>],
+ *      column_name_2: [element_type2; Col<element_type2>],
  *      /* … */
  * }
  * ```
@@ -34,16 +34,16 @@
 #[macro_export]
 macro_rules! table {
     (
-        [$TN:ident],
-        $HEAD_COL_NAME:ident: $HEAD_COL_TYPE:ty,
-        $($CN:ident: $CT:ty,)* /* trailing comma required */
+        [pub $TABLE_NAME:ident],
+        $HEAD_COL_NAME:ident: [$HEAD_COL_ELEMENT:ty; $HEAD_COL_TYPE:ty],
+        $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)* /* trailing comma required */
     ) => {
-        pub mod $TN {
-            /* public? Mmm. */
+        pub mod $TABLE_NAME {
+            /* Force public; could provide a non-pub if needed. */
             table_impl! {
-                [$TN, head = $HEAD_COL_NAME],
-                $HEAD_COL_NAME: ($HEAD_COL_TYPE, Col<$HEAD_COL_TYPE>),
-                $($CN: ($CT, Col<$CT>),)*
+                [$TABLE_NAME, head = $HEAD_COL_NAME],
+                $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; $HEAD_COL_TYPE],
+                $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
             }
         }
     };
@@ -51,15 +51,19 @@ macro_rules! table {
 
 macro_rules! table_impl {
     (
-        [$TN:ident, head = $HEAD:ident],
-        $($CN:ident: ($CT:ty, $DCT:ty),)*
+        [$TABLE_NAME:ident, head = $HEAD:ident],
+        $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
         use std::iter::Iterator;
         use std::marker::PhantomData;
+        use std::any::Any;
         use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-        use $crate::{Universe, OpaqueIndex, Action, RowIndexIterator, Col};
+        use $crate::{Universe, OpaqueIndex, Action, RowIndexIterator};
         use $crate::intern::{GenericTable, VoidIter};
+
+        #[allow(unused_imports)]
+        use $crate::{VecCol, BoolCol};
 
         #[allow(unused_imports)]
         use super::table_use::*;
@@ -71,7 +75,7 @@ macro_rules! table_impl {
          * */
         #[derive(Debug, PartialEq, Copy, Clone)]
         pub struct Row {
-            $(pub $CN: $CT,)*
+            $(pub $COL_NAME: $COL_ELEMENT,)*
         }
 
         fn fab(i: usize) -> OpaqueIndex<Row> {
@@ -84,7 +88,7 @@ macro_rules! table_impl {
         pub struct Write<'u> {
             _lock: RwLockWriteGuard<'u, GenericTable>,
             _is_sorted: &'u mut bool,
-            $(pub $CN: &'u mut $DCT,)*
+            $(pub $COL_NAME: &'u mut $COL_TYPE,)*
         }
         impl<'u> Write<'u> {
             /** Returns the number of rows in the table.
@@ -97,7 +101,7 @@ macro_rules! table_impl {
             /// Retrieves a structure containing a copy of the value in each column.
             pub fn row(&self, i: OpaqueIndex<Row>) -> Row {
                 Row {
-                    $($CN: self.$CN[i],)*
+                    $($COL_NAME: self.$COL_NAME[i],)*
                 }
             }
 
@@ -112,20 +116,20 @@ macro_rules! table_impl {
             fn set(&mut self, index: usize, row: Row) {
                 // why not s/usize/OpaqueIndex & pub?
                 let index = fab(index);
-                $(self.$CN[index] = row.$CN;)*
+                $(self.$COL_NAME[index] = row.$COL_NAME;)*
             }
 
             fn get(&self, index: usize) -> Row {
                 let index = fab(index);
                 Row {
-                    $($CN: self.$CN[index],)*
+                    $($COL_NAME: self.$COL_NAME[index],)*
                 }
             }
 
             /** Populate the table with data from the provided iterator. */
             pub fn push_all<I: Iterator<Item=Row>>(&mut self, data: I) {
                 for row in data {
-                    $(self.$CN.push(row.$CN);)*
+                    $(self.$COL_NAME.push(row.$COL_NAME);)*
                 }
                 *self._is_sorted = false;
                 // Could set _is_sorted only if the values we push actually cause it to become
@@ -139,7 +143,7 @@ macro_rules! table_impl {
 
             /** Removes every row from the table. */
             pub fn clear(&mut self) {
-                $(self.$CN.clear();)*
+                $(self.$COL_NAME.clear();)*
                 *self._is_sorted = true;
             }
 
@@ -194,14 +198,14 @@ macro_rules! table_impl {
                     if index + rm_off >= len {
                         if displaced_buffer.is_empty() {
                             if rm_off > 0 {
-                                $(self.$CN.truncate(len - rm_off);)*
+                                $(self.$COL_NAME.truncate(len - rm_off);)*
                                 rm_off = 0;
                             }
                             break;
                         }
                         flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
                         while let Some(row) = displaced_buffer.pop_front() {
-                            $(self.$CN.push(row.$CN);)*
+                            $(self.$COL_NAME.push(row.$COL_NAME);)*
                             if skip > 0 {
                                 skip -= 1;
                                 index += 1;
@@ -241,7 +245,7 @@ macro_rules! table_impl {
                             } else if !displaced_buffer.is_empty() {
                                 // simply stick 'em on the end
                                 for row in displaced_buffer.iter() {
-                                    $(self.$CN.push(row.$CN);)*
+                                    $(self.$COL_NAME.push(row.$COL_NAME);)*
                                 }
                                 displaced_buffer.clear();
                                 // And we don't visit them.
@@ -249,7 +253,7 @@ macro_rules! table_impl {
                             } else if rm_off != 0 {
                                 // Trim.
                                 let start = index + 1;
-                                $(self.$CN.drain(start..start+rm_off);)*
+                                $(self.$COL_NAME.remove_slice(start..start+rm_off);)*
                                 rm_off = 0;
                                 break;
                             } else {
@@ -312,7 +316,7 @@ macro_rules! table_impl {
                     let mut tmp = Vec::with_capacity(indices.len());
                     {
                         for i in indices.iter() {
-                            tmp.push(self.$CN[fab(*i)]);
+                            tmp.push(self.$COL_NAME[fab(*i)]);
                             // This has us potentially jumping around a lot, altho of course
                             // often times the table will already be at least mostly-sorted.
                             // (Well, it'll tend to be mostly sorted already, right?)
@@ -322,8 +326,8 @@ macro_rules! table_impl {
                             // prediction?)
                         }
                     }
-                    self.$CN.clear();
-                    self.$CN.append(&mut tmp);
+                    self.$COL_NAME.clear();
+                    self.$COL_NAME.append(&mut tmp);
                 })*
                 *self._is_sorted = true;
             }
@@ -334,7 +338,7 @@ macro_rules! table_impl {
          * there's no reasonable way to the type of the iterator that is never
          * used... until now!
          *
-         * `$TN.visit(|table, i| -> $TN::ClearVisit { … })`
+         * `$TABLE_NAME.visit(|table, i| -> $TABLE_NAME::ClearVisit { … })`
          * */
         pub type ClearVisit = Action<Row, VoidIter<Row>>;
 
@@ -344,7 +348,7 @@ macro_rules! table_impl {
         pub struct Read<'u> {
             _lock: RwLockReadGuard<'u, GenericTable>,
             _is_sorted: &'u bool,
-            $(pub $CN: &'u $DCT,)*
+            $(pub $COL_NAME: &'u $COL_TYPE,)*
         }
         impl<'u> Read<'u> {
             /** Returns the number of rows in the table.
@@ -365,7 +369,7 @@ macro_rules! table_impl {
             /// Retrieves a structure containing a copy of the value in each column.
             pub fn row(&self, i: OpaqueIndex<Row>) -> Row {
                 Row {
-                    $($CN: self.$CN[i],)*
+                    $($COL_NAME: self.$COL_NAME[i],)*
                 }
             }
 
@@ -389,10 +393,10 @@ macro_rules! table_impl {
         pub fn sorted(universe: &Universe) -> Read { default().sorted(universe) }
 
         /**
-         * Creates a TableLoader with the default table name, $TN.
+         * Creates a TableLoader with the default table name, $TABLE_NAME.
          * */
         pub fn default() -> TableLoader<'static> {
-            with_name(stringify!($TN))
+            with_name(stringify!($TABLE_NAME))
         }
 
         /**
@@ -407,7 +411,7 @@ macro_rules! table_impl {
         }
 
         /**
-         * Use `$TN::default()` or `$TN::with_name(&str)` to construct this builder.
+         * Use `$TABLE_NAME::default()` or `$TABLE_NAME::with_name(&str)` to construct this builder.
          * */
         pub struct TableLoader<'s> {
             // Rust doesn't have default parameters! :>
@@ -421,11 +425,14 @@ macro_rules! table_impl {
                 let _lock = table.read().unwrap();
                 use std::mem::transmute;
                 let _is_sorted = unsafe { transmute(&_lock.is_sorted) };
-                $( let $CN = unsafe { transmute(_lock.get_column::<$CT>(stringify!($CN), stringify!($CT))) }; )*
+                $( let $COL_NAME = unsafe { transmute(_lock.get_column::<$COL_TYPE>(
+                                stringify!($COL_NAME),
+                                format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
+                )) }; )*
                 Read {
                     _lock: _lock,
                     _is_sorted: _is_sorted,
-                    $( $CN: $CN, )*
+                    $( $COL_NAME: $COL_NAME, )*
                 }
             }
 
@@ -437,11 +444,14 @@ macro_rules! table_impl {
                 let mut _lock = table.write().unwrap();
                 use std::mem::transmute;
                 let mut _is_sorted = unsafe { transmute(&mut _lock.is_sorted) };
-                $( let $CN = unsafe { transmute(_lock.get_column_mut::<$CT>(stringify!($CN), stringify!($CT))) }; )*
+                $( let $COL_NAME = unsafe { transmute(_lock.get_column_mut::<$COL_TYPE>(
+                                stringify!($COL_NAME),
+                                format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
+                )) }; )*
                 Write {
                     _lock: _lock,
                     _is_sorted: _is_sorted,
-                    $( $CN: $CN, )*
+                    $( $COL_NAME: $COL_NAME, )*
                 }
             }
 
@@ -481,7 +491,14 @@ macro_rules! table_impl {
             /** Registers the table. */
             pub fn register(&self, universe: &mut Universe) {
                 let table = GenericTable::new(self.name);
-                $(let table = table.add_column::<$CT>(stringify!($CN), stringify!($CT), Col::new());)*
+                $(let table = table.add_column(
+                        stringify!($COL_NAME),
+                        format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
+                        {
+                            type T = $COL_TYPE;
+                            Box::new(T::new()) as Box<Any>
+                        }
+                );)*
                 universe.add_table(table);
             }
         }
