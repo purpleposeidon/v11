@@ -40,18 +40,15 @@ macro_rules! table {
     ) => {
         pub mod $TABLE_NAME {
             /* Force public; could provide a non-pub if needed. */
-            table_impl! {
-                [$TABLE_NAME, head = $HEAD_COL_NAME],
+            table! {
+                [impl $TABLE_NAME, head = $HEAD_COL_NAME],
                 $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; $HEAD_COL_TYPE],
                 $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
             }
         }
     };
-}
-
-macro_rules! table_impl {
     (
-        [$TABLE_NAME:ident, head = $HEAD:ident],
+        [impl $TABLE_NAME:ident, head = $HEAD:ident],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
         use std::iter::Iterator;
@@ -504,4 +501,3 @@ macro_rules! table_impl {
         }
     };
 }
-
