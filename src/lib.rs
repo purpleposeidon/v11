@@ -184,6 +184,9 @@ impl<T> ::std::ops::IndexMut<OpaqueIndex<T>> for BoolCol {
     }
 }
 
+/// Temporary (hopefully) stub for avec.
+pub type SegCol = VecCol;
+
 
 
 
