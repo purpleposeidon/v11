@@ -12,6 +12,7 @@ extern crate rustc_serialize;
 extern crate itertools;
 extern crate joinkit;
 extern crate bit_vec;
+extern crate num_traits;
 
 use std::sync::*;
 use std::collections::HashMap;
@@ -84,67 +85,36 @@ impl Universe {
 }
 
 
-/** An index into a table. It is a bad idea to be dependent on the contents of this value, as
-* tables may be sorted asynchronously/you would have to keep things updated, etc. Consider using an
-* explicit index column.
-*
-* TODO: Add a lifetime to guarantee more safety.
-* */
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OpaqueIndex<T> {
-    i: usize,
-    t: PhantomData<T>
+use num_traits::int::PrimInt;
+pub struct RowIdIterator<I: PrimInt, T> {
+    i: I,
+    end: I,
+    rt: PhantomData<T>,
 }
-impl<T> OpaqueIndex<T> {
-    /** Get the underlying index value. */
-    pub unsafe fn extricate(&self) -> usize {
-        self.i
-    }
-
-    /** Create a phoney OpaqueIndex. */
-    pub unsafe fn fabricate(i: usize) -> OpaqueIndex<T> {
-        OpaqueIndex::new(i)
-    }
-
-    fn new(i: usize) -> OpaqueIndex<T> {
-        OpaqueIndex {
-            i: i,
-            t: PhantomData,
-        }
-    }
-}
-
-pub struct RowIndexIterator<Row> {
-    i: usize,
-    end: usize,
-    rt: PhantomData<Row>,
-}
-impl<Row> Iterator for RowIndexIterator<Row> {
-    type Item = OpaqueIndex<Row>;
+impl<I: PrimInt, T> Iterator for RowIdIterator<I, T> {
+    type Item = GenericRowId<I, T>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.i >= self.end { return None; }
-        let ret = OpaqueIndex {
-            i: self.i,
-            t: PhantomData,
-        };
-        self.i += 1;
+        let ret = GenericRowId::new(self.i);
+        self.i = self.i + I::one();
         Some(ret)
     }
 }
 
 
 
+use std::ops::{Index, IndexMut};
 
 #[derive(Debug)]
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }
-impl<E: Storable, T> ::std::ops::Index<OpaqueIndex<T>> for VecCol<E> {
+impl<E: Storable, I: PrimInt, T> Index<GenericRowId<I, T>> for VecCol<E> {
     type Output = E;
-    fn index(&self, index: OpaqueIndex<T>) -> &E { &self.data[index.i] }
+    fn index(&self, index: GenericRowId<I, T>) -> &E { &self.data[index.to_usize()] }
 }
-impl<E: Storable, T> ::std::ops::IndexMut<OpaqueIndex<T>> for VecCol<E> {
-    fn index_mut(&mut self, index: OpaqueIndex<T>) -> &mut E { &mut self.data[index.i] }
+impl<E: Storable, I: PrimInt, T> IndexMut<GenericRowId<I, T>> for VecCol<E> {
+    fn index_mut(&mut self, index: GenericRowId<I, T>) -> &mut E { &mut self.data[index.to_usize()] }
 }
 
 
@@ -165,27 +135,28 @@ impl BoolCol {
         }
     }
 }
-impl<T> ::std::ops::Index<OpaqueIndex<T>> for BoolCol {
+impl<I: PrimInt, T> Index<GenericRowId<I, T>> for BoolCol {
     type Output = bool;
-    fn index(&self, index: OpaqueIndex<T>) -> &bool {
-        if index.i == self.ref_id.unwrap_or(index.i + 1) {
-            &self.ref_val
-        } else {
-            &self.data[index.i]
+    fn index(&self, index: GenericRowId<I, T>) -> &bool {
+        let index = index.to_usize();
+        match self.ref_id {
+            Some(i) if i == index => &self.ref_val,
+            _ => &self.data[index],
         }
     }
 }
-impl<T> ::std::ops::IndexMut<OpaqueIndex<T>> for BoolCol {
-    fn index_mut(&mut self, index: OpaqueIndex<T>) -> &mut bool {
+impl<I: PrimInt, T> IndexMut<GenericRowId<I, T>> for BoolCol {
+    fn index_mut(&mut self, index: GenericRowId<I, T>) -> &mut bool {
         self.flush();
-        self.ref_id = Some(index.i);
-        self.ref_val = self.data[index.i];
+        let index = index.to_usize();
+        self.ref_id = Some(index);
+        self.ref_val = self.data[index];
         &mut self.ref_val
     }
 }
 
 /// Temporary (hopefully) stub for avec.
-pub type SegCol = VecCol;
+pub type SegCol<T> = VecCol<T>;
 
 
 

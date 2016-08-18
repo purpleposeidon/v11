@@ -186,5 +186,49 @@ impl<I> Iterator for VoidIter<I> {
     fn next(&mut self) -> Option<I> { None }
 }
 
+
+
+// indexing
+
+
+
+use std::marker::PhantomData;
+use num_traits::PrimInt;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct GenericRowId<I: PrimInt, T> {
+    i: I,
+    t: PhantomData<T>,
+}
+
+impl<I: PrimInt, T> GenericRowId<I, T> {
+    pub fn new(i: I) -> Self {
+        GenericRowId {
+            i: i,
+            t: PhantomData,
+        }
+    }
+
+    pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
+}
+/*macro_rules! row_id_type {
+    ($I:ty) => {
+        impl<T> GenericRowId<$I, T> {
+            pub fn new(i: $I) -> Self {
+                GenericRowId {
+                    i: i,
+                    t: PhantomData,
+                }
+            }
+
+            pub fn to(&self) -> usize { self.i as usize }
+        }
+    }
+}
+row_id_type!{u8}
+row_id_type!{u16}
+row_id_type!{u32}
+row_id_type!{u64}
+row_id_type!{usize}*/
+
 /* Still need to get a JOIN solution! */
 

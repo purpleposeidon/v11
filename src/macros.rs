@@ -35,20 +35,29 @@
 macro_rules! table {
     (
         [pub $TABLE_NAME:ident],
+        $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)+ /* trailing comma required */
+    ) => {
+        table! {
+            [pub $TABLE_NAME, RowId = usize],
+            $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
+        }
+    };
+    (
+        [pub $TABLE_NAME:ident, RowId = $ROW_ID_TYPE:ty],
         $HEAD_COL_NAME:ident: [$HEAD_COL_ELEMENT:ty; $HEAD_COL_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)* /* trailing comma required */
     ) => {
         pub mod $TABLE_NAME {
             /* Force public; could provide a non-pub if needed. */
             table! {
-                [impl $TABLE_NAME, head = $HEAD_COL_NAME],
+                [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
                 $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; $HEAD_COL_TYPE],
                 $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
             }
         }
     };
     (
-        [impl $TABLE_NAME:ident, head = $HEAD:ident],
+        [impl $TABLE_NAME:ident, head = $HEAD:ident, RowId = $ROW_ID_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
         use std::iter::Iterator;
@@ -56,14 +65,20 @@ macro_rules! table {
         use std::any::Any;
         use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-        use $crate::{Universe, OpaqueIndex, Action, RowIndexIterator};
-        use $crate::intern::{GenericTable, VoidIter};
+        use $crate::{Universe, Action, RowIdIterator};
+        use $crate::intern::{GenericTable, VoidIter, GenericRowId};
 
         #[allow(unused_imports)]
         use $crate::{VecCol, BoolCol};
 
         #[allow(unused_imports)]
         use super::table_use::*;
+
+        pub type RowId = GenericRowId<$ROW_ID_TYPE, Row>;
+
+        /// Creates an index into the `i`th row.
+        pub fn at(i: $ROW_ID_TYPE) -> RowId { RowId::new(i) }
+        fn fab(i: usize) -> RowId { at(i as $ROW_ID_TYPE) }
 
         /**
          * A structure holding a row's data. This is used to pass rows around through methods;
@@ -73,10 +88,6 @@ macro_rules! table {
         #[derive(Debug, PartialEq, Copy, Clone)]
         pub struct Row {
             $(pub $COL_NAME: $COL_ELEMENT,)*
-        }
-
-        fn fab(i: usize) -> OpaqueIndex<Row> {
-            unsafe { OpaqueIndex::fabricate(i) }
         }
 
         /**
@@ -96,28 +107,25 @@ macro_rules! table {
             }
 
             /// Retrieves a structure containing a copy of the value in each column.
-            pub fn row(&self, i: OpaqueIndex<Row>) -> Row {
+            pub fn row(&self, i: RowId) -> Row {
                 Row {
                     $($COL_NAME: self.$COL_NAME[i],)*
                 }
             }
 
-            pub fn range(&self) -> RowIndexIterator<Row> {
-                RowIndexIterator {
+            pub fn range(&self) -> RowIdIterator<$ROW_ID_TYPE, Row> {
+                RowIdIterator {
                     i: 0,
                     end: self.rows(),
                     rt: PhantomData,
                 }
             }
 
-            fn set(&mut self, index: usize, row: Row) {
-                // why not s/usize/OpaqueIndex & pub?
-                let index = fab(index);
+            pub fn set(&mut self, index: RowId, row: Row) {
                 $(self.$COL_NAME[index] = row.$COL_NAME;)*
             }
 
-            fn get(&self, index: usize) -> Row {
-                let index = fab(index);
+            pub fn get(&self, index: RowId) -> Row {
                 Row {
                     $($COL_NAME: self.$COL_NAME[index],)*
                 }
@@ -157,7 +165,7 @@ macro_rules! table {
              * */
             pub fn visit<IT, F>(&mut self, mut closure: F)
                 where IT: Iterator<Item=Row>,
-                       F: FnMut(&mut Write, OpaqueIndex<Row>) -> Action<Row, IT> {
+                       F: FnMut(&mut Write, RowId) -> Action<Row, IT> {
                 // This algorithm is probably close to maximum efficiency?
                 // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
                 // for internal temporary usage.
@@ -184,7 +192,7 @@ macro_rules! table {
                                    all: &mut Write,
                                    displaced_buffer: &mut VecDeque<Row>) {
                     while *rm_off > 0 && !displaced_buffer.is_empty() {
-                        all.set(*index, displaced_buffer.pop_front().unwrap());
+                        all.set(fab(*index), displaced_buffer.pop_front().unwrap());
                         *index += 1;
                         *rm_off -= 1;
                     }
@@ -213,23 +221,23 @@ macro_rules! table {
                     if let Some(replacement) = displaced_buffer.pop_front() {
                         // Swap between '`here`' and the first displaced row.
                         // No garbage is produced.
-                        displaced_buffer.push_back(self.get(index));
-                        self.set(index, replacement);
+                        displaced_buffer.push_back(self.get(fab(index)));
+                        self.set(fab(index), replacement);
                         assert!(rm_off == 0);
                     }
                     if rm_off > 0 {
                         // Move a row from the end of the garbage gap to the beginning.
                         // The front of the garbage gap is no longer garbage, and the back is
                         // now garbage.
-                        let tmprow = self.get(index + rm_off);
-                        self.set(index, tmprow);
+                        let tmprow = self.get(fab(index + rm_off));
+                        self.set(fab(index), tmprow);
                     }
                     // An invariant needs to be true at this point: self[index] is valid, not
                     // garbage data. What could make it garbage?
                     // This first loop, it's going to be fine.
                     // If remove has been used, then there are worries.
                     let action = if skip == 0 {
-                        closure(self, OpaqueIndex::new(index))
+                        closure(self, fab(index))
                     } else {
                         skip -= 1;
                         Action::Continue
@@ -262,7 +270,7 @@ macro_rules! table {
                             match displaced_buffer.pop_front() {
                                 None => { rm_off += 1; },
                                 Some(row) => {
-                                    self.set(index, row);
+                                    self.set(fab(index), row);
                                     index += 1;
                                 },
                             }
@@ -355,8 +363,8 @@ macro_rules! table {
                 self.$HEAD.len()
             }
 
-            pub fn range(&self) -> RowIndexIterator<Row> {
-                RowIndexIterator {
+            pub fn range(&self) -> RowIdIterator<$ROW_ID_TYPE, Row> {
+                RowIdIterator {
                     i: 0,
                     end: self.rows(),
                     rt: PhantomData,
@@ -364,7 +372,7 @@ macro_rules! table {
             }
 
             /// Retrieves a structure containing a copy of the value in each column.
-            pub fn row(&self, i: OpaqueIndex<Row>) -> Row {
+            pub fn row(&self, i: RowId) -> Row {
                 Row {
                     $($COL_NAME: self.$COL_NAME[i],)*
                 }
