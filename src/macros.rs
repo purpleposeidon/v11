@@ -68,7 +68,6 @@ macro_rules! table {
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
         use std::iter::Iterator;
-        use std::marker::PhantomData;
         use std::any::Any;
         use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
@@ -122,11 +121,7 @@ macro_rules! table {
             }
 
             pub fn range(&self) -> RowIdIterator<$ROW_ID_TYPE, Row> {
-                RowIdIterator {
-                    i: 0,
-                    end: self.rows(),
-                    rt: PhantomData,
-                }
+                RowIdIterator::new(0, self.rows())
             }
 
             pub fn set(&mut self, index: RowId, row: Row) {
@@ -372,11 +367,7 @@ macro_rules! table {
             }
 
             pub fn range(&self) -> RowIdIterator<$ROW_ID_TYPE, Row> {
-                RowIdIterator {
-                    i: 0,
-                    end: self.rows(),
-                    rt: PhantomData,
-                }
+                RowIdIterator::new(0, self.rows())
             }
 
             /// Retrieves a structure containing a copy of the value in each column.

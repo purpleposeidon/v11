@@ -93,6 +93,15 @@ pub struct RowIdIterator<I: PrimInt, T> {
     end: I,
     rt: PhantomData<T>,
 }
+impl<I: PrimInt, T> RowIdIterator<I, T> {
+    pub fn new(start: I, end: I) -> Self {
+        RowIdIterator {
+            i: start,
+            end:  end,
+            rt: PhantomData,
+        }
+    }
+}
 impl<I: PrimInt, T> Iterator for RowIdIterator<I, T> {
     type Item = GenericRowId<I, T>;
     fn next(&mut self) -> Option<Self::Item> {
