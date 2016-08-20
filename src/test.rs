@@ -309,3 +309,12 @@ fn bool_col() {
     }
     //let bits = bits::write(&universe);
 }
+
+table! {
+    [pub missort],
+    x: [f32; VecCol<f32>],
+}
+
+#[test]
+fn f32_sort() {
+}
