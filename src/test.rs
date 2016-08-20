@@ -310,11 +310,11 @@ fn bool_col() {
     //let bits = bits::write(&universe);
 }
 
+// just makes sure it compiles
 table! {
     [pub missort],
+    void: [(); VoidCol],
     x: [f32; VecCol<f32>],
 }
 
-#[test]
-fn f32_sort() {
-}
+

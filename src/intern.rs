@@ -293,6 +293,20 @@ impl TCol<bool> for BoolCol {
 /// Temporary (hopefully) stub for avec.
 pub type SegCol<E> = VecCol<E>;
 
+/**
+ * Hack to avoid issues with types, such as floats, that do not implement `Ord`.
+ * In some circumstances you could move a column to the front; but this may not be desirable, and
+ * is of course impossible in cases when all columns are not sortable.
+ *
+ * ```
+ * table! {
+ *      [pub floating_table],
+ *      void: [(); VoidCol],
+ *      float: [f32; SegCol<f32>],
+ * }
+ * ```
+ * */
+pub type VoidCol = VecCol<()>;
 
 /* Still need to get a JOIN solution! */
 

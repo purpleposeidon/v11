@@ -51,6 +51,7 @@ storables_table! {
     isize, usize,
     f32, f64,
     bool, char,
+    (),
     // [char; 4], [char; 8], [char; 16], [char; 32], [char; 64],
 }
 

@@ -77,7 +77,7 @@ macro_rules! table {
 
 
         #[allow(unused_imports)]
-        use $crate::{VecCol, BoolCol};
+        use $crate::{VecCol, BoolCol, SegCol, VoidCol};
 
         #[allow(unused_imports)]
         use super::table_use::*;
