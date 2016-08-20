@@ -299,11 +299,14 @@ pub type SegCol<E> = VecCol<E>;
  * is of course impossible in cases when all columns are not sortable.
  *
  * ```
+ * # #[macro_use] extern crate v11;
+ * pub mod table_use {}
  * table! {
  *      [pub floating_table],
  *      void: [(); VoidCol],
  *      float: [f32; SegCol<f32>],
  * }
+ * # fn main() {}
  * ```
  * */
 pub type VoidCol = VecCol<()>;
