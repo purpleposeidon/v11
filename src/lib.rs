@@ -86,6 +86,7 @@ impl Universe {
 
 
 use num_traits::int::PrimInt;
+
 pub struct RowIdIterator<I: PrimInt, T> {
     i: I,
     end: I,
@@ -102,61 +103,6 @@ impl<I: PrimInt, T> Iterator for RowIdIterator<I, T> {
 }
 
 
-
-use std::ops::{Index, IndexMut};
-
-#[derive(Debug)]
-pub struct VecCol<E: Storable> {
-    data: Vec<E>,
-}
-impl<E: Storable, I: PrimInt, T> Index<GenericRowId<I, T>> for VecCol<E> {
-    type Output = E;
-    fn index(&self, index: GenericRowId<I, T>) -> &E { &self.data[index.to_usize()] }
-}
-impl<E: Storable, I: PrimInt, T> IndexMut<GenericRowId<I, T>> for VecCol<E> {
-    fn index_mut(&mut self, index: GenericRowId<I, T>) -> &mut E { &mut self.data[index.to_usize()] }
-}
-
-
-#[derive(Debug)]
-pub struct BoolCol {
-    data: bit_vec::BitVec,
-    ref_id: Option<usize>,
-    ref_val: bool,
-}
-impl BoolCol {
-    fn flush(&mut self) {
-        match self.ref_id {
-            Some(i) => {
-                self.data.set(i, self.ref_val);
-                self.ref_id = None;
-            },
-            _ => (),
-        }
-    }
-}
-impl<I: PrimInt, T> Index<GenericRowId<I, T>> for BoolCol {
-    type Output = bool;
-    fn index(&self, index: GenericRowId<I, T>) -> &bool {
-        let index = index.to_usize();
-        match self.ref_id {
-            Some(i) if i == index => &self.ref_val,
-            _ => &self.data[index],
-        }
-    }
-}
-impl<I: PrimInt, T> IndexMut<GenericRowId<I, T>> for BoolCol {
-    fn index_mut(&mut self, index: GenericRowId<I, T>) -> &mut bool {
-        self.flush();
-        let index = index.to_usize();
-        self.ref_id = Some(index);
-        self.ref_val = self.data[index];
-        &mut self.ref_val
-    }
-}
-
-/// Temporary (hopefully) stub for avec.
-pub type SegCol<T> = VecCol<T>;
 
 
 

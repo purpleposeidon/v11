@@ -245,35 +245,6 @@ table! {
     i: [bool; BoolCol],
 }
 
-#[test]
-fn bool_col_unit() {
-    let mut bc = ::BoolCol::new();
-    let v = &[true, false, true];
-    for i in v {
-        bc.push(*i);
-    }
-    println!("");
-    println!("Start:");
-    for i in bc.data.iter() {
-        println!("{}", i);
-    }
-    println!("Cleared:");
-    bc.clear();
-    for i in bc.data.iter() {
-        println!("{}", i);
-    }
-    println!("Really Cleared:");
-    bc.data.clear();
-    for i in bc.data.iter() {
-        println!("{}", i);
-    }
-    println!("Append:");
-    bc.append(&mut vec![true, true]);
-    for i in bc.data.iter() {
-        println!("{}", i);
-    }
-    println!("{:?}", bc);
-}
 
 #[test]
 fn bsort() {

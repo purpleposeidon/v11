@@ -125,60 +125,6 @@ fn check_name(name: &str) {
     }
 }
 
-impl<D: Storable> VecCol<D> {
-    pub fn new() -> Self { VecCol { data: Vec::new() } }
-    pub fn len(&self) -> usize { self.data.len() }
-    pub fn clear(&mut self) { self.data.clear() }
-    pub fn push(&mut self, d: D) { self.data.push(d) }
-    pub fn truncate(&mut self, l: usize) { self.data.truncate(l) }
-    pub fn remove_slice(&mut self, range: ::std::ops::Range<usize>) {
-        self.data.drain(range);
-    }
-    pub fn append(&mut self, other: &mut Vec<D>) { self.data.append(other) }
-}
-
-impl BoolCol {
-    pub fn new() -> BoolCol {
-        BoolCol {
-            data: ::bit_vec::BitVec::new(),
-            ref_id: None,
-            ref_val: false,
-        }
-    }
-
-    pub fn len(&self) -> usize { self.data.len() }
-    pub fn clear(&mut self) {
-        self.flush();
-        // BitVec.clear: "Clears all bits in this vector." Leaving the size the same. bro. pls.
-        // https://github.com/contain-rs/bit-vec/issues/16
-        // Anyways.
-        self.data.truncate(0);
-    }
-    pub fn push(&mut self, d: bool) {
-        self.flush();
-        self.data.push(d);
-    }
-    pub fn truncate(&mut self, l: usize) {
-        self.flush();
-        self.data.truncate(l);
-    }
-    pub fn remove_slice(&mut self, range: ::std::ops::Range<usize>) {
-        self.flush();
-        for i in range.clone() {
-            let v = self.data[range.end + i];
-            self.data.set(i, v);
-        }
-        self.truncate(range.end);
-    }
-    pub fn append(&mut self, other: &mut Vec<bool>) {
-        self.flush();
-        self.data.reserve(other.len());
-        for v in other {
-            self.data.push(*v);
-        }
-    }
-}
-
 
 pub struct VoidIter<I>(I);
 impl<I> Iterator for VoidIter<I> {
@@ -210,25 +156,176 @@ impl<I: PrimInt, T> GenericRowId<I, T> {
 
     pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
 }
-/*macro_rules! row_id_type {
-    ($I:ty) => {
-        impl<T> GenericRowId<$I, T> {
-            pub fn new(i: $I) -> Self {
-                GenericRowId {
-                    i: i,
-                    t: PhantomData,
-                }
-            }
 
-            pub fn to(&self) -> usize { self.i as usize }
+
+use std::ops::{Index, IndexMut, Range};
+
+
+pub trait TCol<E: Storable> {
+    fn new() -> Self;
+    fn len(&self) -> usize;
+    fn col_index(&self, i: usize) -> &E;
+    fn col_index_mut(&mut self, i: usize) -> &mut E;
+    fn clear(&mut self);
+    fn push(&mut self, e: E);
+    fn truncate(&mut self, l: usize);
+    fn remove_slice(&mut self, range: Range<usize>);
+    fn append(&mut self, other: &mut Vec<E>);
+}
+
+pub struct ColWrapper<E: Storable, C: TCol<E>, R> {
+    pub data: C,
+    stored_type: PhantomData<E>,
+    row_id_type: PhantomData<R>,
+}
+impl<E: Storable, C: TCol<E>, R> ColWrapper<E, C, R> {
+    pub fn new() -> Self {
+        ColWrapper {
+            data: C::new(),
+            stored_type: PhantomData,
+            row_id_type: PhantomData,
         }
     }
 }
-row_id_type!{u8}
-row_id_type!{u16}
-row_id_type!{u32}
-row_id_type!{u64}
-row_id_type!{usize}*/
+impl<E: Storable, C: TCol<E>, R: PrimInt, T> Index<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
+    type Output = E;
+    fn index(&self, index: GenericRowId<R, T>) -> &E { self.data.col_index(index.to_usize()) }
+}
+impl<E: Storable, C: TCol<E>, R: PrimInt, T> IndexMut<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
+    fn index_mut(&mut self, index: GenericRowId<R, T>) -> &mut E { self.data.col_index_mut(index.to_usize()) }
+}
+
+#[derive(Debug)]
+pub struct VecCol<E: Storable> {
+    data: Vec<E>,
+}
+impl<E: Storable> TCol<E> for VecCol<E> {
+    fn new() -> Self { VecCol { data: Vec::new() } }
+    fn len(&self) -> usize { self.data.len() }
+    fn col_index(&self, index: usize) -> &E { &self.data[index] }
+    fn col_index_mut(&mut self, index: usize) -> &mut E { &mut self.data[index] }
+    fn clear(&mut self) { self.data.clear() }
+    fn push(&mut self, d: E) { self.data.push(d) }
+    fn truncate(&mut self, l: usize) { self.data.truncate(l) }
+    fn remove_slice(&mut self, range: Range<usize>) { self.data.drain(range); } // FIXME: Might be wasteful; could be a better way.
+    fn append(&mut self, other: &mut Vec<E>) { self.data.append(other) }
+}
+
+
+#[derive(Debug)]
+pub struct BoolCol {
+    data: ::bit_vec::BitVec,
+    ref_id: Option<usize>,
+    ref_val: bool,
+}
+impl BoolCol {
+    fn flush(&mut self) {
+        match self.ref_id {
+            Some(i) => {
+                self.data.set(i, self.ref_val);
+                self.ref_id = None;
+            },
+            _ => (),
+        }
+    }
+}
+impl TCol<bool> for BoolCol {
+    fn new() -> BoolCol {
+        BoolCol {
+            data: ::bit_vec::BitVec::new(),
+            ref_id: None,
+            ref_val: false,
+        }
+    }
+
+    fn len(&self) -> usize { self.data.len() }
+
+    fn col_index(&self, index: usize) -> &bool {
+        match self.ref_id {
+            Some(i) if i == index => &self.ref_val,
+            _ => &self.data[index],
+        }
+    }
+
+    fn col_index_mut(&mut self, index: usize) -> &mut bool {
+        self.flush();
+        self.ref_id = Some(index);
+        self.ref_val = self.data[index];
+        &mut self.ref_val
+    }
+
+    fn clear(&mut self) {
+        self.flush();
+        // BitVec.clear: "Clears all bits in this vector." Leaving the size the same. bro. pls.
+        // https://github.com/contain-rs/bit-vec/issues/16
+        // Anyways.
+        self.data.truncate(0);
+    }
+
+    fn push(&mut self, d: bool) {
+        self.flush();
+        self.data.push(d);
+    }
+
+    fn truncate(&mut self, l: usize) {
+        self.flush();
+        self.data.truncate(l);
+    }
+
+    fn remove_slice(&mut self, range: ::std::ops::Range<usize>) {
+        self.flush();
+        for i in range.clone() {
+            let v = self.data[range.end + i];
+            self.data.set(i, v);
+        }
+        self.data.truncate(range.end);
+    }
+
+    fn append(&mut self, other: &mut Vec<bool>) {
+        self.flush();
+        self.data.reserve(other.len());
+        for v in other {
+            self.data.push(*v);
+        }
+    }
+}
+
+/// Temporary (hopefully) stub for avec.
+pub type SegCol<E> = VecCol<E>;
+
 
 /* Still need to get a JOIN solution! */
 
+#[cfg(test)]
+mod test {
+    #[test]
+    fn bool_col_unit() {
+        use ::TCol;
+        let mut bc = ::BoolCol::new();
+        let v = &[true, false, true];
+        for i in v {
+            bc.push(*i);
+        }
+        println!("");
+        println!("Start:");
+        for i in bc.data.iter() {
+            println!("{}", i);
+        }
+        println!("Cleared:");
+        bc.clear();
+        for i in bc.data.iter() {
+            println!("{}", i);
+        }
+        println!("Really Cleared:");
+        bc.data.clear();
+        for i in bc.data.iter() {
+            println!("{}", i);
+        }
+        println!("Append:");
+        bc.append(&mut vec![true, true]);
+        for i in bc.data.iter() {
+            println!("{}", i);
+        }
+        println!("{:?}", bc);
+    }
+}

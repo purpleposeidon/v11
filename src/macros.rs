@@ -41,6 +41,10 @@ macro_rules! table {
             [pub $TABLE_NAME, RowId = usize],
             $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
         }
+        // So [f32; VecCol<SortF32>]
+        // [f32; VecCol<SortF32>; SortF32]
+        // No. It *must* wrap the VecCol. :/
+        // Can't store RowId's natively!
     };
     (
         [pub $TABLE_NAME:ident, RowId = $ROW_ID_TYPE:ty],
@@ -49,14 +53,17 @@ macro_rules! table {
     ) => {
         pub mod $TABLE_NAME {
             /* Force public; could provide a non-pub if needed. */
+            use $crate::ColWrapper;
             table! {
+                INTERNAL
                 [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
-                $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; $HEAD_COL_TYPE],
-                $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
+                $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; ColWrapper<$HEAD_COL_ELEMENT, $HEAD_COL_TYPE, RowId>],
+                $($COL_NAME: [$COL_ELEMENT; ColWrapper<$COL_ELEMENT, $COL_TYPE, RowId>],)*
             }
         }
     };
     (
+        INTERNAL
         [impl $TABLE_NAME:ident, head = $HEAD:ident, RowId = $ROW_ID_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
@@ -65,8 +72,9 @@ macro_rules! table {
         use std::any::Any;
         use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-        use $crate::{Universe, Action, RowIdIterator};
+        use $crate::{Universe, Action, RowIdIterator, TCol};
         use $crate::intern::{GenericTable, VoidIter, GenericRowId};
+
 
         #[allow(unused_imports)]
         use $crate::{VecCol, BoolCol};
@@ -103,7 +111,7 @@ macro_rules! table {
              * (And assumes that the columns are all the same length.)
              * */
             pub fn rows(&self) -> usize {
-                self.$HEAD.len()
+                self.$HEAD.data.len()
             }
 
             /// Retrieves a structure containing a copy of the value in each column.
@@ -134,7 +142,7 @@ macro_rules! table {
             /** Populate the table with data from the provided iterator. */
             pub fn push_all<I: Iterator<Item=Row>>(&mut self, data: I) {
                 for row in data {
-                    $(self.$COL_NAME.push(row.$COL_NAME);)*
+                    $(self.$COL_NAME.data.push(row.$COL_NAME);)*
                 }
                 *self._is_sorted = false;
                 // Could set _is_sorted only if the values we push actually cause it to become
@@ -148,7 +156,7 @@ macro_rules! table {
 
             /** Removes every row from the table. */
             pub fn clear(&mut self) {
-                $(self.$COL_NAME.clear();)*
+                $(self.$COL_NAME.data.clear();)*
                 *self._is_sorted = true;
             }
 
@@ -203,14 +211,14 @@ macro_rules! table {
                     if index + rm_off >= len {
                         if displaced_buffer.is_empty() {
                             if rm_off > 0 {
-                                $(self.$COL_NAME.truncate(len - rm_off);)*
+                                $(self.$COL_NAME.data.truncate(len - rm_off);)*
                                 rm_off = 0;
                             }
                             break;
                         }
                         flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
                         while let Some(row) = displaced_buffer.pop_front() {
-                            $(self.$COL_NAME.push(row.$COL_NAME);)*
+                            $(self.$COL_NAME.data.push(row.$COL_NAME);)*
                             if skip > 0 {
                                 skip -= 1;
                                 index += 1;
@@ -250,7 +258,7 @@ macro_rules! table {
                             } else if !displaced_buffer.is_empty() {
                                 // simply stick 'em on the end
                                 for row in displaced_buffer.iter() {
-                                    $(self.$COL_NAME.push(row.$COL_NAME);)*
+                                    $(self.$COL_NAME.data.push(row.$COL_NAME);)*
                                 }
                                 displaced_buffer.clear();
                                 // And we don't visit them.
@@ -258,7 +266,7 @@ macro_rules! table {
                             } else if rm_off != 0 {
                                 // Trim.
                                 let start = index + 1;
-                                $(self.$COL_NAME.remove_slice(start..start+rm_off);)*
+                                $(self.$COL_NAME.data.remove_slice(start..start+rm_off);)*
                                 rm_off = 0;
                                 break;
                             } else {
@@ -331,8 +339,8 @@ macro_rules! table {
                             // prediction?)
                         }
                     }
-                    self.$COL_NAME.clear();
-                    self.$COL_NAME.append(&mut tmp);
+                    self.$COL_NAME.data.clear();
+                    self.$COL_NAME.data.append(&mut tmp);
                 })*
                 *self._is_sorted = true;
             }
@@ -360,7 +368,7 @@ macro_rules! table {
              * (And assumes that the columns are all the same length.)
              * */
             pub fn rows(&self) -> usize {
-                self.$HEAD.len()
+                self.$HEAD.data.len()
             }
 
             pub fn range(&self) -> RowIdIterator<$ROW_ID_TYPE, Row> {
