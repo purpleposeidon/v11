@@ -145,8 +145,10 @@ macro_rules! table {
             }
 
             /// Appends a single Row to the end of the table.
-            pub fn push(&mut self, data: Row) {
+            /// Returns its RowId.
+            pub fn push(&mut self, data: Row) -> RowId {
                 self.push_all(Some(data).into_iter());
+                fab(self.rows())
             }
 
             /** Removes every row from the table. */

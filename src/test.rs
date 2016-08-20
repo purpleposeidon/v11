@@ -318,3 +318,11 @@ table! {
 }
 
 
+#[test]
+fn push() {
+    let mut universe = ::Universe::new();
+    easy::default().register(&mut universe);
+    let mut easy = easy::write(&universe);
+    let er = easy.push(easy::Row { x: 1 });
+    assert_eq!(er.to_usize(), 1);
+}
