@@ -24,6 +24,7 @@ use std::any::Any;
 pub mod macros;
 pub mod property;
 pub mod intern;
+pub mod constructor;
 
 #[cfg(test)]
 mod test;
