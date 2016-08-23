@@ -1,3 +1,5 @@
+#![macro_use]
+
 /**
  * Registers a function to be called before main (if an executable) or when loaded (if a dynamic
  * library).

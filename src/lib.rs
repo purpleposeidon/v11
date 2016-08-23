@@ -13,6 +13,8 @@ extern crate itertools;
 extern crate joinkit;
 extern crate bit_vec;
 extern crate num_traits;
+#[macro_use]
+extern crate lazy_static;
 
 use std::sync::*;
 use std::collections::HashMap;
@@ -21,10 +23,10 @@ use std::marker::PhantomData;
 use std::any::Any;
 
 
+pub mod constructor;
 pub mod macros;
 pub mod property;
 pub mod intern;
-pub mod constructor;
 
 #[cfg(test)]
 mod test;
@@ -40,10 +42,18 @@ pub use intern::*;
 // We really do want to be able to store floats, which means that we can't use proper Eq or
 // PartialEq...
 pub trait Storable : Default + Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable + PartialOrd /* + !Drop */ { }
+pub trait PropertyValue : Any + Sync + Send {
+    fn dupe_locked(&self) -> Box<Any>;
+}
 
 macro_rules! storables_table {
     ($($T:ty),*,) => {
         $(impl Storable for $T {})*
+        $(impl PropertyValue for $T {
+            fn dupe_locked(&self) -> Box<Any> {
+                Box::new(RwLock::new(self.clone())) as Box<Any>
+            }
+        })*
     }
 }
 storables_table! {
@@ -57,22 +67,25 @@ storables_table! {
 }
 
 
+
 /**
  * A context object that should be passed around everywhere.
  * */
 pub struct Universe {
     tables: HashMap<String, RwLock<GenericTable>>,
-    properties: Vec<(String, Box<Any>)>,
+    properties: Vec<Box<Any>>,
     // A vec would be better. Would require some global static stuff to assign id's to properties.
     // Kinda needs const_fn.
 }
 impl Universe {
     /** Create a new Universe. */
     pub fn new() -> Universe {
-        Universe {
+        let mut ret = Universe {
             tables: HashMap::new(),
-            properties: Vec::new(),
-        }
+            properties: Vec::with_capacity(property::property_count()),
+        };
+        ret.add_properties();
+        ret
     }
 
     /**
