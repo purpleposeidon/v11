@@ -42,18 +42,10 @@ pub use intern::*;
 // We really do want to be able to store floats, which means that we can't use proper Eq or
 // PartialEq...
 pub trait Storable : Default + Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable + PartialOrd /* + !Drop */ { }
-pub trait PropertyValue : Any + Sync + Send {
-    fn dupe_locked(&self) -> Box<Any>;
-}
 
 macro_rules! storables_table {
     ($($T:ty),*,) => {
         $(impl Storable for $T {})*
-        $(impl PropertyValue for $T {
-            fn dupe_locked(&self) -> Box<Any> {
-                Box::new(RwLock::new(self.clone())) as Box<Any>
-            }
-        })*
     }
 }
 storables_table! {
@@ -73,7 +65,7 @@ storables_table! {
  * */
 pub struct Universe {
     tables: HashMap<String, RwLock<GenericTable>>,
-    properties: Vec<Box<Any>>,
+    properties: Vec<Box<Any + Sync>>,
     // A vec would be better. Would require some global static stuff to assign id's to properties.
     // Kinda needs const_fn.
 }
