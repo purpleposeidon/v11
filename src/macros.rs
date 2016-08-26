@@ -53,7 +53,7 @@ macro_rules! table {
     ) => {
         pub mod $TABLE_NAME {
             /* Force public; could provide a non-pub if needed. */
-            use $crate::ColWrapper;
+            use $crate::intern::ColWrapper;
             table! {
                 INTERNAL
                 [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
@@ -67,15 +67,10 @@ macro_rules! table {
         [impl $TABLE_NAME:ident, head = $HEAD:ident, RowId = $ROW_ID_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
-        use std::iter::Iterator;
-        use std::sync::{RwLockReadGuard, RwLockWriteGuard};
-
-        use $crate::{Universe, Action, RowIdIterator, TCol, PBox};
-        use $crate::intern::{GenericTable, VoidIter, GenericRowId};
-
+        use $crate::intern::{GenericTable, VoidIter, GenericRowId, TCol};
 
         #[allow(unused_imports)]
-        use $crate::{VecCol, BoolCol, SegCol, VoidCol};
+        use $crate::intern::{VecCol, BoolCol, SegCol, VoidCol};
 
         #[allow(unused_imports)]
         use super::table_use::*;
@@ -100,7 +95,7 @@ macro_rules! table {
          * The table, locked for writing.
          * */
         pub struct Write<'u> {
-            _lock: RwLockWriteGuard<'u, GenericTable>,
+            _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
             _is_sorted: &'u mut bool,
             $(pub $COL_NAME: &'u mut $COL_TYPE,)*
         }
@@ -119,8 +114,8 @@ macro_rules! table {
                 }
             }
 
-            pub fn range(&self) -> RowIdIterator<$ROW_ID_TYPE, Row> {
-                RowIdIterator::new(0, self.rows())
+            pub fn range(&self) -> $crate::RowIdIterator<$ROW_ID_TYPE, Row> {
+                $crate::RowIdIterator::new(0, self.rows())
             }
 
             pub fn set(&mut self, index: RowId, row: Row) {
@@ -134,7 +129,7 @@ macro_rules! table {
             }
 
             /** Populate the table with data from the provided iterator. */
-            pub fn push_all<I: Iterator<Item=Row>>(&mut self, data: I) {
+            pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
                 for row in data {
                     $(self.$COL_NAME.data.push(row.$COL_NAME);)*
                 }
@@ -168,8 +163,8 @@ macro_rules! table {
              * un-used iterator.
              * */
             pub fn visit<IT, F>(&mut self, mut closure: F)
-                where IT: Iterator<Item=Row>,
-                       F: FnMut(&mut Write, RowId) -> Action<Row, IT> {
+                where IT: ::std::iter::Iterator<Item=Row>,
+                       F: FnMut(&mut Write, RowId) -> $crate::Action<Row, IT> {
                 // This algorithm is probably close to maximum efficiency?
                 // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
                 // for internal temporary usage.
@@ -244,10 +239,10 @@ macro_rules! table {
                         closure(self, fab(index))
                     } else {
                         skip -= 1;
-                        Action::Continue
+                        $crate::Action::Continue
                     };
                     match action {
-                        Action::Break => {
+                        $crate::Action::Break => {
                             if rm_off == 0 && displaced_buffer.is_empty() {
                                 // Don't need to do anything
                                 break;
@@ -269,8 +264,8 @@ macro_rules! table {
                                 panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer);
                             }
                         },
-                        Action::Continue => { index += 1; },
-                        Action::Remove => {
+                        $crate::Action::Continue => { index += 1; },
+                        $crate::Action::Remove => {
                             match displaced_buffer.pop_front() {
                                 None => { rm_off += 1; },
                                 Some(row) => {
@@ -279,7 +274,7 @@ macro_rules! table {
                                 },
                             }
                         },
-                        Action::Add(iter) => {
+                        $crate::Action::Add(iter) => {
                             {
                                 // Must do a little dance; first item returned by the iterator
                                 // goes to the front of the queue, which is unnatural.
@@ -349,13 +344,13 @@ macro_rules! table {
          *
          * `$TABLE_NAME.visit(|table, i| -> $TABLE_NAME::ClearVisit { … })`
          * */
-        pub type ClearVisit = Action<Row, VoidIter<Row>>;
+        pub type ClearVisit = $crate::Action<Row, VoidIter<Row>>;
 
         /**
          * The table, locked for reading.
          * */
         pub struct Read<'u> {
-            _lock: RwLockReadGuard<'u, GenericTable>,
+            _lock: ::std::sync::RwLockReadGuard<'u, GenericTable>,
             _is_sorted: &'u bool,
             $(pub $COL_NAME: &'u $COL_TYPE,)*
         }
@@ -367,8 +362,8 @@ macro_rules! table {
                 self.$HEAD.data.len()
             }
 
-            pub fn range(&self) -> RowIdIterator<$ROW_ID_TYPE, Row> {
-                RowIdIterator::new(0, self.rows())
+            pub fn range(&self) -> $crate::RowIdIterator<$ROW_ID_TYPE, Row> {
+                $crate::RowIdIterator::new(0, self.rows())
             }
 
             /// Retrieves a structure containing a copy of the value in each column.
@@ -391,11 +386,11 @@ macro_rules! table {
         }
 
         /// Locks the table for reading (with the default name).
-        pub fn read(universe: &Universe) -> Read { default().read(universe) }
+        pub fn read(universe: &$crate::Universe) -> Read { default().read(universe) }
         /// Locks the table for writing (with the default name).
-        pub fn write(universe: &Universe) -> Write { default().write(universe) }
+        pub fn write(universe: &$crate::Universe) -> Write { default().write(universe) }
         /// Sorts the table, and then re-locks for writing (with the default name).
-        pub fn sorted(universe: &Universe) -> Read { default().sorted(universe) }
+        pub fn sorted(universe: &$crate::Universe) -> Read { default().sorted(universe) }
 
         /**
          * Creates a TableLoader with the default table name, $TABLE_NAME.
@@ -425,7 +420,7 @@ macro_rules! table {
         impl<'s> TableLoader<'s> {
             /** Locks the table for reading.
              * */
-            pub fn read<'u>(&self, universe: &'u Universe) -> Read<'u> {
+            pub fn read<'u>(&self, universe: &'u $crate::Universe) -> Read<'u> {
                 let table = universe.get_generic_table(self.name);
                 let _lock = table.read().unwrap();
                 use std::mem::transmute;
@@ -444,7 +439,7 @@ macro_rules! table {
             /**
              * Locks the table for writing.
              * */
-            pub fn write<'u>(&self, universe: &'u Universe) -> Write<'u> {
+            pub fn write<'u>(&self, universe: &'u $crate::Universe) -> Write<'u> {
                 let table = universe.get_generic_table(self.name);
                 let mut _lock = table.write().unwrap();
                 use std::mem::transmute;
@@ -463,7 +458,7 @@ macro_rules! table {
             /**
              * Locks the table for reading, but first sorts it if necessary.
              * */
-            pub fn sorted<'u>(&self, universe: &'u Universe) -> Read<'u> {
+            pub fn sorted<'u>(&self, universe: &'u $crate::Universe) -> Read<'u> {
                 for _ in 0..4 {
                     {
                         let ret = self.read(universe);
@@ -494,14 +489,14 @@ macro_rules! table {
             }
 
             /** Registers the table. */
-            pub fn register(&self, universe: &mut Universe) {
+            pub fn register(&self, universe: &mut $crate::Universe) {
                 let table = GenericTable::new(self.name);
                 $(let table = table.add_column(
                         stringify!($COL_NAME),
                         format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
                         {
                             type T = $COL_TYPE;
-                            Box::new(T::new()) as PBox
+                            Box::new(T::new()) as $crate::PBox
                         }
                 );)*
                 universe.add_table(table);

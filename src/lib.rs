@@ -31,7 +31,7 @@ pub mod intern;
 #[cfg(test)]
 mod test;
 
-pub use intern::*;
+use intern::*;
 
 /**
  * Trait that all storable types must implement.

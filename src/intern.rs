@@ -317,8 +317,8 @@ pub type VoidCol = VecCol<()>;
 mod test {
     #[test]
     fn bool_col_unit() {
-        use ::TCol;
-        let mut bc = ::BoolCol::new();
+        use super::TCol;
+        let mut bc = ::intern::BoolCol::new();
         let v = &[true, false, true];
         for i in v {
             bc.push(*i);
