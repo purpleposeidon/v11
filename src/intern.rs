@@ -43,7 +43,7 @@ impl GenericTable {
         }
     }
 
-    pub fn add_column(mut self, name: &str, type_name: String, inst: Box<Any>) -> Self {
+    pub fn add_column(mut self, name: &str, type_name: String, inst: PBox) -> Self {
         // Why is the 'static necessary??? Does it refer to the vtable or something?
         check_name(name);
         for c in self.columns.iter() {
@@ -64,7 +64,7 @@ impl GenericTable {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}:{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
-        c.data.downcast_ref().unwrap()
+        ::desync_box(&c.data).downcast_ref().unwrap()
     }
 
     pub fn get_column_mut<C: Any>(&mut self, name: &str, type_name: String) -> &mut C {
@@ -73,7 +73,7 @@ impl GenericTable {
             panic!("Table {} doesn't have a {} column.", my_name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}:{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
-        c.data.downcast_mut().unwrap()
+        ::desync_box_mut(&mut c.data).downcast_mut().unwrap()
     }
 
     fn assert_mergable(&self, other: &GenericTable) {
@@ -104,7 +104,7 @@ impl GenericTable {
 pub struct GenericColumn {
     name: String,
     stored_type_name: String,
-    data: Box<Any>,
+    data: PBox,
 }
 
 

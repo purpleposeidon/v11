@@ -59,18 +59,20 @@ storables_table! {
 }
 
 
+pub type GuardedUniverse = Arc<RwLock<Universe>>;
+
+pub type PBox = Box<Any + Send + Sync>;
 
 /**
- * A context object that should be passed around everywhere.
+ * A context object whose reference should be passed around everywhere.
  * */
 pub struct Universe {
     tables: HashMap<String, RwLock<GenericTable>>,
-    properties: Vec<Box<Any + Sync>>,
+    properties: Vec<PBox>,
     // A vec would be better. Would require some global static stuff to assign id's to properties.
     // Kinda needs const_fn.
 }
 impl Universe {
-    /** Create a new Universe. */
     pub fn new() -> Universe {
         let mut ret = Universe {
             tables: HashMap::new(),
@@ -79,6 +81,8 @@ impl Universe {
         ret.add_properties();
         ret
     }
+
+    pub fn guard(self) -> GuardedUniverse { Arc::new(RwLock::new(self)) }
 
     /**
      * Returns a string describing all the tables in the Universe. (But does not include their
@@ -141,6 +145,15 @@ pub enum Action<I, IT: Iterator<Item=I>> {
     Add(IT),
 }
 
+fn desync_box<'a>(v: &'a PBox) -> &'a Any {
+    use std::ops::Deref;
+    v.deref()
+}
+
+fn desync_box_mut<'a>(v: &'a mut PBox) -> &'a mut Any {
+    use std::ops::DerefMut;
+    v.deref_mut()
+}
 
 /* Still need to get a JOIN solution! */
 

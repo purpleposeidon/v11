@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::any::Any;
 use std::sync::RwLock;
 
-use super::Universe;
+use super::{Universe, PBox};
 
 
 type FatPtr = (usize, usize);
@@ -14,7 +14,7 @@ struct GlobalProperties {
 
     //id2producer: Vec<FatPtr>,
     // What that is really a Vec of:
-    id2producer: Vec<fn() -> Box<Any + Sync>>,
+    id2producer: Vec<fn() -> PBox>,
 }
 
 lazy_static! {
@@ -53,20 +53,21 @@ macro_rules! property {
     (static $NAME:ident ($NAME_STR:expr): $TYPE:ty $(; #[$ATTR:meta])*) => {
         #[allow(non_snake_case)]
         pub mod $NAME {
+            use $crate::PBox;
             use $crate::property::*;
+            
             constructor! { init }
             #[allow(dead_code)]
             extern fn init() {
                 unsafe {
-                    VAL.init(producer as fn() -> Box<Any + Sync>)
+                    VAL.init(producer as fn() -> PBox)
                 };
             }
 
-            use std::any::Any;
             use std::sync::RwLock;
-            fn producer() -> Box<Any + Sync> {
+            fn producer() -> PBox {
                 type TheType = $TYPE;
-                Box::new(RwLock::new(TheType::default())) as Box<Any + Sync>
+                Box::new(RwLock::new(TheType::default())) as PBox
             }
 
             // Can't access this directly because 'static mut' is unsafe to touch in any way.
@@ -109,7 +110,7 @@ pub struct Prop<V: Default> {
 impl<V: Default> Prop<V> {
     fn get_index(&self) -> usize { self.index.i }
 
-    pub fn init(&mut self, producer: fn() -> Box<Any + Sync>) {
+    pub fn init(&mut self, producer: fn() -> PBox) {
         if self.index.i != UNSET {
             // This probably shouldn't happen.
             return;
@@ -150,8 +151,7 @@ impl Universe {
         for i in self.properties.len()..pmap.id2producer.len() {
             assert!(self.properties.len() == i);
             let func_ptr = pmap.id2producer[i];
-            let l: Box<Any + Sync> = func_ptr();
-            self.properties.push(l);
+            self.properties.push(func_ptr());
             // So self.properties is a Vec of Box<Any> of RwLock<value>
         }
     }
@@ -163,10 +163,7 @@ impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Unive
         let l: Option<&RwLock<V>> = match self.properties.get(prop.get_index()) {
             None => panic!("property #{} '{}' was never registered; perhaps there is a missed call to Universe.add_properties()?", prop.get_index(), prop.name),
             Some(v) => {
-                use std::ops::Deref;
-                let v: &Box<Any + Sync> = v;
-                let v: &Any = v.deref();
-                v.downcast_ref()
+                ::desync_box(v).downcast_ref()
             },
         };
         match l {
@@ -239,19 +236,31 @@ mod test {
     property! { static MAP: ::std::collections::HashMap<String, i32> }
 
     #[test]
-    fn hashmaps() {
-        let universe = Universe::new();
+    fn hashmaps_with_threads() {
+        let universe = Universe::new().guard();
         {
+            let universe = universe.read().unwrap();
             let mut map = universe[MAP].write().unwrap();
             map.insert("foo".to_string(), 90);
         }
         {
+            let universe = universe.read().unwrap();
             let map = universe[MAP].read().unwrap();
             println!("{}", map.get("foo").unwrap());
         }
-        /*::std::thread::spawn(|| {
+        let thread = {
+            let universe = universe.clone();
+            ::std::thread::spawn(move || {
+                let universe = universe.read().unwrap();
+                let map = universe[MAP].read().unwrap();
+                println!("thread says: {}", map.get("foo").unwrap());
+            })
+        };
+        thread.join();
+        {
+            let universe = universe.read().unwrap();
             let map = universe[MAP].read().unwrap();
-            println!("thread says: {}", map.get("foo").unwrap());
-        });*/
+            println!("main says: {}", map.get("foo").unwrap());
+        }
     }
 }

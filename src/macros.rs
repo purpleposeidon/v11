@@ -68,10 +68,9 @@ macro_rules! table {
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
         use std::iter::Iterator;
-        use std::any::Any;
         use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-        use $crate::{Universe, Action, RowIdIterator, TCol};
+        use $crate::{Universe, Action, RowIdIterator, TCol, PBox};
         use $crate::intern::{GenericTable, VoidIter, GenericRowId};
 
 
@@ -502,7 +501,7 @@ macro_rules! table {
                         format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
                         {
                             type T = $COL_TYPE;
-                            Box::new(T::new()) as Box<Any>
+                            Box::new(T::new()) as PBox
                         }
                 );)*
                 universe.add_table(table);
