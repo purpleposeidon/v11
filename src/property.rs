@@ -275,7 +275,7 @@ mod test {
                 println!("thread says: {}", map.get("foo").unwrap());
             })
         };
-        thread.join();
+        thread.join().expect("thread failed");
         {
             let universe = universe.read().unwrap();
             let map = universe[MAP].read().unwrap();
