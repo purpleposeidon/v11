@@ -67,7 +67,7 @@ macro_rules! table {
         [impl $TABLE_NAME:ident, head = $HEAD:ident, RowId = $ROW_ID_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
-        use $crate::intern::{GenericTable, VoidIter, GenericRowId, TCol};
+        use $crate::intern::{GenericTable, VoidIter, GenericRowId, TCol, PBox};
 
         #[allow(unused_imports)]
         use $crate::intern::{VecCol, BoolCol, SegCol, VoidCol};
@@ -496,7 +496,7 @@ macro_rules! table {
                         format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
                         {
                             type T = $COL_TYPE;
-                            Box::new(T::new()) as $crate::PBox
+                            Box::new(T::new()) as PBox
                         }
                 );)*
                 universe.add_table(table);

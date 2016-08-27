@@ -61,8 +61,6 @@ storables_table! {
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
-pub type PBox = Box<Any + Send + Sync>;
-
 /**
  * A context object whose reference should be passed around everywhere.
  * */

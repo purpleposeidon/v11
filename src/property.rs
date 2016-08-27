@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::any::Any;
 use std::sync::RwLock;
 
-use super::{Universe, PBox};
+use super::Universe;
+use super::intern::PBox;
 
 
 type FatPtr = (usize, usize);
@@ -66,7 +67,7 @@ macro_rules! property {
     (static $NAME:ident ($NAME_STR:expr): $TYPE:ty $(; #[$ATTR:meta])*) => {
         #[allow(non_snake_case)]
         pub mod $NAME {
-            use $crate::PBox;
+            use $crate::intern::PBox;
             use $crate::property::*;
 
             #[allow(unused_imports)]

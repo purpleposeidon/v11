@@ -1,5 +1,7 @@
-//! This crate contains internal (but still public) items that are used by the `table!` macro.
+//! This crate contains internal (but still public) items that are used by the `table!` and
+//! `property!` macros.
 //! User-code should not use this directly.
+//! In particular, `use v11::intern::*` should be avoided as it causes import clashes.
 
 use std::any::Any;
 use std::sync::*;
@@ -346,3 +348,5 @@ mod test {
         println!("{:?}", bc);
     }
 }
+
+pub type PBox = Box<Any + Send + Sync>;
