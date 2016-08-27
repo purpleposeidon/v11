@@ -38,6 +38,19 @@ pub trait ToPropRef<V: Default + Sync>: Sync {
 use std::usize;
 pub const UNSET: usize = usize::MAX;
 
+/**
+ * Usage example:
+ * 
+ * property!{static THING: i32}
+ * # fn main() {
+ * let universe = v11::Universe::new();
+ * let mut val = universe[THING].write().unwrap();
+ * *val = 90;
+ * # }
+ *
+ * Like table!, this macro requires access to a 'mod table_use'.
+ * */
+// FIXME: Better documentation.
 #[macro_export]
 macro_rules! property {
     // There's room for improvement here. :/
@@ -55,6 +68,9 @@ macro_rules! property {
         pub mod $NAME {
             use $crate::PBox;
             use $crate::property::*;
+
+            #[allow(unused_imports)]
+            use super::table_use::*;
             
             constructor! { init }
             #[allow(dead_code)]
@@ -178,6 +194,8 @@ impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Unive
 
 #[cfg(test)]
 mod test {
+    mod table_use {}
+
     use super::super::*;
     property! {
         static COMPILING_PROP ("foo"): usize; #[allow(dead_code)]
