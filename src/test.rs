@@ -11,7 +11,6 @@ mod table_use {
     impl Default for CheeseKind {
         fn default() -> Self { CheeseKind::Stinky }
     }
-    impl ::Storable for CheeseKind { }
 }
 use self::table_use::*;
 

@@ -42,21 +42,7 @@ use intern::*;
 // We really do want to be able to store floats, which means that we can't use proper Eq or
 // PartialEq...
 pub trait Storable : Default + Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable + PartialOrd /* + !Drop */ { }
-
-macro_rules! storables_table {
-    ($($T:ty),*,) => {
-        $(impl Storable for $T {})*
-    }
-}
-storables_table! {
-    i8, i16, i32, i64,
-    u8, u16, u32, u64,
-    isize, usize,
-    f32, f64,
-    bool, char,
-    (),
-    // [char; 4], [char; 8], [char; 16], [char; 32], [char; 64],
-}
+impl<T> Storable for T where T: Default + Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable + PartialOrd /* + !Drop */ { }
 
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
