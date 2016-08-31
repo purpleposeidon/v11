@@ -41,8 +41,8 @@ use intern::*;
  * */
 // We really do want to be able to store floats, which means that we can't use proper Eq or
 // PartialEq...
-pub trait Storable : Default + Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable + PartialOrd /* + !Drop */ { }
-impl<T> Storable for T where T: Default + Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable + PartialOrd /* + !Drop */ { }
+pub trait Storable : Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable /* + !Drop */ { }
+impl<T> Storable for T where T: Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable /* + !Drop */ { }
 
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
