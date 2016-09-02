@@ -2,7 +2,7 @@
 
 
 mod table_use {
-    #[derive(Clone, Copy, PartialEq, PartialOrd, Debug, RustcEncodable, RustcDecodable)]
+    #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, RustcEncodable, RustcDecodable)]
     pub enum CheeseKind {
         Swiss,
         Stinky,
@@ -324,4 +324,15 @@ fn push() {
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
     assert_eq!(er.to_usize(), 0);
+}
+
+#[test]
+fn compile_rowid_in_hashmap() {
+    #![allow(unused_variables)]
+    use std::collections::HashMap;
+    let x: HashMap<easy::RowId, ()> = HashMap::new();
+    let mut universe = ::Universe::new();
+    easy::default().register(&mut universe);
+    let mut easy = easy::write(&universe);
+    let er = easy.push(easy::Row { x: 1 });
 }

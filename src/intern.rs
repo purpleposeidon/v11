@@ -142,7 +142,7 @@ impl<I> Iterator for VoidIter<I> {
 
 use std::marker::PhantomData;
 use num_traits::PrimInt;
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone)]
 pub struct GenericRowId<I: PrimInt, T> {
     i: I,
     t: PhantomData<T>,
@@ -158,6 +158,22 @@ impl<I: PrimInt, T> GenericRowId<I, T> {
 
     pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
 }
+
+use std::cmp::{Eq, PartialEq};
+impl<I: PrimInt, T> PartialEq for GenericRowId<I, T> {
+    fn eq(&self, other: &GenericRowId<I, T>) -> bool {
+        self.i == other.i
+    }
+}
+impl<I: PrimInt, T> Eq for GenericRowId<I, T> {}
+
+use std::hash::{Hash, Hasher};
+impl<I: PrimInt + Hash, T> Hash for GenericRowId<I, T> {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        self.i.hash(state);
+    }
+}
+
 
 
 use std::ops::{Index, IndexMut, Range};
