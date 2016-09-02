@@ -142,7 +142,7 @@ macro_rules! table {
             /// Returns its RowId.
             pub fn push(&mut self, data: Row) -> RowId {
                 self.push_all(Some(data).into_iter());
-                fab(self.rows())
+                fab(self.rows() - 1)
             }
 
             /** Removes every row from the table. */
