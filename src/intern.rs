@@ -142,7 +142,7 @@ impl<I> Iterator for VoidIter<I> {
 
 use std::marker::PhantomData;
 use num_traits::PrimInt;
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GenericRowId<I: PrimInt, T> {
     i: I,
     t: PhantomData<T>,
