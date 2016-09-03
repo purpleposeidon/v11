@@ -321,7 +321,7 @@ pub type SegCol<E> = VecCol<E>;
  * pub mod table_use {}
  * table! {
  *      [pub floating_table],
- *      void: [(); VoidCol],
+ *      unsorted: [(); VoidCol],
  *      float: [f32; SegCol<f32>],
  * }
  * # fn main() {}

@@ -312,7 +312,7 @@ fn bool_col() {
 // just makes sure it compiles
 table! {
     [pub missort],
-    void: [(); VoidCol],
+    unsorted: [(); VoidCol],
     x: [f32; VecCol<f32>],
 }
 
