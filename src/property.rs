@@ -148,10 +148,10 @@ impl<V: Default> Prop<V> {
 
 impl Universe {
     /// Returns a copy of the value of the given property.
-    pub fn get<V: Any + Sync + Default + Clone>(&self, prop: &'static ToPropRef<V>) -> V {
+    pub fn get<V: Any + Sync + Default + Copy>(&self, prop: &'static ToPropRef<V>) -> V {
         use std::sync::RwLockReadGuard;
         let v: RwLockReadGuard<V> = self[prop].read().unwrap();
-        (*v).clone()
+        *v
     }
 
     /// Sets the value of a property.
@@ -159,7 +159,8 @@ impl Universe {
         *self[prop].write().unwrap() = val;
     }
 
-    /// Adds any properties that are unknown
+    /// Adds any properties that are unknown. This function should be called if any libraries have
+    /// been loaded since before the universe was created.
     pub fn add_properties(&mut self) {
         let pmap = PROPERTIES.read().unwrap();
         let to_add = pmap.id2producer.len() - self.properties.len();
