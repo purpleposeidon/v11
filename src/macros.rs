@@ -115,7 +115,7 @@ macro_rules! table {
             }
 
             pub fn range(&self) -> $crate::RowIdIterator<$ROW_ID_TYPE, Row> {
-                $crate::RowIdIterator::new(0, self.rows())
+                $crate::RowIdIterator::new(0, self.rows() as $ROW_ID_TYPE)
             }
 
             pub fn set(&mut self, index: RowId, row: Row) {
@@ -363,7 +363,7 @@ macro_rules! table {
             }
 
             pub fn range(&self) -> $crate::RowIdIterator<$ROW_ID_TYPE, Row> {
-                $crate::RowIdIterator::new(0, self.rows())
+                $crate::RowIdIterator::new(0, self.rows() as $ROW_ID_TYPE)
             }
 
             /// Retrieves a structure containing a copy of the value in each column.

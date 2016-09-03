@@ -336,3 +336,8 @@ fn compile_rowid_in_hashmap() {
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
 }
+
+table! {
+    [pub test_u16, RowId = u16],
+    x: [i32; VecCol<i32>],
+}
