@@ -86,7 +86,7 @@ macro_rules! table {
          * the actual table is column-based, so eg `read.column[index]` is the standard method
          * of accessing rows.
          * */
-        #[derive(Debug, PartialEq, Copy, Clone)]
+        #[derive(Debug, PartialEq, Copy, Clone, RustcEncodable, RustcDecodable)]
         pub struct Row {
             $(pub $COL_NAME: $COL_ELEMENT,)*
         }

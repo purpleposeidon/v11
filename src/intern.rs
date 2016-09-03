@@ -322,6 +322,7 @@ pub type SegCol<E> = VecCol<E>;
  *
  * ```
  * # #[macro_use] extern crate v11;
+ * extern crate rustc_serialize;
  * pub mod table_use {}
  * table! {
  *      [pub floating_table],

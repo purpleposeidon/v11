@@ -11,6 +11,7 @@ mod table_use {
     impl Default for CheeseKind {
         fn default() -> Self { CheeseKind::Stinky }
     }
+    pub type EasyRowId = super::easy::RowId;
 }
 use self::table_use::*;
 
@@ -24,6 +25,12 @@ table! {
 table! {
     [pub easy],
     x: [i32; VecCol<i32>],
+}
+
+table! {
+    [pub test_foreign],
+    unsorted: [(); VoidCol],
+    id: [EasyRowId; VecCol<EasyRowId>],
 }
 
 
