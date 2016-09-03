@@ -128,8 +128,13 @@ macro_rules! table {
                 }
             }
 
+            pub fn reserve(&mut self, additional: usize) {
+                $(self.$COL_NAME.data.reserve(additional);)*
+            }
+
             /** Populate the table with data from the provided iterator. */
             pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
+                self.reserve(data.size_hint().0);
                 for row in data {
                     $(self.$COL_NAME.data.push(row.$COL_NAME);)*
                 }

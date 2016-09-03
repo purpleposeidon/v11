@@ -189,6 +189,7 @@ pub trait TCol<E: Storable> {
     fn truncate(&mut self, l: usize);
     fn remove_slice(&mut self, range: Range<usize>);
     fn append(&mut self, other: &mut Vec<E>);
+    fn reserve(&mut self, additional: usize);
 }
 
 pub struct ColWrapper<E: Storable, C: TCol<E>, R> {
@@ -227,6 +228,7 @@ impl<E: Storable> TCol<E> for VecCol<E> {
     fn truncate(&mut self, l: usize) { self.data.truncate(l) }
     fn remove_slice(&mut self, range: Range<usize>) { self.data.drain(range); } // FIXME: Might be wasteful; could be a better way.
     fn append(&mut self, other: &mut Vec<E>) { self.data.append(other) }
+    fn reserve(&mut self, additional: usize) { self.data.reserve(additional) }
 }
 
 
@@ -306,6 +308,8 @@ impl TCol<bool> for BoolCol {
             self.data.push(*v);
         }
     }
+
+    fn reserve(&mut self, additional: usize) { self.data.reserve(additional) }
 }
 
 /// Temporary (hopefully) stub for avec.
