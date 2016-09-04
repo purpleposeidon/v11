@@ -159,13 +159,18 @@ impl<I: PrimInt, T> GenericRowId<I, T> {
     pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
 }
 
-use std::cmp::{Eq, PartialEq};
+use std::cmp::{Eq, PartialEq, PartialOrd};
 impl<I: PrimInt, T> PartialEq for GenericRowId<I, T> {
     fn eq(&self, other: &GenericRowId<I, T>) -> bool {
         self.i == other.i
     }
 }
 impl<I: PrimInt, T> Eq for GenericRowId<I, T> {}
+impl<I: PrimInt, T> PartialOrd for GenericRowId<I, T> {
+    fn partial_cmp(&self, other: &GenericRowId<I, T>) -> Option<::std::cmp::Ordering> {
+        self.i.partial_cmp(&other.i)
+    }
+}
 
 use std::hash::{Hash, Hasher};
 impl<I: PrimInt + Hash, T> Hash for GenericRowId<I, T> {

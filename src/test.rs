@@ -348,3 +348,19 @@ table! {
     [pub test_u16, RowId = u16],
     x: [i32; VecCol<i32>],
 }
+
+#[test]
+fn compile_rowid_cmp() {
+    let mut universe = ::Universe::new();
+    easy::default().register(&mut universe);
+    let mut easy = easy::write(&universe);
+    let a = easy.push(easy::Row {x: 1});
+    assert!(a == a);
+    assert!(a >= a);
+    assert!(a >= a);
+    let b = easy.push(easy::Row {x: 1});
+    assert!(a != b);
+    assert!(b > a);
+}
+
+
