@@ -96,13 +96,18 @@ impl<I: PrimInt, T> RowIdIterator<I, T> {
         }
     }
 }
-impl<I: PrimInt, T> Iterator for RowIdIterator<I, T> {
+impl<I: PrimInt + ::num_traits::ToPrimitive, T> Iterator for RowIdIterator<I, T> {
     type Item = GenericRowId<I, T>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.i >= self.end { return None; }
         let ret = GenericRowId::new(self.i);
         self.i = self.i + I::one();
         Some(ret)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let u = (self.i - self.end).to_usize().unwrap();
+        (u, Some(u))
     }
 }
 
