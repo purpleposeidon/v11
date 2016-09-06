@@ -23,7 +23,7 @@ impl Universe {
 
     pub fn get_generic_table<'u, 's>(&'u self, name: &'s str) -> &'u RwLock<GenericTable> {
         match self.tables.get(name) {
-            None => panic!("Table {} does not exist", name),
+            None => panic!("Table {} was not registered", name),
             Some(t) => t.clone(),
         }
     }
