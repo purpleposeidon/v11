@@ -396,6 +396,8 @@ macro_rules! table {
         pub fn write(universe: &$crate::Universe) -> Write { default().write(universe) }
         /// Sorts the table, and then re-locks for writing (with the default name).
         pub fn sorted(universe: &$crate::Universe) -> Read { default().sorted(universe) }
+        /// Shorthand for `default().register(universe)`
+        pub fn register_default(universe: &mut $crate::Universe) { default().register(universe); }
 
         /**
          * Creates a TableLoader with the default table name, $TABLE_NAME.
@@ -403,6 +405,7 @@ macro_rules! table {
         pub fn default() -> TableLoader<'static> {
             with_name(stringify!($TABLE_NAME))
         }
+
 
         /**
          * Creates a TableLoader with a custom table name.
