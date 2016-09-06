@@ -142,7 +142,7 @@ impl<I> Iterator for VoidIter<I> {
 
 use std::marker::PhantomData;
 use num_traits::PrimInt;
-#[derive(Debug, Copy, Clone, RustcEncodable, RustcDecodable)]
+#[derive(Debug, Copy, Clone)]
 pub struct GenericRowId<I: PrimInt, T> {
     i: I,
     t: PhantomData<T>,
@@ -173,10 +173,24 @@ impl<I: PrimInt, T> PartialOrd for GenericRowId<I, T> {
     }
 }
 
+// Things get displeasingly manual due to the PhantomData.
 use std::hash::{Hash, Hasher};
 impl<I: PrimInt + Hash, T> Hash for GenericRowId<I, T> {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
         self.i.hash(state);
+    }
+}
+
+use rustc_serialize::{Encoder, Encodable, Decoder, Decodable};
+impl<I: PrimInt + Encodable, T> Encodable for GenericRowId<I, T> {
+    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        self.i.encode(s)
+    }
+}
+
+impl<I: PrimInt + Decodable, T> Decodable for GenericRowId<I, T> {
+    fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
+        Ok(Self::new(try!(I::decode(d))))
     }
 }
 
