@@ -160,7 +160,7 @@ impl<I: PrimInt, T> GenericRowId<I, T> {
     pub fn to_raw(&self) -> I { self.i }
 }
 
-use std::cmp::{Eq, PartialEq, PartialOrd};
+use std::cmp::{Eq, PartialEq, PartialOrd, Ord};
 impl<I: PrimInt, T> PartialEq for GenericRowId<I, T> {
     fn eq(&self, other: &GenericRowId<I, T>) -> bool {
         self.i == other.i
@@ -170,6 +170,11 @@ impl<I: PrimInt, T> Eq for GenericRowId<I, T> {}
 impl<I: PrimInt, T> PartialOrd for GenericRowId<I, T> {
     fn partial_cmp(&self, other: &GenericRowId<I, T>) -> Option<::std::cmp::Ordering> {
         self.i.partial_cmp(&other.i)
+    }
+}
+impl<I: PrimInt, T> Ord for GenericRowId<I, T> {
+    fn cmp(&self, other: &GenericRowId<I, T>) -> ::std::cmp::Ordering {
+        self.i.cmp(&other.i)
     }
 }
 
