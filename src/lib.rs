@@ -82,6 +82,7 @@ impl Universe {
 
 use num_traits::int::PrimInt;
 
+#[derive(Debug)]
 pub struct RowIdIterator<I: PrimInt, T> {
     i: I,
     end: I,
