@@ -192,9 +192,8 @@ impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Unive
             },
         };
         match l {
-            None => panic!("property #{} '{}' is not the expected type, {:?}", prop.get_index(), prop.name,
-                "HA HA JK"),
-                //self.properties.get(prop.get_index())),
+            None => panic!("property #{} '{}' is not the expected type", prop.get_index(), prop.name),
+            // FIXME: Say what the type is
             Some(ret) => ret
         }
     }
