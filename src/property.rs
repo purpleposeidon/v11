@@ -19,6 +19,7 @@ struct GlobalProperties {
 }
 
 lazy_static! {
+    // References by a constructor!, so might have windows problems.
     static ref PROPERTIES: RwLock<GlobalProperties> = RwLock::new(GlobalProperties {
         name2id: HashMap::new(),
         id2producer: Vec::new(),
@@ -49,7 +50,8 @@ pub const UNSET: usize = usize::MAX;
  * *val = 90;
  * # }
  *
- * Like table!, this macro requires access to a 'mod table_use'.
+ * Like `table!`, this macro requires access to a 'mod table_use'.
+ * Like `constructor!`, this macro must be invoked from an externally visible module.
  * */
 // FIXME: Better documentation.
 #[macro_export]
@@ -129,7 +131,8 @@ impl<V: Default> Prop<V> {
 
     pub fn init(&mut self, producer: fn() -> PBox) {
         if self.index.i != UNSET {
-            // This probably shouldn't happen.
+            // Indicates `init` being called more than once.
+            // Just in case.
             return;
         }
         let mut pmap = PROPERTIES.write().unwrap();
@@ -179,7 +182,11 @@ impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Unive
     fn index(&self, prop: &'static ToPropRef<V>) -> &RwLock<V> {
         let prop = prop.get();
         let l: Option<&RwLock<V>> = match self.properties.get(prop.get_index()) {
-            None => panic!("property #{} '{}' was never registered; perhaps there is a missed call to Universe.add_properties()?", prop.get_index(), prop.name),
+            None => if prop.get_index() == UNSET {
+                panic!("property '{}' is uninitialized; perhaps the `constructor!` failed to take? Make the module hierarchy all `pub`, or initialize it explicitly.", prop.name);
+            } else {
+                panic!("property #{} '{}' was never registered; perhaps there is a missed call to Universe.add_properties()?", prop.get_index(), prop.name);
+            },
             Some(v) => {
                 ::desync_box(v).downcast_ref()
             },
@@ -195,7 +202,7 @@ impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Unive
 
 
 #[cfg(test)]
-mod test {
+pub /* property! requires this */ mod test {
     mod table_use {}
 
     use super::super::*;
