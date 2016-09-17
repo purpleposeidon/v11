@@ -38,17 +38,23 @@ pub trait ToPropRef<V: Default + Sync>: Sync {
 
 
 use std::usize;
+/// Internal.
 pub const UNSET: usize = usize::MAX;
 
 /**
  * Usage example:
  * 
+ * ```
+ * # #[macro_use]
+ * # extern crate v11;
+ * mod table_use {}
  * property!{static THING: i32}
- * # fn main() {
- * let universe = v11::Universe::new();
- * let mut val = universe[THING].write().unwrap();
- * *val = 90;
- * # }
+ * fn main() {
+ *     let universe = v11::Universe::new();
+ *     let mut val = universe[THING].write().unwrap();
+ *     *val = 90;
+ * }
+ * ```
  *
  * Like `table!`, this macro requires access to a 'mod table_use'.
  * Like `constructor!`, this macro must be invoked from an externally visible module.
