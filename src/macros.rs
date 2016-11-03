@@ -107,6 +107,11 @@ macro_rules! table {
                 self.$HEAD.data.len()
             }
 
+            /** Returns true if `i` is a valid RowId. */
+            pub fn contains(&self, i: RowId) -> bool {
+                i.to_usize() < self.rows()
+            }
+
             /// Retrieves a structure containing a copy of the value in each column.
             pub fn row(&self, i: RowId) -> Row {
                 Row {
@@ -365,6 +370,11 @@ macro_rules! table {
              * */
             pub fn rows(&self) -> usize {
                 self.$HEAD.data.len()
+            }
+
+            /** Returns true if `i` is a valid RowId. */
+            pub fn contains(&self, i: RowId) -> bool {
+                i.to_usize() < self.rows()
             }
 
             pub fn range(&self) -> $crate::RowIdIterator<$ROW_ID_TYPE, Row> {

@@ -363,4 +363,13 @@ fn compile_rowid_cmp() {
     assert!(b > a);
 }
 
-
+#[test]
+fn contains() {
+    let mut universe = ::Universe::new();
+    easy::default().register(&mut universe);
+    let mut easy = easy::write(&universe);
+    assert!(!easy.contains(easy::at(1)));
+    let a = easy.push(easy::Row {x: 1});
+    assert!(easy.contains(a));
+    assert!(!easy.contains(easy::at(2)));
+}

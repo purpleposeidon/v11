@@ -156,7 +156,7 @@ impl<V: Default> Prop<V> {
 
 
 impl Universe {
-    /// Returns a copy of the value of the given property.
+    /// Returns a copy of the value of the given property. Only works for properties that are `Copy`.
     pub fn get<V: Any + Sync + Default + Copy>(&self, prop: &'static ToPropRef<V>) -> V {
         use std::sync::RwLockReadGuard;
         let v: RwLockReadGuard<V> = self[prop].read().unwrap();

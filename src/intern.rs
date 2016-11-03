@@ -158,6 +158,9 @@ impl<I: PrimInt, T> GenericRowId<I, T> {
 
     pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
     pub fn to_raw(&self) -> I { self.i }
+    pub fn next(&self) -> Self {
+        Self::new(self.i + I::one())
+    }
 }
 
 use std::cmp::{Eq, PartialEq, PartialOrd, Ord};
