@@ -373,3 +373,40 @@ fn contains() {
     assert!(easy.contains(a));
     assert!(!easy.contains(easy::at(2)));
 }
+
+
+//mod a {
+//    mod table_use {}
+//    table! {
+//        [pub twin],
+//        value: [i32; VecCol<i32>],
+//    }
+//}
+//
+//mod b {
+//    mod table_use {}
+//    table! {
+//        [pub twin],
+//        value: [i32; VecCol<i32>],
+//    }
+//}
+//
+//#[test]
+//fn foreign_compat() {
+//    let mut universe = ::Universe::new();
+//    a::twin::default().register(&mut universe);
+//    {
+//        // so 'b::twin' should effectively already be registered?
+//        b::twin::read(&universe);
+//    }
+//
+//    b::twin::default().register(&mut universe);
+//    let spot = a::twin::write(&universe).push(a::twin::Row {
+//        value: 237,
+//    });
+//    // Well, we can't use spot...
+//    // Like there's probably *nothing whatsoever* we could do, unless we can use strings as type
+//    // parameters.
+//    let spot = b::twin::at(spot.to_raw());
+//    assert_eq!(237, b::twin::read(&universe).value[spot]);
+//}

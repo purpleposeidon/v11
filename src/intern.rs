@@ -65,8 +65,13 @@ impl GenericTable {
         let c = self.columns.iter().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
-        if c.stored_type_name != type_name { panic!("Column {}:{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
-        ::desync_box(&c.data).downcast_ref().unwrap()
+        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
+        match ::desync_box(&c.data).downcast_ref() {
+            Some(ret) => ret,
+            None => {
+                panic!("Column {}/{}: type conversion from {} to {} failed", self.name, name, c.stored_type_name, type_name);
+            },
+        }
     }
 
     pub fn get_column_mut<C: Any>(&mut self, name: &str, type_name: String) -> &mut C {
@@ -74,8 +79,13 @@ impl GenericTable {
         let c = self.columns.iter_mut().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", my_name, name);
         });
-        if c.stored_type_name != type_name { panic!("Column {}:{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
-        ::desync_box_mut(&mut c.data).downcast_mut().unwrap()
+        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
+        match ::desync_box_mut(&mut c.data).downcast_mut() {
+            Some(ret) => ret,
+            None => {
+                panic!("Column {}/{}: type conversion from {} to {} failed", self.name, name, c.stored_type_name, type_name);
+            },
+        }
     }
 
     fn assert_mergable(&self, other: &GenericTable) {
@@ -361,8 +371,6 @@ pub type SegCol<E> = VecCol<E>;
  * ```
  * */
 pub type VoidCol = VecCol<()>;
-
-/* Still need to get a JOIN solution! */
 
 #[cfg(test)]
 mod test {
