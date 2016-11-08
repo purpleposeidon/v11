@@ -27,6 +27,7 @@ pub mod constructor;
 pub mod macros;
 pub mod property;
 pub mod intern;
+pub mod joincore;
 
 #[cfg(test)]
 mod test;
