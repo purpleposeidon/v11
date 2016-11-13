@@ -182,6 +182,11 @@ impl Universe {
             // So self.properties is a Vec of Box<Any> of RwLock<value>
         }
     }
+
+    pub fn property_names(&self) -> Vec<String> {
+        let pmap = PROPERTIES.read().unwrap();
+        pmap.name2id.keys().map(String::clone).collect()
+    }
 }
 impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Universe {
     type Output = RwLock<V>;

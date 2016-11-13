@@ -52,10 +52,8 @@ pub type GuardedUniverse = Arc<RwLock<Universe>>;
  * A context object whose reference should be passed around everywhere.
  * */
 pub struct Universe {
-    tables: HashMap<String, RwLock<GenericTable>>,
-    properties: Vec<PBox>,
-    // A vec would be better. Would require some global static stuff to assign id's to properties.
-    // Kinda needs const_fn.
+    pub tables: HashMap<String, RwLock<GenericTable>>,
+    pub properties: Vec<PBox>,
 }
 impl Universe {
     pub fn new() -> Universe {
@@ -77,6 +75,10 @@ impl Universe {
         self.tables.iter().map(|(_, table)| {
             table.read().unwrap().info()
         }).collect::<Vec<String>>().join(" ")
+    }
+
+    pub fn table_names(&self) -> Vec<String> {
+        self.tables.keys().map(String::clone).collect()
     }
 }
 
@@ -145,6 +147,4 @@ fn desync_box_mut<'a>(v: &'a mut PBox) -> &'a mut Any {
     use std::ops::DerefMut;
     v.deref_mut()
 }
-
-/* Still need to get a JOIN solution! */
 
