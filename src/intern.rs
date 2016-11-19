@@ -29,7 +29,7 @@ impl Universe {
     }
 }
 
-/// A table held by `Universe`. Its information is used to create populate concrete tables.
+/// A table held by `Universe`. Its information is used to populate concrete tables.
 pub struct GenericTable {
     pub name: String,
     pub is_sorted: bool,

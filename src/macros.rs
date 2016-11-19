@@ -90,6 +90,7 @@ macro_rules! table {
         pub struct Row {
             $(pub $COL_NAME: $COL_ELEMENT,)*
         }
+        use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
 
         /**
          * The table, locked for writing.
@@ -345,6 +346,17 @@ macro_rules! table {
                 })*
                 *self._is_sorted = true;
             }
+
+            pub fn decode<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
+                let rows = d.read_u32()? as usize;
+                self.reserve(rows);
+                for _ in 0..rows {
+                    let row = Row::decode(d)?;
+                    $(self.$COL_NAME.data.push(row.$COL_NAME);)*
+                }
+                *self._is_sorted = false;
+                Ok(())
+            }
         }
 
         /**
@@ -395,7 +407,16 @@ macro_rules! table {
                 }
                 ret
             }
-
+            
+            pub fn encode<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
+                let rows = self.rows();
+                e.emit_u32(rows as u32)?;
+                for i in self.range() {
+                    let row = self.row(i);
+                    row.encode(e)?;
+                }
+                Ok(())
+            }
             // TODO: iter()
             // TODO: Join
         }
