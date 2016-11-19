@@ -12,6 +12,7 @@ type FatPtr = (usize, usize);
 
 struct GlobalProperties {
     name2id: HashMap<String, usize>,
+    id2name: HashMap<usize, String>,
 
     //id2producer: Vec<FatPtr>,
     // What that is really a Vec of:
@@ -22,6 +23,7 @@ lazy_static! {
     // References by a constructor!, so might have windows problems.
     static ref PROPERTIES: RwLock<GlobalProperties> = RwLock::new(GlobalProperties {
         name2id: HashMap::new(),
+        id2name: HashMap::new(),
         id2producer: Vec::new(),
     });
 }
@@ -148,6 +150,7 @@ impl<V: Default> Prop<V> {
             first_instance = true;
             new_id
         });
+        pmap.id2name.insert(self.index.i, self.name.to_string());
         if first_instance {
             pmap.id2producer.push(producer);
         }
@@ -185,7 +188,11 @@ impl Universe {
 
     pub fn property_names(&self) -> Vec<String> {
         let pmap = PROPERTIES.read().unwrap();
-        pmap.name2id.keys().map(String::clone).collect()
+        let mut ret = Vec::new();
+        for property_id in 0..self.properties.len() { 
+            ret.push(pmap.id2name.get(&property_id).unwrap().clone())
+        }
+        ret
     }
 }
 impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Universe {
@@ -299,5 +306,12 @@ pub /* property! requires this */ mod test {
             let map = universe[MAP].read().unwrap();
             println!("main says: {}", map.get("foo").unwrap());
         }
+    }
+
+    #[test]
+    fn get_properties() {
+        let universe = Universe::new().guard();
+        let universe = universe.read().unwrap();
+        assert!(universe.property_names().len() >= 4);
     }
 }
