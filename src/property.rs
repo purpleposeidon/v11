@@ -82,6 +82,8 @@ macro_rules! property {
 
             #[allow(unused_imports)]
             use super::table_use::*;
+
+            pub type Type = $TYPE;
             
             constructor! { init }
             #[allow(dead_code)]
@@ -93,12 +95,11 @@ macro_rules! property {
 
             use std::sync::RwLock;
             fn producer() -> PBox {
-                type TheType = $TYPE;
-                Box::new(RwLock::new(TheType::default())) as PBox
+                Box::new(RwLock::new(Type::default())) as PBox
             }
 
             // Can't access this directly because 'static mut' is unsafe to touch in any way.
-            static mut VAL: Prop<$TYPE> = Prop {
+            static mut VAL: Prop<Type> = Prop {
                 name: $NAME_STR,
                 index: PropertyIndex {
                     i: UNSET,
@@ -108,8 +109,8 @@ macro_rules! property {
 
             #[derive(Clone, Copy)]
             pub struct PropRef;
-            impl ToPropRef<$TYPE> for PropRef {
-                fn get(&self) -> &'static Prop<$TYPE> {
+            impl ToPropRef<Type> for PropRef {
+                fn get(&self) -> &'static Prop<Type> {
                     unsafe { &VAL }
                 }
             }
