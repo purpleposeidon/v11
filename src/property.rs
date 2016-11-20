@@ -186,11 +186,12 @@ impl Universe {
         }
     }
 
-    pub fn property_names(&self) -> Vec<String> {
+    pub fn list_properties(&self) -> Vec<(String, &PBox)> {
+        let count = self.properties.len();
+        let mut ret = Vec::with_capacity(count);
         let pmap = PROPERTIES.read().unwrap();
-        let mut ret = Vec::new();
-        for property_id in 0..self.properties.len() { 
-            ret.push(pmap.id2name.get(&property_id).unwrap().clone())
+        for id in 0..count {
+            ret.push((pmap.id2name.get(&id).unwrap().clone(), &self.properties[id]));
         }
         ret
     }
@@ -312,6 +313,10 @@ pub /* property! requires this */ mod test {
     fn get_properties() {
         let universe = Universe::new().guard();
         let universe = universe.read().unwrap();
-        assert!(universe.property_names().len() >= 4);
+        let props = universe.list_properties();
+        assert!(props.len() >= 4);
+        for (name, _) in props {
+            println!("{:?}", name);
+        }
     }
 }
