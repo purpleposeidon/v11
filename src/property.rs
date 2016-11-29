@@ -35,7 +35,7 @@ pub struct PropertyIndex<V> {
 }
 
 pub trait ToPropRef<V: Default + Sync>: Sync {
-    fn get(&self) -> &'static Prop<V>;
+    fn get(&self) -> &Prop<V>;
 }
 
 
@@ -110,7 +110,7 @@ macro_rules! property {
             #[derive(Clone, Copy)]
             pub struct PropRef;
             impl ToPropRef<Type> for PropRef {
-                fn get(&self) -> &'static Prop<Type> {
+                fn get(&self) -> &Prop<Type> {
                     unsafe { &VAL }
                 }
             }
@@ -161,14 +161,14 @@ impl<V: Default> Prop<V> {
 
 impl Universe {
     /// Returns a copy of the value of the given property. Only works for properties that are `Copy`.
-    pub fn get<V: Any + Sync + Default + Copy>(&self, prop: &'static ToPropRef<V>) -> V {
+    pub fn get<V: Any + Sync + Default + Copy>(&self, prop: &ToPropRef<V>) -> V {
         use std::sync::RwLockReadGuard;
         let v: RwLockReadGuard<V> = self[prop].read().unwrap();
         *v
     }
 
     /// Sets the value of a property.
-    pub fn set<V: Any + Sync + Default>(&self, prop: &'static ToPropRef<V>, val: V) {
+    pub fn set<V: Any + Sync + Default>(&self, prop: &ToPropRef<V>, val: V) {
         *self[prop].write().unwrap() = val;
     }
 
@@ -197,9 +197,9 @@ impl Universe {
         ret
     }
 }
-impl<V: Default + Any + Sync> ::std::ops::Index<&'static ToPropRef<V>> for Universe {
+impl<'a, V: Default + Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
     type Output = RwLock<V>;
-    fn index(&self, prop: &'static ToPropRef<V>) -> &RwLock<V> {
+    fn index(&self, prop: &'a ToPropRef<V>) -> &RwLock<V> {
         let prop = prop.get();
         let l: Option<&RwLock<V>> = match self.properties.get(prop.get_index()) {
             None => if prop.get_index() == UNSET {
