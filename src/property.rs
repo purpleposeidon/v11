@@ -76,6 +76,7 @@ macro_rules! property {
     };
     (static $NAME:ident ($NAME_STR:expr): $TYPE:ty $(; #[$ATTR:meta])*) => {
         #[allow(non_snake_case)]
+        #[doc(hidden)]
         pub mod $NAME {
             use $crate::intern::PBox;
             use $crate::property::*;
@@ -83,10 +84,12 @@ macro_rules! property {
             #[allow(unused_imports)]
             use super::table_use::*;
 
+            #[doc(hidden)]
             pub type Type = $TYPE;
             
             constructor! { init }
             #[allow(dead_code)]
+            #[doc(hidden)]
             extern fn init() {
                 unsafe {
                     VAL.init(producer as fn() -> PBox)
@@ -94,11 +97,13 @@ macro_rules! property {
             }
 
             use std::sync::RwLock;
+            #[doc(hidden)]
             fn producer() -> PBox {
                 Box::new(RwLock::new(Type::default())) as PBox
             }
 
             // Can't access this directly because 'static mut' is unsafe to touch in any way.
+            #[doc(hidden)]
             static mut VAL: Prop<Type> = Prop {
                 name: $NAME_STR,
                 index: PropertyIndex {
@@ -108,6 +113,7 @@ macro_rules! property {
             };
 
             #[derive(Clone, Copy)]
+            #[doc(hidden)]
             pub struct PropRef;
             impl ToPropRef<Type> for PropRef {
                 fn get(&self) -> &Prop<Type> {
@@ -116,6 +122,7 @@ macro_rules! property {
             }
         }
 
+        #[doc(hidden)]
         $(#[$ATTR])*
         pub static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::PropRef as &$crate::property::ToPropRef<$TYPE>;
     };

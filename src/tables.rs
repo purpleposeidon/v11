@@ -51,11 +51,12 @@ macro_rules! table {
         $HEAD_COL_NAME:ident: [$HEAD_COL_ELEMENT:ty; $HEAD_COL_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)* /* trailing comma required */
     ) => {
+        #[allow(dead_code)]
         pub mod $TABLE_NAME {
             /* Force public; could provide a non-pub if needed. */
             use $crate::intern::ColWrapper;
             table! {
-                INTERNAL
+                @module_body
                 [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
                 $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; ColWrapper<$HEAD_COL_ELEMENT, $HEAD_COL_TYPE, RowId>],
                 $($COL_NAME: [$COL_ELEMENT; ColWrapper<$COL_ELEMENT, $COL_TYPE, RowId>],)*
@@ -63,7 +64,7 @@ macro_rules! table {
         }
     };
     (
-        INTERNAL
+        @module_body
         [impl $TABLE_NAME:ident, head = $HEAD:ident, RowId = $ROW_ID_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
