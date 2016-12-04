@@ -29,7 +29,6 @@ table! {
 
 table! {
     [pub test_foreign],
-    unsorted: [(); VoidCol],
     id: [EasyRowId; VecCol<EasyRowId>],
 }
 
@@ -220,7 +219,7 @@ fn remove_one() {
 }
 
 table! {
-    [pub sortie],
+    [pub sortie, RowId = usize, sortable],
     i: [usize; VecCol<usize>],
 }
 
@@ -247,7 +246,7 @@ fn sort() {
 }
 
 table! {
-    [pub bsortie],
+    [pub bsortie, sortable],
     i: [bool; BoolCol],
 }
 
@@ -275,7 +274,7 @@ fn bsort() {
 }
 
 table! {
-    [pub bits],
+    [pub bits, sortable],
     a: [bool; BoolCol],
     b: [bool; VecCol<bool>],
 }
@@ -316,10 +315,9 @@ fn bool_col() {
     //let bits = bits::write(&universe);
 }
 
-// just makes sure it compiles
+// just makes sure it compiles. Sadly there is no way to assert that a macro does not compile...
 table! {
     [pub missort],
-    unsorted: [(); VoidCol],
     x: [f32; VecCol<f32>],
 }
 

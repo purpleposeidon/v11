@@ -27,8 +27,12 @@
  * "[A-Za-z][A-Za-z_0-9]*".
  *
  * Column types must implement `Storable`.
- *
- * Table sorting is done by the value in the first column.
+ * 
+ * The type that is used to index the table can be specified in the heather with `RowId`,
+ * eg `[pub name_of_table, RowId = u8]`. The default RowId is usize.
+ * 
+ * If you want to sort the table, `sortable` should be passed into the header: `[pub name_of_table,
+ * sortable]`. The first column is used as the sort key.
  *
  */
 #[macro_export]
@@ -41,11 +45,17 @@ macro_rules! table {
             [pub $TABLE_NAME, RowId = usize],
             $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
         }
-        // So [f32; VecCol<SortF32>]
-        // [f32; VecCol<SortF32>; SortF32]
-        // No. It *must* wrap the VecCol. :/
-        // Can't store RowId's natively!
     };
+    (
+        [pub $TABLE_NAME:ident, sortable],
+        $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)+ /* trailing comma required */
+    ) => {
+        table! {
+            [pub $TABLE_NAME, RowId = usize, sortable],
+            $($COL_NAME: [$COL_ELEMENT; $COL_TYPE],)*
+        }
+    };
+
     (
         [pub $TABLE_NAME:ident, RowId = $ROW_ID_TYPE:ty],
         $HEAD_COL_NAME:ident: [$HEAD_COL_ELEMENT:ty; $HEAD_COL_TYPE:ty],
@@ -61,6 +71,55 @@ macro_rules! table {
                 $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; ColWrapper<$HEAD_COL_ELEMENT, $HEAD_COL_TYPE, RowId>],
                 $($COL_NAME: [$COL_ELEMENT; ColWrapper<$COL_ELEMENT, $COL_TYPE, RowId>],)*
             }
+            // No sorting.
+        }
+    };
+    (
+        [pub $TABLE_NAME:ident, RowId = $ROW_ID_TYPE:ty, sortable],
+        $HEAD_COL_NAME:ident: [$HEAD_COL_ELEMENT:ty; $HEAD_COL_TYPE:ty],
+        $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)* /* trailing comma required */
+    ) => {
+        #[allow(dead_code)]
+        pub mod $TABLE_NAME {
+            /* Force public; could provide a non-pub if needed. */
+            use $crate::intern::ColWrapper;
+            table! {
+                @module_body
+                [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
+                $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; ColWrapper<$HEAD_COL_ELEMENT, $HEAD_COL_TYPE, RowId>],
+                $($COL_NAME: [$COL_ELEMENT; ColWrapper<$COL_ELEMENT, $COL_TYPE, RowId>],)*
+            }
+
+            table! {
+                @sort
+                [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
+                $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; ColWrapper<$HEAD_COL_ELEMENT, $HEAD_COL_TYPE, RowId>],
+                $($COL_NAME: [$COL_ELEMENT; ColWrapper<$COL_ELEMENT, $COL_TYPE, RowId>],)*
+            }
+        }
+    };
+    (
+        [pub $TABLE_NAME:ident, RowId = $ROW_ID_TYPE:ty, sort = true],
+        $HEAD_COL_NAME:ident: [$HEAD_COL_ELEMENT:ty; $HEAD_COL_TYPE:ty],
+        $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)* /* trailing comma required */
+    ) => {
+        #[allow(dead_code)]
+        pub mod $TABLE_NAME {
+            /* Force public; could provide a non-pub if needed. */
+            use $crate::intern::ColWrapper;
+            table! {
+                @module_body
+                [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
+                $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; ColWrapper<$HEAD_COL_ELEMENT, $HEAD_COL_TYPE, RowId>],
+                $($COL_NAME: [$COL_ELEMENT; ColWrapper<$COL_ELEMENT, $COL_TYPE, RowId>],)*
+            }
+
+            table! {
+                @sort
+                [impl $TABLE_NAME, head = $HEAD_COL_NAME, RowId = $ROW_ID_TYPE],
+                $HEAD_COL_NAME: [$HEAD_COL_ELEMENT; ColWrapper<$HEAD_COL_ELEMENT, $HEAD_COL_TYPE, RowId>],
+                $($COL_NAME: [$COL_ELEMENT; ColWrapper<$COL_ELEMENT, $COL_TYPE, RowId>],)*
+            }
         }
     };
     (
@@ -71,7 +130,7 @@ macro_rules! table {
         use $crate::intern::{GenericTable, VoidIter, GenericRowId, TCol, PBox};
 
         #[allow(unused_imports)]
-        use $crate::intern::{VecCol, BoolCol, SegCol, VoidCol};
+        use $crate::intern::{VecCol, BoolCol, SegCol};
 
         #[allow(unused_imports)]
         use super::table_use::*;
@@ -312,42 +371,6 @@ macro_rules! table {
                 assert!(rm_off == 0);
             }
 
-            /**
-             * Sorts by the first key only. If you wanted to sort by multiple columns, you will
-             * have to pack them into a tuple in the first column.
-             * */
-            pub fn sort(&mut self) {
-                if *self._is_sorted { return; }
-
-                // We do this the lame way to avoid having to implement our own sorting
-                // algorithm.
-                // TODO: Lots of work implementing custom sorting algorithms for various SOA
-                // structures.
-                let indices = {
-                    let mut indices: Vec<usize> = (0..self.rows()).collect();
-                    indices.sort_by_key(|i| { self.$HEAD[fab(*i)] });
-                    indices
-                };
-                $({
-                    let mut tmp = Vec::with_capacity(indices.len());
-                    {
-                        for i in indices.iter() {
-                            tmp.push(self.$COL_NAME[fab(*i)]);
-                            // This has us potentially jumping around a lot, altho of course
-                            // often times the table will already be at least mostly-sorted.
-                            // (Well, it'll tend to be mostly sorted already, right?)
-                            // So we'll operate per-column, rather than over all columns, at a
-                            // time to maximize the chances of a cache hit.
-                            // (Well, maybe it'd be faster the other way???? Fancy Intel cache
-                            // prediction?)
-                        }
-                    }
-                    self.$COL_NAME.data.clear();
-                    self.$COL_NAME.data.append(&mut tmp);
-                })*
-                *self._is_sorted = true;
-            }
-
             pub fn decode<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
                 let rows = d.read_u32()? as usize;
                 self.reserve(rows);
@@ -374,7 +397,7 @@ macro_rules! table {
          * */
         pub struct Read<'u> {
             _lock: ::std::sync::RwLockReadGuard<'u, GenericTable>,
-            _is_sorted: &'u bool,
+            _is_sorted: bool,
             $(pub $COL_NAME: &'u $COL_TYPE,)*
         }
         impl<'u> Read<'u> {
@@ -426,8 +449,6 @@ macro_rules! table {
         pub fn read(universe: &$crate::Universe) -> Read { default().read(universe) }
         /// Locks the table for writing (with the default name).
         pub fn write(universe: &$crate::Universe) -> Write { default().write(universe) }
-        /// Sorts the table, and then re-locks for writing (with the default name).
-        pub fn sorted(universe: &$crate::Universe) -> Read { default().sorted(universe) }
         /// Shorthand for `default().register(universe)`
         pub fn register_default(universe: &mut $crate::Universe) { default().register(universe); }
 
@@ -464,11 +485,14 @@ macro_rules! table {
                 let table = universe.get_generic_table(self.name);
                 let _lock = table.read().unwrap();
                 use std::mem::transmute;
-                let _is_sorted = unsafe { transmute(&_lock.is_sorted) };
-                $( let $COL_NAME = unsafe { transmute(_lock.get_column::<$COL_TYPE>(
-                                stringify!($COL_NAME),
-                                format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
-                )) }; )*
+                let _is_sorted = _lock.is_sorted;
+                $(let $COL_NAME = {
+                    let name = format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE));
+                    let got = _lock.get_column::<$COL_TYPE>(stringify!($COL_NAME), name);
+                    unsafe {
+                        transmute(got)
+                    }
+                };)*
                 Read {
                     _lock: _lock,
                     _is_sorted: _is_sorted,
@@ -495,6 +519,69 @@ macro_rules! table {
                 }
             }
 
+            /** Registers the table. */
+            pub fn register(&self, universe: &mut $crate::Universe) {
+                let table = GenericTable::new(self.name);
+                $(let table = table.add_column(
+                        stringify!($COL_NAME),
+                        format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
+                        {
+                            type T = $COL_TYPE;
+                            Box::new(T::new()) as PBox
+                        }
+                );)*
+                universe.add_table(table);
+            }
+        }
+    };
+    (
+        @sort
+        [impl $TABLE_NAME:ident, head = $HEAD:ident, RowId = $ROW_ID_TYPE:ty],
+        $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
+    ) => {
+        impl<'u> Write<'u> {
+            /**
+             * Sorts by the first key only. If you wanted to sort by multiple columns, you will
+             * have to pack them into a tuple in the first column.
+             * */
+            pub fn sort(&mut self) {
+                if *self._is_sorted { return; }
+
+                // We do this the lame way to avoid having to implement our own sorting
+                // algorithm.
+                // TODO: Lots of work implementing custom sorting algorithms for various SOA
+                // structures.
+                let indices = {
+                    let mut indices: Vec<usize> = (0..self.rows()).collect();
+                    indices.sort_by_key(|i| { self.$HEAD[fab(*i)] });
+                    indices
+                };
+                $({
+                    let mut tmp = Vec::with_capacity(indices.len());
+                    {
+                        for i in indices.iter() {
+                            tmp.push(self.$COL_NAME[fab(*i)]);
+                            // This has us potentially jumping around a lot, altho of course
+                            // often times the table will already be at least mostly-sorted.
+                            // (Well, it'll tend to be mostly sorted already, right?)
+                            // So we'll operate per-column, rather than over all columns, at a
+                            // time to maximize the chances of a cache hit.
+                            // (Well, maybe it'd be faster the other way???? Fancy Intel cache
+                            // prediction?)
+                        }
+                    }
+                    self.$COL_NAME.data.clear();
+                    self.$COL_NAME.data.append(&mut tmp);
+                })*
+                *self._is_sorted = true;
+            }
+        }
+
+
+        /// Sorts the table, and then re-locks for writing (with the default name).
+        pub fn sorted(universe: &$crate::Universe) -> Read { default().sorted(universe) }
+
+        impl<'s> TableLoader<'s> {
             /**
              * Locks the table for reading, but first sorts it if necessary.
              * */
@@ -502,7 +589,7 @@ macro_rules! table {
                 for _ in 0..4 {
                     {
                         let ret = self.read(universe);
-                        if *ret._is_sorted {
+                        if ret._is_sorted {
                             return ret;
                         }
                     }
@@ -526,20 +613,6 @@ macro_rules! table {
                 // (Actually what would be best is a way to convert a RwLockWriteGuard into a
                 // RwLockReadGuard. Perhaps Rust could add something for converting between lock
                 // types?)
-            }
-
-            /** Registers the table. */
-            pub fn register(&self, universe: &mut $crate::Universe) {
-                let table = GenericTable::new(self.name);
-                $(let table = table.add_column(
-                        stringify!($COL_NAME),
-                        format!("[{}; {}]", stringify!($COL_ELEMENT), stringify!($COL_TYPE)),
-                        {
-                            type T = $COL_TYPE;
-                            Box::new(T::new()) as PBox
-                        }
-                );)*
-                universe.add_table(table);
             }
         }
     };

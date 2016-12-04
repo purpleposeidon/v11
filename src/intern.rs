@@ -353,25 +353,6 @@ impl TCol<bool> for BoolCol {
 /// Temporary (hopefully) stub for avec.
 pub type SegCol<E> = VecCol<E>;
 
-/**
- * Hack to avoid issues with types, such as floats, that do not implement `Ord`.
- * In some circumstances you could move a column to the front; but this may not be desirable, and
- * is of course impossible in cases when all columns are not sortable.
- *
- * ```
- * # #[macro_use] extern crate v11;
- * extern crate rustc_serialize;
- * pub mod table_use {}
- * table! {
- *      [pub floating_table],
- *      unsorted: [(); VoidCol],
- *      float: [f32; SegCol<f32>],
- * }
- * # fn main() {}
- * ```
- * */
-pub type VoidCol = VecCol<()>;
-
 #[cfg(test)]
 mod test {
     #[test]
