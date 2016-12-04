@@ -24,7 +24,7 @@ use std::iter::Peekable;
  * See Also
  * ========
  *
- * The package [joinkit](https://crates.io/crates/joinkit) may be preferable if you have are
+ * The package [joinkit](https://crates.io/crates/joinkit) may be preferable if you are
  * dealing with two streams that are both actually `Iterator`s.
  *
  * */
