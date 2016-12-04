@@ -11,6 +11,9 @@ bit-vec = "0.4.3"
 num-traits = "*"
 lazy_static = "*"
 
+# mopa = "0.2.*"
+# "my own personal Any", allows downcasting or something.
+
 
 
 # OwningRef: https://kimundi.github.io/owning-ref-rs/owning_ref/struct.OwningRef.html
