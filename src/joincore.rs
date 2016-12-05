@@ -36,7 +36,7 @@ use std::iter::Peekable;
 pub struct JoinCore<I, IT: Iterator<Item=I>> {
     right: Peekable<IT>,
 }
-impl<I, IT: Iterator<Item=I>> JoinCore<I, IT> where I: Ord {
+impl<I, IT: Iterator<Item=I>> JoinCore<I, IT> {
     pub fn new(iter: IT) -> Self {
         JoinCore {
             right: iter.peekable(),
