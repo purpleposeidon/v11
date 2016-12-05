@@ -57,12 +57,16 @@ pub struct Universe {
 }
 impl Universe {
     pub fn new() -> Universe {
-        let mut ret = Universe {
-            tables: HashMap::new(),
-            properties: Vec::with_capacity(property::property_count()),
-        };
+        let mut ret = Self::with_no_properties();
         ret.add_properties();
         ret
+    }
+
+    pub fn with_no_properties() -> Universe {
+        Universe {
+            tables: HashMap::new(),
+            properties: Vec::new(),
+        }
     }
 
     pub fn guard(self) -> GuardedUniverse { Arc::new(RwLock::new(self)) }
