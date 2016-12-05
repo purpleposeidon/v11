@@ -223,6 +223,23 @@ macro_rules! table {
             }
 
             /**
+             * Keep rows according to the provided criteria.
+             * If the closure returns `true`, then the row is kept.
+             * If the closure returns `false`, then the row is removed.
+             * */
+            pub fn filter<F>(&mut self, mut closure: F)
+                where F: FnMut(&mut Write, RowId) -> bool
+            {
+                self.visit(|wlock, rowid| -> ClearVisit {
+                    if closure(wlock, rowid) {
+                        $crate::Action::Continue
+                    } else {
+                        $crate::Action::Remove
+                    }
+                });
+            }
+
+            /**
              * Invokes the closure on every entry in the table. For each entry, the closure can
              * remove, modify, and insert arbitrary numbers of rows.
              *
@@ -235,7 +252,8 @@ macro_rules! table {
              * */
             pub fn visit<IT, F>(&mut self, mut closure: F)
                 where IT: ::std::iter::Iterator<Item=Row>,
-                       F: FnMut(&mut Write, RowId) -> $crate::Action<Row, IT> {
+                       F: FnMut(&mut Write, RowId) -> $crate::Action<Row, IT>
+            {
                 // This algorithm is probably close to maximum efficiency?
                 // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
                 // for internal temporary usage.
