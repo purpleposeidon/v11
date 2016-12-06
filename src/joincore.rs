@@ -33,18 +33,18 @@ use std::iter::Peekable;
  * dealing with two streams that are both actually `Iterator`s.
  *
  * */
-pub struct JoinCore<I, IT: Iterator<Item=I>> {
+pub struct JoinCore<R, IT: Iterator<Item=R>> {
     right: Peekable<IT>,
 }
-impl<I, IT: Iterator<Item=I>> JoinCore<I, IT> {
+impl<R, IT: Iterator<Item=R>> JoinCore<R, IT> {
     pub fn new(iter: IT) -> Self {
         JoinCore {
             right: iter.peekable(),
         }
     }
 
-    pub fn join<Compare>(&mut self, left_item: &I, cmp: Compare) -> Join<I>
-        where Compare: Fn(&I, &I) -> Ordering
+    pub fn join<L, Compare>(&mut self, left_item: &L, cmp: Compare) -> Join<R>
+        where Compare: Fn(&L, &R) -> Ordering
     {
         while self.right.peek().is_some() {
             let right_item = self.right.next().unwrap();
