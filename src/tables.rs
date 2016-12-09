@@ -136,6 +136,7 @@ macro_rules! table {
         use super::table_use::*;
 
         pub type RowId = GenericRowId<$ROW_ID_TYPE, Row>;
+        pub type RawType = $ROW_ID_TYPE;
 
         /// Creates an index into the `i`th row.
         pub fn at(i: $ROW_ID_TYPE) -> RowId { RowId::new(i) }
