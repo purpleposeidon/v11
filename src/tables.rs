@@ -600,6 +600,13 @@ macro_rules! table {
         /// Sorts the table, and then re-locks for writing (with the default name).
         pub fn sorted(universe: &$crate::Universe) -> Read { default().sorted(universe) }
 
+        /// Opens the table for writing, and also sorts it.
+        pub fn write_sorted(universe: &$crate::Universe) -> Write {
+            let mut tab = write(universe);
+            tab.sort();
+            tab
+        }
+
         impl<'s> TableLoader<'s> {
             /**
              * Locks the table for reading, but first sorts it if necessary.
