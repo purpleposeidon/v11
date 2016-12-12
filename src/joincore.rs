@@ -63,6 +63,11 @@ impl<R, IT: Iterator<Item=R>> JoinCore<R, IT> {
         Join::Stop
     }
 }
+impl<LR, IT: Iterator<Item=LR>> JoinCore<LR, IT> where LR: Ord {
+    pub fn cmp(&mut self, left_item: &LR) -> Join<LR> {
+        self.join(left_item, LR::cmp)
+    }
+}
 
 /// Return value for `JoinCore.join`.
 pub enum Join<T> {
