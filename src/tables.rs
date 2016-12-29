@@ -138,6 +138,12 @@ macro_rules! table {
         pub type RowId = GenericRowId<$ROW_ID_TYPE, Row>;
         pub type RawType = $ROW_ID_TYPE;
 
+        /// An undefined index value to be used for eg initializing arrays.
+        pub const UNDEFINED_INDEX: RowId = RowId {
+            i: ::std::usize::MAX as RawType,
+            t: ::std::marker::PhantomData,
+        };
+
         /// Creates an index into the `i`th row.
         pub fn at(i: $ROW_ID_TYPE) -> RowId { RowId::new(i) }
         fn fab(i: usize) -> RowId { at(i as $ROW_ID_TYPE) }

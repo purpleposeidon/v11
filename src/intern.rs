@@ -155,8 +155,10 @@ use std::marker::PhantomData;
 use num_traits::PrimInt;
 #[derive(Debug, Copy, Clone)]
 pub struct GenericRowId<I: PrimInt, T> {
-    i: I,
-    t: PhantomData<T>,
+    #[doc(hidden)]
+    pub i: I,
+    #[doc(hidden)]
+    pub t: PhantomData<T>,
 }
 
 impl<I: PrimInt, T> GenericRowId<I, T> {
