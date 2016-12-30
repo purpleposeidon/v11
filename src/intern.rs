@@ -153,15 +153,19 @@ impl<I> Iterator for VoidIter<I> {
 
 use std::marker::PhantomData;
 use num_traits::PrimInt;
-#[derive(Debug, Copy, Clone)]
-pub struct GenericRowId<I: PrimInt, T> {
+
+pub trait TableName {
+    fn get_name() -> &'static str;
+}
+
+#[derive(Copy, Clone)]
+pub struct GenericRowId<I: PrimInt, T: TableName> {
     #[doc(hidden)]
     pub i: I,
     #[doc(hidden)]
     pub t: PhantomData<T>,
 }
-
-impl<I: PrimInt, T> GenericRowId<I, T> {
+impl<I: PrimInt, T: TableName> GenericRowId<I, T> {
     pub fn new(i: I) -> Self {
         GenericRowId {
             i: i,
@@ -176,19 +180,40 @@ impl<I: PrimInt, T> GenericRowId<I, T> {
     }
 }
 
+use std::fmt;
+impl<I: PrimInt + fmt::Display, T: TableName> fmt::Debug for GenericRowId<I, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}[{}]", T::get_name(), self.i)
+    }
+}
+
+#[test]
+fn test_formatting() {
+    struct TestName;
+    impl TableName for TestName {
+        fn get_name() -> &'static str { "test_table" }
+    }
+    let gen: GenericRowId<usize, TestName> = GenericRowId {
+        i: 23,
+        t: ::std::marker::PhantomData,
+    };
+    assert_eq!("test_table[23]", format!("{:?}", gen));
+}
+
+
 use std::cmp::{Eq, PartialEq, PartialOrd, Ord};
-impl<I: PrimInt, T> PartialEq for GenericRowId<I, T> {
+impl<I: PrimInt, T: TableName> PartialEq for GenericRowId<I, T> {
     fn eq(&self, other: &GenericRowId<I, T>) -> bool {
         self.i == other.i
     }
 }
-impl<I: PrimInt, T> Eq for GenericRowId<I, T> {}
-impl<I: PrimInt, T> PartialOrd for GenericRowId<I, T> {
+impl<I: PrimInt, T: TableName> Eq for GenericRowId<I, T> {}
+impl<I: PrimInt, T: TableName> PartialOrd for GenericRowId<I, T> {
     fn partial_cmp(&self, other: &GenericRowId<I, T>) -> Option<::std::cmp::Ordering> {
         self.i.partial_cmp(&other.i)
     }
 }
-impl<I: PrimInt, T> Ord for GenericRowId<I, T> {
+impl<I: PrimInt, T: TableName> Ord for GenericRowId<I, T> {
     fn cmp(&self, other: &GenericRowId<I, T>) -> ::std::cmp::Ordering {
         self.i.cmp(&other.i)
     }
@@ -196,20 +221,20 @@ impl<I: PrimInt, T> Ord for GenericRowId<I, T> {
 
 // Things get displeasingly manual due to the PhantomData.
 use std::hash::{Hash, Hasher};
-impl<I: PrimInt + Hash, T> Hash for GenericRowId<I, T> {
+impl<I: PrimInt + Hash, T: TableName> Hash for GenericRowId<I, T> {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
         self.i.hash(state);
     }
 }
 
 use rustc_serialize::{Encoder, Encodable, Decoder, Decodable};
-impl<I: PrimInt + Encodable, T> Encodable for GenericRowId<I, T> {
+impl<I: PrimInt + Encodable, T: TableName> Encodable for GenericRowId<I, T> {
     fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
         self.i.encode(s)
     }
 }
 
-impl<I: PrimInt + Decodable, T> Decodable for GenericRowId<I, T> {
+impl<I: PrimInt + Decodable, T: TableName> Decodable for GenericRowId<I, T> {
     fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
         Ok(Self::new(try!(I::decode(d))))
     }
@@ -247,11 +272,11 @@ impl<E: Storable, C: TCol<E>, R> ColWrapper<E, C, R> {
         }
     }
 }
-impl<E: Storable, C: TCol<E>, R: PrimInt, T> Index<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
+impl<E: Storable, C: TCol<E>, R: PrimInt, T: TableName> Index<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
     type Output = E;
     fn index(&self, index: GenericRowId<R, T>) -> &E { self.data.col_index(index.to_usize()) }
 }
-impl<E: Storable, C: TCol<E>, R: PrimInt, T> IndexMut<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
+impl<E: Storable, C: TCol<E>, R: PrimInt, T: TableName> IndexMut<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
     fn index_mut(&mut self, index: GenericRowId<R, T>) -> &mut E { self.data.col_index_mut(index.to_usize()) }
 }
 

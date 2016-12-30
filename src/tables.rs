@@ -127,7 +127,7 @@ macro_rules! table {
         [impl $TABLE_NAME:ident, head = $HEAD:ident, RowId = $ROW_ID_TYPE:ty],
         $($COL_NAME:ident: [$COL_ELEMENT:ty; $COL_TYPE:ty],)*
     ) => {
-        use $crate::intern::{GenericTable, VoidIter, GenericRowId, TCol, PBox};
+        use $crate::intern::{GenericTable, VoidIter, GenericRowId, TCol, PBox, TableName};
 
         #[allow(unused_imports)]
         use $crate::intern::{VecCol, BoolCol, SegCol};
@@ -156,6 +156,9 @@ macro_rules! table {
         #[derive(Debug, PartialEq, Copy, Clone, RustcEncodable, RustcDecodable)]
         pub struct Row {
             $(pub $COL_NAME: $COL_ELEMENT,)*
+        }
+        impl TableName for Row {
+            fn get_name() -> &'static str { stringify!($TABLE_NAME) }
         }
         use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
 

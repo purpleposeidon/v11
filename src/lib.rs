@@ -104,7 +104,7 @@ impl<I: PrimInt, T> RowIdIterator<I, T> {
         }
     }
 }
-impl<I: PrimInt + ::num_traits::ToPrimitive, T> Iterator for RowIdIterator<I, T> {
+impl<I: PrimInt + ::num_traits::ToPrimitive, T: TableName> Iterator for RowIdIterator<I, T> {
     type Item = GenericRowId<I, T>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.i >= self.end { return None; }
