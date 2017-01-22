@@ -179,6 +179,14 @@ impl<I: PrimInt, T: TableName> GenericRowId<I, T> {
         Self::new(self.i + I::one())
     }
 }
+impl<I: PrimInt, T: TableName> Default for GenericRowId<I, T> {
+    fn default() -> Self {
+        GenericRowId {
+            i: I::max_value() /* UNDEFINED_INDEX */,
+            t: PhantomData,
+        }
+    }
+}
 
 use std::fmt;
 impl<I: PrimInt + fmt::Display, T: TableName> fmt::Debug for GenericRowId<I, T> {
