@@ -258,7 +258,7 @@ macro_rules! table {
              * Similar to `Vec.retain`, but also allows insertion.
              *
              * If you want to visit without inserting, you will still need to provide a type for an
-             * un-used iterator.
+             * un-used iterator. Or, you can use `$table.filter()`.
              * */
             pub fn visit<IT, F>(&mut self, mut closure: F)
                 where IT: ::std::iter::Iterator<Item=Row>,
