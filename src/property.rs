@@ -8,14 +8,10 @@ use super::Universe;
 use super::intern::PBox;
 
 
-type FatPtr = (usize, usize);
-
 struct GlobalProperties {
     name2id: HashMap<String, usize>,
     id2name: HashMap<usize, String>,
 
-    //id2producer: Vec<FatPtr>,
-    // What that is really a Vec of:
     id2producer: Vec<fn() -> PBox>,
 }
 
