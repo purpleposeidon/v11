@@ -648,6 +648,7 @@ macro_rules! table {
                 // (Actually what would be best is a way to convert a RwLockWriteGuard into a
                 // RwLockReadGuard. Perhaps Rust could add something for converting between lock
                 // types?)
+                // Or sorted could just only return a Write.
             }
         }
     };
