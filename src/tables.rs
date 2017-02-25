@@ -54,9 +54,8 @@ The leading `pub` may be elided to make the module private.
 Sets what the (underlying) primitive is used for indexing the table. The default is `usize`.
 This is useful for foreign keys.
 
-# `Debug;`
-(FIXME: nyi?)
-Adds `#[derive(Debug)]` to `Row`.
+# `NoDebug;`
+`#[derive(Debug)]` is added to `Row` by default.
 
 # `TrackRm;`
 (FIXME: nyi)

@@ -7,6 +7,8 @@ extern crate rustc_serialize;
 
 use v11::{Universe, Action};
 
+mod addons;
+
 table! {
     pub new_table_test {
         random_number: [usize; VecCol<usize>],

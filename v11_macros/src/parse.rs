@@ -39,9 +39,7 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
         sep: Some(Token::Comma),
         trailing_sep_allowed: true,
     };
-    let mut table: Table = Table::default();
-    // Real defaults
-    table.row_id = "usize".to_owned();
+    let mut table: Table = Table::new();
 
     // [#[attr]] [pub] table_name { ... }
     table.attrs = parser.parse_outer_attributes()?;
@@ -101,8 +99,8 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
                 // RowId = usize
                 parser.expect(&Token::Eq)?;
                 table.row_id = pp::ty_to_string(&*parser.parse_ty()?);
-            } else if name == "Debug" {
-                table.debug = true;
+            } else if name == "NoDebug" {
+                table.debug = false;
             } else if name == "TrackRm" {
                 table.track_rm = true;
             } else if name == "ForeignCascade" {

@@ -1,7 +1,8 @@
 use syntex_syntax::ast::{Ident, Ty, Attribute};
 use syntex_syntax::ptr::P;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
+#[derive(Default)] // Don't actually use this, it's just to keep new() easy.
 pub struct Table {
     // Header
     pub attrs: Vec<Attribute>,
@@ -28,6 +29,14 @@ pub struct Table {
     pub mod_code: Option<String>,
 }
 impl Table {
+    pub fn new() -> Self {
+        Table {
+            debug: true,
+            row_id: "usize".to_owned(),
+            version: 1,
+            .. Table::default()
+        }
+    }
     pub fn validate(&mut self) -> Option<&str> {
         if self.cols.is_empty() {
             return Some("No columns");

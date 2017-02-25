@@ -115,6 +115,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
+    let DERIVE_DEBUG = if table.debug {
+        quote! {
+            #[derive(Debug)]
+        }
+    } else {
+        quote! {}
+    };
+
     let ROW_ID_TYPE = i(table.row_id);
     write_quote! {
         [table, out, "Indexes"]
@@ -148,8 +156,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * the actual table is column-based, so eg `read.column[index]` is the standard method
          * of accessing rows.
          * */
-        #[derive(Debug, PartialEq, Copy, Clone)]
+        #[derive(PartialEq, Copy, Clone)]
         #DERIVE_ENCODING
+        #DERIVE_DEBUG
         pub struct Row {
             #(pub #COL_NAME: #COL_ELEMENT,)*
         }
@@ -508,7 +517,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                 rm_off = 0;
                                 break;
                             } else {
-                                panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer);
+                                // FIXME: #{} needs to be a thing. This little thing isn't
+                                // worth the hassle.
+                                // https://github.com/dtolnay/quote/issues/10
+                                // panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer);
+                                panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer.len());
                             }
                         },
                         v11::Action::Continue => { index += 1; },
