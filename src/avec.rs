@@ -1,4 +1,4 @@
-// TODO: This needs a non-slice-based sorting algorithm. (Or maybe a merge-sort would work nicely?)
+// FIXME: This needs a non-slice-based sorting algorithm. (Or maybe a merge-sort would work nicely?)
 
 pub struct ArrayVec<D> {
     bits: usize,
