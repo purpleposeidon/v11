@@ -70,8 +70,10 @@ then that row (on this table) will be removed by calling (FIXME: some function).
 (FIXME: nyi. Also tricky.)
 Keeps a sparse list of modified rows.
 
+# `GenericSort;`
+Adds a parameterized sort method.
+
 # `SortBy(SomeColumnName);`
-(FIXME: nyi)
 Sorts the table by that column.
 
 # `FreeList;`
@@ -84,6 +86,7 @@ method can be `Serde` or `Rustc`. Adds methods for encoding or decoding the tabl
 
 # `Static;`
 Marks the table as being something that is only modified once.
+This allows skipping some codegen.
 
  **/
 #[macro_export]
