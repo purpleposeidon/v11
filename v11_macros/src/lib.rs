@@ -33,7 +33,6 @@ pub fn add_expander<P: AsRef<Path>>(registry: &mut syntex::Registry, output: P, 
 /// Recursively process each Rust source file in the input directory,
 /// writing any table module definitions to the output directory.
 pub fn process(crate_name: &str, input: &Path, output: &Path, run_rust_format: bool) {
-    warn(&format!("{}: {:?} -> {:?}", crate_name, input, output));
     // We can't use `cargo:rerun-if-changed` because a new table could
     // be defined anywhere.
     assert!(input.is_dir(), "Input path is not a directory: {:?}", input);
@@ -46,7 +45,6 @@ pub fn process(crate_name: &str, input: &Path, output: &Path, run_rust_format: b
         if !entry.file_type().is_file() { continue; }
         let source = entry.path();
         if source.extension() != dot_rs { continue; }
-        warn(&format!("process: {:?}", source));
         let mut registry = syntex::Registry::new();
         add_expander(&mut registry, output, run_rust_format);
         registry.expand(crate_name, source, &tmp.path).ok();
