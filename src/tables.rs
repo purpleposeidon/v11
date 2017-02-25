@@ -1,5 +1,31 @@
 #![macro_use]
 
+#[macro_export]
+macro_rules! new_table {
+    (pub $TABLE_NAME:ident $($ignored:tt)*) => {
+        pub mod $TABLE_NAME {
+            // If this file isn't found, you probably didn't setup the build script.
+            include!(concat!(
+                env!("OUT_DIR"),
+                "/v11_generated_tables/",
+                stringify!($TABLE_NAME),
+                ".rs",
+            ));
+        }
+    };
+    ($TABLE_NAME:ident $($ignored:tt)*) => {
+        mod $TABLE_NAME {
+            // If this file isn't found, you probably didn't setup the build script.
+            include!(concat!(
+                env!("OUT_DIR"),
+                "/v11_generated_tables/",
+                stringify!($TABLE_NAME),
+                ".rs",
+            ));
+        }
+    };
+}
+
 /**
  * This macro creates a table containing the implementation of the table.
  *
@@ -142,8 +168,14 @@ macro_rules! table {
         pub const UNDEFINED_INDEX: RowId = RowId {
             i: ::std::usize::MAX as RawType,
             t: ::std::marker::PhantomData,
+        }; // FIXME: rename 'INVALID_INDEX'? Just 'INVALID'?
+
+        pub const FIRST: RowId = RowId {
+            i: 0,
+            t: ::std::marker::PhantomData,
         };
 
+        // FIXME: Can we change this to 'unsafe'? What uses this that isn't covered above?
         /// Creates an index into the `i`th row.
         pub fn at(i: $ROW_ID_TYPE) -> RowId { RowId::new(i) }
         fn fab(i: usize) -> RowId { at(i as $ROW_ID_TYPE) }
@@ -577,7 +609,7 @@ macro_rules! table {
 
                 // We do this the lame way to avoid having to implement our own sorting
                 // algorithm.
-                // TODO: Lots of work implementing custom sorting algorithms for various SOA
+                // FIXME: Lots of work implementing custom sorting algorithms for various SOA
                 // structures.
                 let indices = {
                     let mut indices: Vec<usize> = (0..self.rows()).collect();

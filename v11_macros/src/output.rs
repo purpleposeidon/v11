@@ -1,0 +1,557 @@
+use std::io::Write;
+
+use quote::{Ident, Tokens};
+use syntex_syntax::print::pprust as pp;
+
+use super::{Table, Serializer};
+
+/// Convert a string into a quote `Ident`.
+fn i<S: AsRef<str>>(s: S) -> Ident {
+    Ident::new(s.as_ref())
+}
+
+macro_rules! write_quote {
+    ([$table:expr, $out:expr, $section:expr] $($args:tt)*) => {
+        let buff = format!("\n// {}\n{}\n\n", $section, quote! { $($args)* });
+        let buff = buff.replace("#TABLE_NAME", &$table.name);
+
+        $out.write(buff.as_bytes())?;
+    };
+}
+
+#[allow(non_snake_case)]
+pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
+    // Info
+    writeln!(out, "// Generated file. Table config:")?;
+    for line in format!("{:#?}", table).split('\n') {
+        writeln!(out, "//   {}", line)?;
+    }
+
+    let str2i = |v: &Vec<String>| -> Vec<Ident> { v.iter().map(i).collect() };
+
+    // "name": ["element"; "col_type"],
+    let COL_NAME_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ident_to_string(x.name)).collect();
+    let COL_ELEMENT_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ty_to_string(&*x.element)).collect();
+    let COL_TYPE_STR: &Vec<_> = &table.cols.iter().map(|x| format!("ColWrapper<{}, RowId>", pp::ty_to_string(&*x.colty))).collect();
+
+    // name: [element; col_type],
+    let COL_NAME: &Vec<_> = &str2i(COL_NAME_STR);
+    let COL_ELEMENT: &Vec<_> = &str2i(COL_ELEMENT_STR);
+    let COL_TYPE: &Vec<_> = &str2i(COL_TYPE_STR);
+    let COL0 = &COL_NAME[0];
+
+    let COL_FORMAT: &Vec<String> = &table.cols.iter().map(|x| {
+        // table.column: [element; column]
+        format!("{}.{}: [{}; {}]",
+                table.name,
+                x.name,
+                pp::ty_to_string(&*x.element),
+                pp::ty_to_string(&*x.colty))
+    }).collect();
+
+    // Work around for things like #(#COL_NAME: row.#COL_NAME)*
+    let COL_NAME2 = COL_NAME;
+    let COL_NAME3 = COL_NAME;
+    let COL_NAME4 = COL_NAME;
+    let COL_TYPE2 = COL_TYPE;
+
+    let TABLE_NAME_STR = table.name.clone();
+    write_quote! {
+        [table, out, "Header"]
+
+        use v11;
+        use v11::intern::{GenericTable, GenericRowId, TCol, PBox, TableName, ColWrapper};
+
+        #[allow(unused_imports)]
+        use v11::intern::{VecCol, BoolCol, SegCol};
+        // FIXME: ThingieCol aren't really intern...?
+        // Having them automatically imported is a reasonable convenience.
+        // They should probably go into v11::columns or something.
+
+        pub const TABLE_NAME: &'static str = #TABLE_NAME_STR;
+
+        #[allow(non_upper_case_globals)]
+        mod column_format {
+            #(pub const #COL_NAME: &'static str = #COL_FORMAT;)*
+        }
+    }
+
+    let mut rustc_encode = false;
+    let mut rustc_decode = false;
+    let mut serde_encode = false;
+    let mut serde_decode = false;
+    let DERIVE_ENCODING: Tokens = {
+        let mut ret = Vec::new();
+        for v in table.encode.iter() {
+            match *v {
+                Serializer::Rustc => rustc_encode = true,
+                Serializer::Serde => serde_encode = true,
+            }
+        }
+        for v in table.decode.iter() {
+            match *v {
+                Serializer::Rustc => rustc_decode = true,
+                Serializer::Serde => serde_decode = true,
+            }
+        }
+        let stuffs = [
+            (rustc_encode, "use rustc_serialize::{Encoder, Encodable}", "RustcEncodable"),
+            (rustc_decode, "use rustc_serialize::{Decoder, Decodable}", "RustcDecodable"),
+            (serde_encode, "use serde::{Deserializer, Deserialize};", "RustcDecodable"),
+            (serde_decode, "use serde::{Serializer, Serialize};", "Deserialize"),
+        ];
+        for stuff in stuffs.iter() {
+            if !stuff.0 { continue; }
+            writeln!(out, "{}", stuff.1)?;
+            ret.push(stuff.2);
+        }
+        if ret.is_empty() {
+            quote! {}
+        } else {
+            let mut RES = Tokens::new();
+            RES.append_separated(ret.into_iter(), ",");
+            quote! {
+                #[derive(#RES)]
+            }
+        }
+    };
+
+    let ROW_ID_TYPE = i(table.row_id);
+    write_quote! {
+        [table, out, "Indexes"]
+
+        pub type RowId = GenericRowId<#ROW_ID_TYPE, Row>;
+        pub type RawType = #ROW_ID_TYPE;
+
+        /// An undefined index value to be used for default values.
+        pub const INVALID: RowId = RowId {
+            i: ::std::usize::MAX as RawType,
+            t: ::std::marker::PhantomData,
+        };
+
+        /// A reference to the first row. Is invalid if there is no rows.
+        pub const FIRST: RowId = RowId {
+            i: 0,
+            t: ::std::marker::PhantomData,
+        };
+
+        // FIXME: Can we change this to 'unsafe'? What uses this that isn't covered above?
+        /// Creates an index into the `i`th row.
+        pub fn at(i: #ROW_ID_TYPE) -> RowId { RowId::new(i) }
+        fn fab(i: usize) -> RowId { at(i as #ROW_ID_TYPE) }
+    };
+
+    write_quote! {
+        [table, out, "The `Row` struct"]
+
+        /**
+         * A structure holding a row's data. This is used to pass rows around through methods;
+         * the actual table is column-based, so eg `read.column[index]` is the standard method
+         * of accessing rows.
+         * */
+        #[derive(Debug, PartialEq, Copy, Clone)]
+        #DERIVE_ENCODING
+        pub struct Row {
+            #(pub #COL_NAME: #COL_ELEMENT,)*
+        }
+        impl TableName for Row {
+            fn get_name() -> &'static str { TABLE_NAME }
+        }
+    };
+
+    write_quote! {
+        [table, out, "Table locks"]
+
+        /**
+         * The table, locked for writing.
+         * */
+        pub struct Write<'u> {
+            _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
+            #(pub #COL_NAME: &'u mut #COL_TYPE,)*
+        }
+
+        /**
+         * The table, locked for reading.
+         * */
+        pub struct Read<'u> {
+            _lock: ::std::sync::RwLockReadGuard<'u, GenericTable>,
+            #(pub #COL_NAME: &'u #COL_TYPE,)*
+        }
+    };
+
+    let RW_FUNCTIONS = quote! {
+        /** Returns the number of rows in the table. (R/W) */
+        // And assumes that the columns are all the same length.
+        // But there shouldn't be any way to break that invariant.
+        pub fn rows(&self) -> usize {
+            self.#COL0.len()
+        }
+
+        /** Returns an iterator over each row in the table. (R/W) */
+        pub fn range(&self) -> v11::RowIdIterator<#ROW_ID_TYPE, Row> {
+            v11::RowIdIterator::new(0, self.rows() as #ROW_ID_TYPE)
+        }
+
+        /** Returns true if `i` is a valid RowId. */
+        pub fn contains(&self, index: RowId) -> bool {
+            index.to_usize() < self.rows()
+        }
+
+        /** Retrieves a structure containing a copy of the value in each column. (R/W) */
+        pub fn get_row(&self, index: RowId) -> Row {
+            Row {
+                #(#COL_NAME: self.#COL_NAME2[index],)*
+            }
+        }
+
+        /** Allocates a Vec filled with every Row in the table. (R/W) */
+        pub fn dump(&self) -> Vec<Row> {
+            let mut ret = Vec::with_capacity(self.rows());
+            for i in self.range() {
+                ret.push(self.get_row(i));
+            }
+            ret
+        }
+
+        // FIXME: Join
+    };
+    write_quote! {
+        [table, out, "methods common to both Read and Write"]
+        // FIXME: It'd kinda be nice to not have to do it this ugly way...
+        // Could we have some kind of CommonLock?
+        // It could be difficult to do that in an ergonomic way tho.
+        
+        impl<'u> Read<'u> {
+            #RW_FUNCTIONS
+        }
+        impl<'u> Write<'u> {
+            #RW_FUNCTIONS
+        }
+    }
+
+    write_quote! {
+        [table, out, "mut methods"]
+
+        impl<'u> Write<'u> {
+            /** Prepare the table for insertion of a specific amount of data. `self.rows()` is
+             * unchanged. */
+            pub fn reserve(&mut self, additional: usize) {
+                #(self.#COL_NAME.data.reserve(additional);)*
+            }
+
+            /** Removes every row from the table. */
+            pub fn clear(&mut self) {
+                #(self.#COL_NAME.data.clear();)*
+            }
+
+            pub fn set_row(&mut self, index: RowId, row: Row) {
+                #(self.#COL_NAME[index] = row.#COL_NAME2;)*
+            }
+
+            /** Populate the table with data from the provided iterator. */
+            pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
+                self.reserve(data.size_hint().0);
+                for row in data {
+                    self.push1(row);
+                }
+            }
+
+            /// Appends a single Row to the end of the table.
+            /// Returns its RowId.
+            pub fn push(&mut self, row: Row) -> RowId {
+                self.push1(row);
+                fab(self.rows() - 1)
+            }
+
+            fn push1(&mut self, row: Row) {
+                #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+            }
+        }
+    };
+
+    write_quote! {
+        [table, out, "Lock & Load"]
+
+        use std::mem::transmute;
+
+        /// Locks the table for reading.
+        pub fn read<'u>(universe: &'u v11::Universe) -> Read<'u> {
+            // FIXME: can we ditch the 'u?
+            let table = universe.get_generic_table(TABLE_NAME);
+            let _lock = table.read().unwrap();
+            #(let #COL_NAME = {
+                let got = _lock.get_column::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
+                unsafe {
+                    transmute(got)
+                }
+            };)*
+            Read {
+                _lock: _lock,
+                #( #COL_NAME3: #COL_NAME4, )*
+            }
+        }
+
+        /// Locks the table for writing.
+        pub fn write<'u>(universe: &'u v11::Universe) -> Write<'u> {
+            let table = universe.get_generic_table(TABLE_NAME);
+            let mut _lock = table.write().unwrap();
+            #(let #COL_NAME = {
+                let got = _lock.get_column_mut::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
+                unsafe {
+                    transmute(got)
+                }
+            };)*
+            Write {
+                _lock: _lock,
+                #( #COL_NAME3: #COL_NAME4, )*
+            }
+        }
+
+        /// Register the table to the universe.
+        pub fn register(universe: &mut v11::Universe) {
+            let table = GenericTable::new(TABLE_NAME);
+            let table = table #(.add_column(
+                #COL_NAME_STR,
+                column_format::#COL_NAME,
+                {
+                    type CT = #COL_TYPE2;
+                    Box::new(CT::new()) as PBox
+                },
+            ))*;
+            universe.add_table(table);
+        }
+    };
+
+    if rustc_encode {
+        write_quote! {
+            [table, out, "Rustc Encode"]
+
+            impl<'u> Read<'u> {
+                pub fn encode<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
+                    let rows = self.rows();
+                    e.emit_u32(rows as u32)?;
+                    for i in self.range() {
+                        let row = self.row(i);
+                        row.encode(e)?;
+                    }
+                    Ok(())
+                }
+            }
+        };
+    }
+
+    if rustc_decode {
+        write_quote! {
+            [table, out, "Rustc Decode"]
+
+            impl<'u> Write<'u> {
+                pub fn decode<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
+                    let rows = d.read_u32()? as usize;
+                    self.reserve(rows);
+                    for _ in 0..rows {
+                        let row = Row::decode(d)?;
+                        #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                    }
+                    Ok(())
+                }
+            }
+        };
+    }
+
+    if serde_encode || serde_decode {
+        unimplemented!();
+    }
+
+    write_quote! {
+        [table, out, "Complicated mut algorithms"]
+
+        /**
+         * Ergonomics for calling `Write::visit` with a closure that does not add values.
+         * 
+         * `#TABLE_NAME.visit(|table, i| -> #TABLE_NAME::ClearVisit { … })`
+         * */
+        pub type ClearVisit = v11::Action<Row, v11::intern::VoidIter<Row>>;
+
+        impl<'u> Write<'u> {
+            /**
+             * Keep or discard rows according to the provided closure.
+             * If it returns `true`, then the row is kept.
+             * If it returns `false`, then the row is removed.
+             * */
+            pub fn filter<F>(&mut self, mut closure: F)
+                where F: FnMut(&mut Write, RowId) -> bool
+            {
+                self.visit(|wlock, rowid| -> ClearVisit {
+                    if closure(wlock, rowid) {
+                        v11::Action::Continue
+                    } else {
+                        v11::Action::Remove
+                    }
+                });
+            }
+
+            /**
+             * Invokes the closure on every entry in the table. For each row, the closure can:
+             * *. remove that row
+             * *. modify that row
+             * *. do nothing to that row
+             * *. return an iterator to append an arbitrary number of rows
+             * It is to `Vec.retain`, but also allows insertion.
+             *
+             * This method can't insert rows into an empty table.
+             *
+             * If you want to remove & insert at the same time, you can do:
+             * ```
+             * #TABLE_NAME.set(row_id, iter.next().unwrap());
+             * return Action::Add(iter);
+             * 
+             * In addition to whatever the backing `TCol`s allocate, this function also allocates a
+             * `Vec` whose size is the number of inserted rows.
+             * ```
+             * */
+            pub fn visit<IT, F>(&mut self, mut closure: F)
+                where IT: ::std::iter::Iterator<Item=Row>,
+                       F: FnMut(&mut Write, RowId) -> v11::Action<Row, IT>
+            {
+                // This algorithm is probably close to maximum efficiency?
+                // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
+                // for internal temporary usage.
+
+                use std::collections::vec_deque::VecDeque;
+                // Temporary queue of rows that were displaced by inserts. In the middle of
+                // iteration, the length of this list is equal to the number of inserted rows.
+                // If this queue is not empty, then each visited row is pushed onto it,
+                // replaced with the popped front of the queue, and then that is what is
+                // actually visited. Should the end of the rowset be reached, this buffer is
+                // appended, and iteration continues.
+                let mut displaced_buffer: VecDeque<Row> = VecDeque::new();
+                // This is the read offset of the index, used when rows have been removed.
+                // It `rm_off > 0 && !displaced_buffer.is_empty()`, then rows from
+                // displaced_buffer need to be copied to the columns.
+                // It can be thought of as 'negative displacement_buffer size'.
+                let mut rm_off: usize = 0;
+                // Rows that have just been inserted must not be visited.
+                let mut skip = 0;
+
+                let mut index = 0usize;
+                fn flush_displaced(index: &mut usize,
+                                   rm_off: &mut usize,
+                                   all: &mut Write,
+                                   displaced_buffer: &mut VecDeque<Row>) {
+                    while *rm_off > 0 && !displaced_buffer.is_empty() {
+                        all.set_row(fab(*index), displaced_buffer.pop_front().unwrap());
+                        *index += 1;
+                        *rm_off -= 1;
+                    }
+                }
+
+                loop {
+                    let len = self.rows();
+                    if index + rm_off >= len {
+                        if displaced_buffer.is_empty() {
+                            if rm_off > 0 {
+                                #(self.#COL_NAME.data.truncate(len - rm_off);)*
+                                rm_off = 0;
+                            }
+                            break;
+                        }
+                        flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
+                        while let Some(row) = displaced_buffer.pop_front() {
+                            #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                            if skip > 0 {
+                                skip -= 1;
+                                index += 1;
+                            }
+                        }
+                        continue;
+                    }
+                    if let Some(replacement) = displaced_buffer.pop_front() {
+                        // Swap between '`here`' and the first displaced row.
+                        // No garbage is produced.
+                        displaced_buffer.push_back(self.get_row(fab(index)));
+                        self.set_row(fab(index), replacement);
+                        assert!(rm_off == 0);
+                    }
+                    if rm_off > 0 {
+                        // Move a row from the end of the garbage gap to the beginning.
+                        // The front of the garbage gap is no longer garbage, and the back is
+                        // now garbage.
+                        let tmprow = self.get_row(fab(index + rm_off));
+                        self.set_row(fab(index), tmprow);
+                    }
+                    // An invariant needs to be true at this point: self[index] is valid, not
+                    // garbage data. What could make it garbage?
+                    // This first loop, it's going to be fine.
+                    // If remove has been used, then there are worries.
+                    let action = if skip == 0 {
+                        closure(self, fab(index))
+                    } else {
+                        skip -= 1;
+                        v11::Action::Continue
+                    };
+                    match action {
+                        v11::Action::Break => {
+                            if rm_off == 0 && displaced_buffer.is_empty() {
+                                // Don't need to do anything
+                                break;
+                            } else if !displaced_buffer.is_empty() {
+                                // simply stick 'em on the end
+                                for row in displaced_buffer.iter() {
+                                    #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                                }
+                                displaced_buffer.clear();
+                                // And we don't visit them.
+                                break;
+                            } else if rm_off != 0 {
+                                // Trim.
+                                let start = index + 1;
+                                #(self.#COL_NAME.data.remove_slice(start..start+rm_off);)*
+                                rm_off = 0;
+                                break;
+                            } else {
+                                panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer);
+                            }
+                        },
+                        v11::Action::Continue => { index += 1; },
+                        v11::Action::Remove => {
+                            match displaced_buffer.pop_front() {
+                                None => { rm_off += 1; },
+                                Some(row) => {
+                                    self.set_row(fab(index), row);
+                                    index += 1;
+                                },
+                            }
+                        },
+                        v11::Action::Add(iter) => {
+                            {
+                                // Must do a little dance; first item returned by the iterator
+                                // goes to the front of the queue, which is unnatural.
+                                displaced_buffer.reserve(iter.size_hint().0);
+                                let mut added = 0;
+                                for row in iter {
+                                    displaced_buffer.push_back(row);
+                                    added += 1;
+                                }
+                                skip += added;
+                                for _ in 0..added {
+                                    let tmprow = displaced_buffer.pop_back().unwrap();
+                                    displaced_buffer.push_front(tmprow);
+                                }
+                            }
+                            flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer);
+                            index += 1;
+                        }
+                    }
+                }
+                assert!(displaced_buffer.is_empty());
+                assert!(rm_off == 0);
+            }
+        }
+    };
+
+    if let Some(ref mod_code) = table.mod_code {
+        writeln!(out, "// User code\n{}", mod_code)?;
+    }
+
+    Ok(())
+}

@@ -47,7 +47,7 @@ impl GenericTable {
         }
     }
 
-    pub fn add_column(mut self, name: &str, type_name: String, inst: PBox) -> Self {
+    pub fn add_column(mut self, name: &str, type_name: &'static str, inst: PBox) -> Self {
         // Why is the 'static necessary??? Does it refer to the vtable or something?
         check_name(name);
         for c in self.columns.iter() {
@@ -63,29 +63,29 @@ impl GenericTable {
         self
     }
 
-    pub fn get_column<C: Any>(&self, name: &str, type_name: String) -> &C {
+    pub fn get_column<C: Any>(&self, name: &str, type_name: &'static str) -> &C {
         let c = self.columns.iter().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
-        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
+        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
         match ::desync_box(&c.data).downcast_ref() {
             Some(ret) => ret,
             None => {
-                panic!("Column {}/{}: type conversion from {} to {} failed", self.name, name, c.stored_type_name, type_name);
+                panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
             },
         }
     }
 
-    pub fn get_column_mut<C: Any>(&mut self, name: &str, type_name: String) -> &mut C {
+    pub fn get_column_mut<C: Any>(&mut self, name: &str, type_name: &'static str) -> &mut C {
         let my_name = &self.name;
         let c = self.columns.iter_mut().filter(|c| c.name == name).next().unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", my_name, name);
         });
-        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {}, not {}", self.name, name, c.stored_type_name, type_name); }
+        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
         match ::desync_box_mut(&mut c.data).downcast_mut() {
             Some(ret) => ret,
             None => {
-                panic!("Column {}/{}: type conversion from {} to {} failed", self.name, name, c.stored_type_name, type_name);
+                panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
             },
         }
     }
@@ -117,7 +117,7 @@ impl GenericTable {
 
 pub struct GenericColumn {
     name: String,
-    stored_type_name: String,
+    stored_type_name: &'static str,
     data: PBox,
 }
 
@@ -269,12 +269,12 @@ pub trait TCol {
     fn reserve(&mut self, additional: usize);
 }
 
-pub struct ColWrapper<E: Storable, C: TCol<Element=E>, R> {
+pub struct ColWrapper<C: TCol, R> {
     pub data: C,
-    stored_type: PhantomData<E>,
+    stored_type: PhantomData<C::Element>,
     row_id_type: PhantomData<R>,
 }
-impl<E: Storable, C: TCol<Element=E>, R> ColWrapper<E, C, R> {
+impl<C: TCol, R> ColWrapper<C, R> {
     pub fn new() -> Self {
         ColWrapper {
             data: C::new(),
@@ -283,12 +283,25 @@ impl<E: Storable, C: TCol<Element=E>, R> ColWrapper<E, C, R> {
         }
     }
 }
-impl<E: Storable, C: TCol<Element=E>, R: PrimInt, T: TableName> Index<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
-    type Output = E;
-    fn index(&self, index: GenericRowId<R, T>) -> &E { self.data.col_index(index.to_usize()) }
+impl<C: TCol, R> TCol for ColWrapper<C, R> {
+    type Element = C::Element;
+    fn new() -> Self { ColWrapper::new() }
+    fn len(&self) -> usize { self.data.len() }
+    fn col_index(&self, i: usize) -> &Self::Element { self.data.col_index(i) }
+    fn col_index_mut(&mut self, i: usize) -> &mut Self::Element { self.data.col_index_mut(i) }
+    fn clear(&mut self) { self.data.clear() }
+    fn push(&mut self, e: Self::Element) { self.data.push(e) }
+    fn truncate(&mut self, l: usize) { self.data.truncate(l) }
+    fn remove_slice(&mut self, range: Range<usize>) { self.data.remove_slice(range) }
+    fn append(&mut self, other: &mut Vec<Self::Element>) { self.data.append(other) }
+    fn reserve(&mut self, additional: usize) { self.data.reserve(additional) }
 }
-impl<E: Storable, C: TCol<Element=E>, R: PrimInt, T: TableName> IndexMut<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
-    fn index_mut(&mut self, index: GenericRowId<R, T>) -> &mut E { self.data.col_index_mut(index.to_usize()) }
+impl<C: TCol, R: PrimInt, T: TableName> Index<GenericRowId<R, T>> for ColWrapper<C, GenericRowId<R, T>> {
+    type Output = C::Element;
+    fn index(&self, index: GenericRowId<R, T>) -> &Self::Output { self.data.col_index(index.to_usize()) }
+}
+impl<C: TCol, R: PrimInt, T: TableName> IndexMut<GenericRowId<R, T>> for ColWrapper<C, GenericRowId<R, T>> {
+    fn index_mut(&mut self, index: GenericRowId<R, T>) -> &mut Self::Output { self.data.col_index_mut(index.to_usize()) }
 }
 
 #[derive(Debug)]
