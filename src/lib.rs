@@ -29,8 +29,6 @@ pub mod property;
 pub mod intern;
 pub mod joincore;
 
-#[cfg(test)]
-mod test;
 
 use intern::*;
 

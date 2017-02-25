@@ -56,12 +56,13 @@ pub fn process_crate(crate_name: &str) {
 /// Add the table expander to an existing `syntex::Registry`.
 pub fn add_expander<P: AsRef<Path>>(registry: &mut syntex::Registry, output: P) {
     let expander = TableExpander::new(output);
-    registry.add_macro("new_table", expander);
+    registry.add_macro("table", expander);
 }
 
 /// Recursively process each Rust source file in the input directory,
 /// writing any table module definitions to the output directory.
 pub fn process(crate_name: &str, input: &Path, output: &Path) {
+    warn(&format!("{}: {:?} -> {:?}", crate_name, input, output));
     // We can't use `cargo:rerun-if-changed` because a new table could
     // be defined anywhere.
     assert!(input.is_dir(), "Input path is not a directory: {:?}", input);
@@ -74,6 +75,7 @@ pub fn process(crate_name: &str, input: &Path, output: &Path) {
         if !entry.file_type().is_file() { continue; }
         let source = entry.path();
         if source.extension() != dot_rs { continue; }
+        warn(&format!("process: {:?}", source));
         let mut registry = syntex::Registry::new();
         add_expander(&mut registry, output);
         registry.expand(crate_name, source, &tmp.path).ok();
@@ -87,7 +89,7 @@ use syntex_syntax::parse::PResult;
 use syntex_syntax::ast::{Ident, Ty, Attribute};
 use syntex_syntax::tokenstream::TokenTree;
 use syntex_syntax::ext::quote::rt::Span;
-use syntex_syntax::ext::base::{TTMacroExpander, ExtCtxt, MacResult, DummyResult};
+use syntex_syntax::ext::base::{TTMacroExpander, ExtCtxt, MacResult};
 use syntex_syntax::symbol::keywords as keyword;
 use syntex_syntax::diagnostics::plugin::DiagnosticBuilder;
 use syntex_syntax::ptr::P;
@@ -109,7 +111,7 @@ impl TTMacroExpander for TableExpander {
     fn expand<'cx>(
         &self,
         ecx: &'cx mut ExtCtxt,
-        span: Span,
+        _span: Span,
         token_tree: &[TokenTree],
     ) -> Box<MacResult + 'cx> {
         let mut tokens = Vec::new();
@@ -136,7 +138,8 @@ impl TTMacroExpander for TableExpander {
             .. Default::default()
         });
 
-        DummyResult::any(span)
+        use syntex_syntax::ext::base::MacEager;
+        Box::new(MacEager::default()) as Box<MacResult>
     }
 }
 

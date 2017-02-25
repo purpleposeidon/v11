@@ -6,6 +6,8 @@ build = "build.rs"
 
 [dependencies]
 v11 = { path = "../" }
+rustc-serialize = "*"
+
 
 [build-dependencies]
 v11_macros = { path = "../v11_macros" }

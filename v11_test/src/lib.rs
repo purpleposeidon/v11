@@ -1,52 +1,73 @@
 #![allow(dead_code)]
 
+#[macro_use]
+extern crate v11;
 
-mod table_use {
-    #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, RustcEncodable, RustcDecodable)]
-    pub enum CheeseKind {
-        Swiss,
-        Stinky,
-        Brie,
+extern crate rustc_serialize;
+
+use v11::{Universe, Action};
+
+table! {
+    pub new_table_test {
+        random_number: [usize; VecCol<usize>],
     }
-    impl Default for CheeseKind {
-        fn default() -> Self { CheeseKind::Stinky }
+    impl {
+        RowId = u8;
     }
-    pub type EasyRowId = super::easy::RowId;
-}
-use self::table_use::*;
-
-table! {
-    [pub cheese],
-    mass: [usize; VecCol<usize>],
-    holes: [u16; VecCol<u16>],
-    kind: [CheeseKind; VecCol<CheeseKind>],
+    mod {
+        fn hello() {
+            println!("Hey!");
+        }
+    }
 }
 
 table! {
-    [pub easy],
-    x: [i32; VecCol<i32>],
+    easy {
+        x: [i32; VecCol<i32>],
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, RustcEncodable, RustcDecodable)]
+pub enum CheeseKind {
+    Swiss,
+    Stinky,
+    Brie,
+}
+impl Default for CheeseKind {
+    fn default() -> Self { CheeseKind::Stinky }
+}
+pub type EasyRowId = easy::RowId;
+
+
+
+table! {
+    cheese {
+        mass: [usize; VecCol<usize>],
+        holes: [u16; VecCol<u16>],
+        kind: [CheeseKind; VecCol<CheeseKind>],
+    }
+    mod {
+        use super::CheeseKind;
+    }
 }
 
 table! {
-    [pub test_foreign],
-    id: [EasyRowId; VecCol<EasyRowId>],
+    test_foreign {
+        id: [EasyRowId; VecCol<EasyRowId>],
+    }
+    mod {
+        use super::EasyRowId;
+    }
 }
 
-
-#[test]
-#[should_panic(expected = "Invalid name 123")]
-fn bad_name() {
-    let mut universe = ::Universe::new();
-    cheese::with_name("123").register(&mut universe);
-}
 
 #[test]
 fn small_table() {
-    let mut universe = ::Universe::new();
-    cheese::default().register(&mut universe);
+    let mut universe = Universe::new();
+    cheese::register(&mut universe);
 
     {
-        let mut cheese = cheese::default().write(&universe);
+        let mut cheese = cheese::write(&universe);
         cheese.push(cheese::Row {
             mass: 1000usize,
             holes: 20,
@@ -57,9 +78,9 @@ fn small_table() {
 
 #[test]
 fn large_table() {
-    let mut universe = ::Universe::new();
-    cheese::default().register(&mut universe);
-    let mut cheese = cheese::default().write(&universe);
+    let mut universe = Universe::new();
+    cheese::register(&mut universe);
+    let mut cheese = cheese::write(&universe);
     for x in 10..1000 {
         cheese.push(cheese::Row {
             mass: x,
@@ -71,8 +92,8 @@ fn large_table() {
 
 #[test]
 fn walk_table() {
-    let mut universe = ::Universe::new();
-    cheese::default().register(&mut universe);
+    let mut universe = Universe::new();
+    cheese::register(&mut universe);
     {
         let mut cheese = cheese::write(&universe);
         for x in 0..10 {
@@ -85,19 +106,19 @@ fn walk_table() {
     }
     let cheese = cheese::read(&universe);
     for i in cheese.range() {
-        println!("{:?}", cheese.row(i));
+        println!("{:?}", cheese.get_row(i));
     }
 }
 fn dump(easy: &mut easy::Write) {
     for i in easy.range() {
-        println!("{:?}", easy.row(i));
+        println!("{:?}", easy.get_row(i));
     }
 }
 
 #[test]
 fn visit_remove() {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     easy.push(easy::Row {x: 1});
     dump(&mut easy);
@@ -105,7 +126,7 @@ fn visit_remove() {
         let mut first = true;
         easy.visit(|easy, i| {
             if d == 2 && !first {
-                panic!("visiting stuff I just made! {:?} {:?}", easy.row(i), i);
+                panic!("visiting stuff I just made! {:?} {:?}", easy.get_row(i), i);
             }
             first = false;
             ::Action::Add(Some(easy::Row { x: easy.x[i] * d }).into_iter())
@@ -126,8 +147,8 @@ fn visit_remove() {
 
 #[test]
 fn visit_break_immediate() {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     easy.push(easy::Row {x: 1});
     easy.visit(|_, _| -> easy::ClearVisit { ::Action::Break } );
@@ -137,11 +158,11 @@ fn visit_break_immediate() {
 fn visit_add() {
     fn dump(easy: &mut easy::Write) {
         for i in easy.range() {
-            println!("{:?}", easy.row(i));
+            println!("{:?}", easy.get_row(i));
         }
     }
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     easy.push(easy::Row {x: 1});
     //dump(&mut easy);
@@ -149,7 +170,7 @@ fn visit_add() {
         let mut first = true;
         easy.visit(|easy, i| {
             if d == 2 && !first {
-                panic!("visiting stuff I just made! {:?} {:?}", easy.row(i), i);
+                panic!("visiting stuff I just made! {:?} {:?}", easy.get_row(i), i);
             }
             first = false;
             ::Action::Add(Some(easy::Row { x: easy.x[i] * d }).into_iter())
@@ -173,8 +194,8 @@ fn visit_remove_continue() {
 }
 
 fn visit_remove_and<A: Fn() -> easy::ClearVisit>(act: A) {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     for n in 0..10 {
         easy.push(easy::Row {x: n});
@@ -195,8 +216,8 @@ fn visit_remove_and<A: Fn() -> easy::ClearVisit>(act: A) {
 
 #[test]
 fn remove_one() {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     for i in 0..2 {
         easy.push(easy::Row { x: i });
@@ -219,14 +240,19 @@ fn remove_one() {
 }
 
 table! {
-    [pub sortie, RowId = usize, sortable],
-    i: [usize; VecCol<usize>],
+    sortie {
+        i: [usize; VecCol<usize>],
+    }
+    impl {
+        RowId = usize;
+        SortBy(i);
+    }
 }
 
 #[test]
 fn sort() {
-    let mut universe = ::Universe::new();
-    sortie::default().register(&mut universe);
+    let mut universe = Universe::new();
+    sortie::register(&mut universe);
     println!("Input:");
     let orig_len = {
         let mut sortie = sortie::write(&universe);
@@ -237,7 +263,8 @@ fn sort() {
         }
         sortie.rows()
     };
-    let sortie = sortie::sorted(&universe);
+    let sortie = sortie::write(&universe);
+    sortie.sort_by_i();
     println!("Sorted:");
     for i in sortie.range() {
         println!("{}", sortie.i[i]);
@@ -245,16 +272,21 @@ fn sort() {
     assert_eq!(orig_len, sortie.rows());
 }
 
-table! {
-    [pub bsortie, sortable],
-    i: [bool; BoolCol],
-}
 
+
+table! {
+    bsortie {
+        i: [bool; BoolCol],
+    }
+    impl {
+        SortBy(i);
+    }
+}
 
 #[test]
 fn bsort() {
-    let mut universe = ::Universe::new();
-    bsortie::default().register(&mut universe);
+    let mut universe = Universe::new();
+    bsortie::register(&mut universe);
     let orig_len = {
         let mut bsortie = bsortie::write(&universe);
         bsortie.push(bsortie::Row { i: false });
@@ -264,26 +296,32 @@ fn bsort() {
         bsortie.push(bsortie::Row { i: true });
         bsortie.rows()
     };
-    let bsortie = bsortie::sorted(&universe);
+    let bsortie = bsortie::write(&universe);
+    bsortie.sort_by_i();
     println!("Sorted:");
     for i in bsortie.range() {
-        println!("{:?}", bsortie.row(i));
+        println!("{:?}", bsortie.get_row(i));
     }
     assert_eq!(orig_len, bsortie.rows());
     assert_eq!(bsortie.dump().iter().map(|r| { r.i }).collect::<Vec<_>>(), &[false, false, false, true, true]);
 }
 
 table! {
-    [pub bits, sortable],
-    a: [bool; BoolCol],
-    b: [bool; VecCol<bool>],
+    bits {
+        a: [bool; BoolCol],
+        b: [bool; VecCol<bool>],
+    }
+    impl {
+        SortBy(a);
+        SortBy(b);
+    }
 }
 
 
 #[test]
 fn bool_col() {
-    let mut universe = ::Universe::new();
-    bits::default().register(&mut universe);
+    let mut universe = Universe::new();
+    bits::register(&mut universe);
     {
         let mut bits = bits::write(&universe);
         bits.push(bits::Row { a: true, b: true });
@@ -294,14 +332,17 @@ fn bool_col() {
     }
     {
         {
-            let bits = bits::sorted(&universe);
+            let mut bits = bits::write(&universe);
+            bits.sort_by_a();
             println!("{}", bits.rows());
         }
         {
-            let bits = bits::sorted(&universe);
+            let mut bits = bits::write(&universe);
+            bits.sort_by_b();
             println!("{}", bits.rows());
         }
-        let bits = bits::sorted(&universe);
+        let mut bits = bits::write(&universe);
+        bits.sort_by_a();
         println!("");
         println!("");
         for i in bits.range() {
@@ -309,23 +350,26 @@ fn bool_col() {
         }
         for i in bits.range() {
             println!("{:?}", i);
-            println!("{:?}", bits.row(i));
+            println!("{:?}", bits.get_row(i));
         }
     }
-    //let bits = bits::write(&universe);
 }
 
 // just makes sure it compiles. Sadly there is no way to assert that a macro does not compile...
 table! {
-    [pub missort],
-    x: [f32; VecCol<f32>],
+    missort {
+        x: [f32; VecCol<f32>],
+    }
+    impl {
+        SortBy(x);
+    }
 }
 
 
 #[test]
 fn push() {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
     assert_eq!(er.to_usize(), 0);
@@ -336,21 +380,25 @@ fn compile_rowid_in_hashmap() {
     #![allow(unused_variables)]
     use std::collections::HashMap;
     let x: HashMap<easy::RowId, ()> = HashMap::new();
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
 }
 
 table! {
-    [pub test_u16, RowId = u16],
-    x: [i32; VecCol<i32>],
+    test_u16 {
+        x: [i32; VecCol<i32>],
+    }
+    impl {
+        RowId = u16;
+    }
 }
 
 #[test]
 fn compile_rowid_cmp() {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     let a = easy.push(easy::Row {x: 1});
     assert!(a == a);
@@ -363,8 +411,8 @@ fn compile_rowid_cmp() {
 
 #[test]
 fn contains() {
-    let mut universe = ::Universe::new();
-    easy::default().register(&mut universe);
+    let mut universe = Universe::new();
+    easy::register(&mut universe);
     let mut easy = easy::write(&universe);
     assert!(!easy.contains(easy::at(1)));
     let a = easy.push(easy::Row {x: 1});
@@ -391,14 +439,14 @@ fn contains() {
 //
 //#[test]
 //fn foreign_compat() {
-//    let mut universe = ::Universe::new();
-//    a::twin::default().register(&mut universe);
+//    let mut universe = Universe::new();
+//    a::twin::register(&mut universe);
 //    {
 //        // so 'b::twin' should effectively already be registered?
 //        b::twin::read(&universe);
 //    }
 //
-//    b::twin::default().register(&mut universe);
+//    b::twin::register(&mut universe);
 //    let spot = a::twin::write(&universe).push(a::twin::Row {
 //        value: 237,
 //    });
@@ -408,3 +456,4 @@ fn contains() {
 //    let spot = b::twin::at(spot.to_raw());
 //    assert_eq!(237, b::twin::read(&universe).value[spot]);
 //}
+
