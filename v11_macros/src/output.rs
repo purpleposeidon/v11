@@ -60,13 +60,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "Header"]
 
         use v11;
-        use v11::intern::{GenericTable, GenericRowId, TCol, PBox, TableName, ColWrapper};
+        use v11::intern::{GenericTable, GenericRowId, PBox, TableName};
+        use v11::columns::{TCol, ColWrapper};
 
         #[allow(unused_imports)]
-        use v11::intern::{VecCol, BoolCol, SegCol};
-        // FIXME: ThingieCol aren't really intern...?
+        use v11::columns::{VecCol, BoolCol, SegCol};
         // Having them automatically imported is a reasonable convenience.
-        // They should probably go into v11::columns or something.
 
         pub const TABLE_NAME: &'static str = #TABLE_NAME_STR;
 

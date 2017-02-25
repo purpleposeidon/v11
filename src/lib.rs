@@ -28,6 +28,7 @@ pub mod tables;
 pub mod property;
 pub mod intern;
 pub mod joincore;
+pub mod columns;
 
 
 use intern::*;
