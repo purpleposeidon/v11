@@ -40,8 +40,8 @@ use intern::*;
  * Types that implement this trait should also not implement `Drop`, although this is not yet
  * expressable, and is not presently required.
  * */
-// We really do want to be able to store floats, which means that we can't use proper Eq or
-// PartialEq...
+// FIXME: Ditch 'codable.
+// FIXME: Ditch Debug
 pub trait Storable : Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable /* + !Drop */ { }
 impl<T> Storable for T where T: Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable /* + !Drop */ { }
 
