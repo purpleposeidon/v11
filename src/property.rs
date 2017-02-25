@@ -83,7 +83,7 @@ macro_rules! property {
             #[doc(hidden)]
             pub type Type = $TYPE;
             
-            constructor! { init }
+            constructor! { $NAME: init }
             #[allow(dead_code)]
             #[doc(hidden)]
             extern fn init() {

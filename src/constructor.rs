@@ -1,4 +1,5 @@
 #![macro_use]
+// FIXME: Separate crate. (Also we no longer want property! to use this.)
 
 /**
  * Registers a function to be called before main (if an executable) or when loaded (if a dynamic
@@ -14,7 +15,7 @@
  * extern fn init() {
  *     unsafe { x = 5; }
  * }
- * constructor! { init }
+ * constructor! { INIT_CONSTRUCTOR: init }
  * 
  * 
  * fn main() {
@@ -29,8 +30,8 @@
  * Doing anything particularly complicated, such IO or loading libraries, may cause problems
  * on Windows. (?)
  *
- * If compiling with `--release`, the mechanism for invoking the function will be stripped out
- * unless the function is externally visible. (Eg, all crates up to the root must be `pub`.)
+ * Every parent module must be `pub`lic. If it is not, then it will be
+ * stripped out by `--release`. At least the compiler gives a helpful warning.
  *
  *
  *
@@ -40,38 +41,49 @@
  * */
 #[macro_export]
 macro_rules! constructor {
-    ($($NAME:ident)*) => {
-        #[allow(dead_code)]
+    ($($NAME:ident: $FN:ident),*) => {
         $(pub mod $NAME {
+            #![allow(non_snake_case)]
+            #![allow(dead_code)]
+            #![deny(private_no_mangle_statics /* Constructor won't run in release mode! */)]
+
             // http://stackoverflow.com/questions/35428834/how-to-specify-which-elf-section-to-use-in-a-rust-dylib
             // https://msdn.microsoft.com/en-us/library/bb918180.aspx
             // Help given by WindowsBunny!
 
             #[cfg(target_os = "linux")]
             #[link_section = ".ctors"]
-            static CONSTRUCTOR: extern fn() = super::$NAME;
+            #[no_mangle]
+            pub static $NAME: extern fn() = super::$FN;
 
-            // TODO: macos untested
+            // FIXME: macos untested
             #[cfg(target_os = "macos")]
             #[link_section = "__DATA,__mod_init_func"]
-            static CONSTRUCTOR: extern fn() = super::$NAME;
+            #[no_mangle]
+            pub static $NAME: extern fn() = super::$FN;
 
-            // TODO: windows untested; may require something more complicated for certain target
+            // FIXME: windows untested; may require something more complicated for certain target
             // triples?
             #[cfg(target_os = "windows")]
             #[link_section = ".CRT$XCU"]
-            static CONSTRUCTOR: extern fn() = super::$NAME;
+            #[no_mangle]
+            pub static $NAME: extern fn() = super::$FN;
 
-            // And we'll have a compilation error if we don't know `target_os`.
-
-            pub extern fn dont_strip() -> &'static extern "C" fn() {
-                // This function seems to be the minimal function that keeps 'CONSTRUCTOR' from
-                // being stripped. However this fn must be externally accessible! So it & all
-                // parent modules must be public.
-                // Making `super::$NAME` refer to CONSTRUCTOR does not seem to be sufficient to
-                // keep the symbol around.
-                &CONSTRUCTOR
-            }
+            // We could also just ignore cfg(target_os) & have 1 item, but this way we'll have a compilation error if we don't know `target_os`.
         })*
     };
+}
+
+#[cfg(test)]
+pub mod test {
+    pub static mut RAN: bool = false;
+    extern "C" fn set_ran() {
+        unsafe { RAN = true }
+    }
+    constructor! { SET_RAN_CONSTRUCTOR: set_ran }
+
+    #[test]
+    fn works() {
+        assert!(unsafe { RAN });
+    }
 }
