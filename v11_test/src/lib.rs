@@ -263,7 +263,7 @@ fn sort() {
         }
         sortie.rows()
     };
-    let sortie = sortie::write(&universe);
+    let mut sortie = sortie::write(&universe);
     sortie.sort_by_i();
     println!("Sorted:");
     for i in sortie.range() {
@@ -296,7 +296,7 @@ fn bsort() {
         bsortie.push(bsortie::Row { i: true });
         bsortie.rows()
     };
-    let bsortie = bsortie::write(&universe);
+    let mut bsortie = bsortie::write(&universe);
     bsortie.sort_by_i();
     println!("Sorted:");
     for i in bsortie.range() {
@@ -352,16 +352,6 @@ fn bool_col() {
             println!("{:?}", i);
             println!("{:?}", bits.get_row(i));
         }
-    }
-}
-
-// just makes sure it compiles. Sadly there is no way to assert that a macro does not compile...
-table! {
-    missort {
-        x: [f32; VecCol<f32>],
-    }
-    impl {
-        SortBy(x);
     }
 }
 
