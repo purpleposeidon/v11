@@ -33,6 +33,7 @@ impl Universe {
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 pub struct GenericTable {
     pub name: String,
+    // FIXME: Remove
     pub is_sorted: bool,
     pub columns: Vec<GenericColumn>,
 }
@@ -253,25 +254,27 @@ impl<I: PrimInt + Decodable, T: TableName> Decodable for GenericRowId<I, T> {
 use std::ops::{Index, IndexMut, Range};
 
 
-pub trait TCol<E: Storable> {
+// FIXME: move to mod column
+pub trait TCol {
+    type Element: Storable;
     fn new() -> Self;
     fn len(&self) -> usize;
-    fn col_index(&self, i: usize) -> &E;
-    fn col_index_mut(&mut self, i: usize) -> &mut E;
+    fn col_index(&self, i: usize) -> &Self::Element;
+    fn col_index_mut(&mut self, i: usize) -> &mut Self::Element;
     fn clear(&mut self);
-    fn push(&mut self, e: E);
+    fn push(&mut self, e: Self::Element);
     fn truncate(&mut self, l: usize);
     fn remove_slice(&mut self, range: Range<usize>);
-    fn append(&mut self, other: &mut Vec<E>);
+    fn append(&mut self, other: &mut Vec<Self::Element>);
     fn reserve(&mut self, additional: usize);
 }
 
-pub struct ColWrapper<E: Storable, C: TCol<E>, R> {
+pub struct ColWrapper<E: Storable, C: TCol<Element=E>, R> {
     pub data: C,
     stored_type: PhantomData<E>,
     row_id_type: PhantomData<R>,
 }
-impl<E: Storable, C: TCol<E>, R> ColWrapper<E, C, R> {
+impl<E: Storable, C: TCol<Element=E>, R> ColWrapper<E, C, R> {
     pub fn new() -> Self {
         ColWrapper {
             data: C::new(),
@@ -280,11 +283,11 @@ impl<E: Storable, C: TCol<E>, R> ColWrapper<E, C, R> {
         }
     }
 }
-impl<E: Storable, C: TCol<E>, R: PrimInt, T: TableName> Index<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
+impl<E: Storable, C: TCol<Element=E>, R: PrimInt, T: TableName> Index<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
     type Output = E;
     fn index(&self, index: GenericRowId<R, T>) -> &E { self.data.col_index(index.to_usize()) }
 }
-impl<E: Storable, C: TCol<E>, R: PrimInt, T: TableName> IndexMut<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
+impl<E: Storable, C: TCol<Element=E>, R: PrimInt, T: TableName> IndexMut<GenericRowId<R, T>> for ColWrapper<E, C, GenericRowId<R, T>> {
     fn index_mut(&mut self, index: GenericRowId<R, T>) -> &mut E { self.data.col_index_mut(index.to_usize()) }
 }
 
@@ -292,7 +295,8 @@ impl<E: Storable, C: TCol<E>, R: PrimInt, T: TableName> IndexMut<GenericRowId<R,
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }
-impl<E: Storable> TCol<E> for VecCol<E> {
+impl<E: Storable> TCol for VecCol<E> {
+    type Element = E;
     fn new() -> Self { VecCol { data: Vec::new() } }
     fn len(&self) -> usize { self.data.len() }
     fn col_index(&self, index: usize) -> &E { &self.data[index] }
@@ -323,7 +327,8 @@ impl BoolCol {
         }
     }
 }
-impl TCol<bool> for BoolCol {
+impl TCol for BoolCol {
+    type Element = bool;
     fn new() -> BoolCol {
         BoolCol {
             data: ::bit_vec::BitVec::new(),
