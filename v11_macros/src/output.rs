@@ -549,6 +549,83 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
+    if table.generic_sort {
+        write_quote! {
+            [table, out, "Generic sort"]
+
+            use std::cmp::Ordering;
+            impl<'u> Write<'u> {
+                pub fn sort_with<C>(&mut self, mut compare: C)
+                where C: FnMut(&Write<'u>, RowId, RowId) -> Ordering
+                {
+                    // We do this the lame way to avoid having to implement our own sorting
+                    // algorithm.
+                    // FIXME: Liberate std::collections::slice::merge_sort()
+                    // Or maybe https://github.com/benashford/rust-lazysort ?
+                    let mut indices: Vec<RawType> = (0..(self.rows() as RawType)).collect();
+                    {
+                        indices.sort_by(|a: &RawType, b: &RawType| { compare(self, at(*a), at(*b)) });
+                    }
+                    self.apply_resort(indices);
+                }
+
+                fn apply_resort(&mut self, indices: Vec<RawType>) {
+                    // Very inefficient!
+                    let len = indices.len();
+                    #({
+                        let mut tmp = Vec::with_capacity(len);
+                        let mut col = &mut self.#COL_NAME;
+                        {
+                            for i in indices.iter() {
+                                tmp.push(col[at(*i)]);
+                                // This can have us jumping around a lot, making the cache sad.
+                            }
+                        }
+                        col.data.clear();
+                        col.data.append(&mut tmp);
+                    })*
+                }
+            }
+        }
+    }
+
+    for sort_key in table.sort_by.iter() {
+        let SORT_BY_COL = i(format!("sort_by_{}", sort_key));
+        let SORT_KEY = i(sort_key);
+        let ELEMENT_TYPE = {
+            let mut found = None;
+            for col in table.cols.iter() {
+                if &pp::ident_to_string(col.name) == sort_key {
+                    found = Some(i(pp::ty_to_string(&*col.element)));
+                }
+            }
+            match found {
+                Some(f) => f,
+                _ => super::error(&format!("SortBy({}) does not refer to a real column", sort_key)),
+            }
+        };
+
+        write_quote! {
+            [table, out, "sorting"]
+
+            impl<'u> Write<'u> {
+                /**
+                 * Sorts by the first key only. If you wanted to sort by multiple columns, you will
+                 * have to pack them into a tuple in the first column.
+                 * */
+                pub fn #SORT_BY_COL(&mut self) {
+                    type ET = #ELEMENT_TYPE;
+                    self.sort_with(|me: &Write<'u>, a: RowId, b: RowId| {
+                        let col = &me.#SORT_KEY;
+                        col[a].cmp(&col[b])
+                    })
+                }
+            }
+
+
+        }
+    }
+
     if let Some(ref mod_code) = table.mod_code {
         writeln!(out, "// User code\n{}", mod_code)?;
     }

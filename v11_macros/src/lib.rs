@@ -117,7 +117,7 @@ impl TTMacroExpander for TableExpander {
         let mut tokens = Vec::new();
         tokens.extend_from_slice(token_tree);
         let mut parser = Parser::new(ecx.parse_sess, tokens, None, false);
-        let table = match parse_table(&mut parser) {
+        let mut table = match parse_table(&mut parser) {
             Ok(t) => t,
             Err(m) => {
                 error(&format!("{}", m.message()));
@@ -162,6 +162,7 @@ pub struct Table {
     encode: Vec<Serializer>,
     decode: Vec<Serializer>,
     cascade_deletions: Vec<String>,
+    generic_sort: bool,
     sort_by: Vec<String>,
     static_data: bool,
 
@@ -169,7 +170,7 @@ pub struct Table {
     mod_code: Option<String>,
 }
 impl Table {
-    fn validate(&self) -> Option<&str> {
+    fn validate(&mut self) -> Option<&str> {
         if self.cols.is_empty() {
             return Some("No columns");
         }
@@ -184,6 +185,9 @@ impl Table {
                 } {
                 return Some("static tables shouldn't have modification features");
             }
+        }
+        if !self.sort_by.is_empty() {
+            self.generic_sort = true;
         }
         None
     }
@@ -308,6 +312,9 @@ fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             } else if name == "TrackModify" {
                 // keep a sparse & transient list of modified/created/removed rows
                 table.track_modify = true;
+            } else if name == "GenericSort" {
+                // add a type-parameterized sort function
+                table.generic_sort = true;
             } else if name == "SortBy" {
                 // adds a function to sort a table by the given column
                 // multiple individual calls
