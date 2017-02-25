@@ -79,6 +79,25 @@ pub enum Join<T> {
     Match(T),
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn empty_l() {
+        // testing {empty_r, empty_both} makes no sense
+        let l: Vec<usize> = Vec::new();
+        let r: Vec<usize> = vec![1, 2, 3, 4];
+        let mut jc = JoinCore::new(l.into_iter());
+        for right in r.iter() {
+            let right: &usize = right;
+            match jc.join(right, usize::cmp) {
+                Join::Stop => continue,
+                _ => panic!("expected Stop"),
+            }
+        }
+    }
+    // FIXME: More tests.
+}
 
-// FIXME: More tests.
-// FIXME: Extract separate crate.
+
+// FIXME: Extract separate crate?
