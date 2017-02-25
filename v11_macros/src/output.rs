@@ -3,7 +3,7 @@ use std::io::Write;
 use quote::{Ident, Tokens};
 use syntex_syntax::print::pprust as pp;
 
-use super::{Table, Serializer};
+use super::table::{Table, Serializer};
 
 /// Convert a string into a quote `Ident`.
 fn i<S: AsRef<str>>(s: S) -> Ident {
