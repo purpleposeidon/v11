@@ -27,8 +27,9 @@ pub mod constructor;
 pub mod tables;
 pub mod property;
 pub mod intern;
-pub mod joincore;
 pub mod columns;
+pub mod joincore;
+pub mod bimap;
 
 
 use intern::*;
