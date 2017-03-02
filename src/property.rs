@@ -32,6 +32,7 @@ pub struct PropertyIndex<V> {
 
 pub trait ToPropRef<V: Default + Sync>: Sync {
     fn get(&self) -> &Prop<V>;
+    fn register(&self);
 }
 
 
@@ -114,6 +115,9 @@ macro_rules! property {
             impl ToPropRef<Type> for PropRef {
                 fn get(&self) -> &Prop<Type> {
                     unsafe { &VAL }
+                }
+                fn register(&self) {
+                    init();
                 }
             }
         }
@@ -250,6 +254,14 @@ pub /* property! requires this */ mod test {
         let some_prop = Prop::<usize>::new("foo");
         universe.get(some_prop);
     }*/
+
+    property! { static EXPLICIT_INIT: usize }
+    #[test]
+    fn explicit_init() {
+        EXPLICIT_INIT.register();
+        let universe = Universe::new();
+        assert_eq!(0, universe.get(EXPLICIT_INIT));
+    }
 
     property! { static STANDARD_PROPERTY: i64 }
     #[test]
