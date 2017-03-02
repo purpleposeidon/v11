@@ -123,19 +123,20 @@ pub struct GenericColumn {
 
 
 
-fn check_name(name: &str) {
+// FIXME: move elsewhere?
+pub fn check_name(name: &str) {
     match name.chars().next() {
         None => panic!("Empty name"),
         Some('_') => panic!("Reserved name {}", name),
         Some(c) if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') => (),
-        _ => panic!("Invalid name {}", name),
+        _ => panic!("Invalid name {:?}", name),
     }
     for c in name.chars() {
         if c == '_' { continue; }
         if c >= 'A' && c <= 'Z' { continue; }
         if c >= 'a' && c <= 'z' { continue; }
         if c >= '0' && c <= '9' { continue; }
-        panic!("Invalid name {}", name);
+        panic!("Invalid name {:?}", name);
     }
 }
 
