@@ -7,10 +7,19 @@ use std::sync::RwLock;
 use super::Universe;
 use super::intern::PBox;
 
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub struct PropertyName(pub &'static str);
+use std::fmt;
+impl fmt::Display for PropertyName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "PropertyName({})", self.0)
+    }
+}
+
 
 struct GlobalProperties {
-    name2id: HashMap<String, usize>,
-    id2name: HashMap<usize, String>,
+    name2id: HashMap<PropertyName, usize>,
+    id2name: HashMap<usize, PropertyName>,
 
     id2producer: Vec<fn() -> PBox>,
 }
@@ -102,7 +111,7 @@ macro_rules! property {
             // Can't access this directly because 'static mut' is unsafe to touch in any way.
             #[doc(hidden)]
             static mut VAL: Prop<Type> = Prop {
-                name: $NAME_STR,
+                name: PropertyName($NAME_STR),
                 index: PropertyIndex {
                     i: UNSET,
                     v: ::std::marker::PhantomData,
@@ -136,7 +145,7 @@ pub fn property_count() -> usize { PROPERTIES.read().unwrap().id2producer.len() 
  * */
 #[derive(Clone, Copy)]
 pub struct Prop<V: Default> {
-    pub name: &'static str,
+    pub name: PropertyName,
     pub index: PropertyIndex<V>,
     // ideal: "universe[debug_enabled]"
     // Unfortunately it's more like "*universe[debug_enabled].read()", although
@@ -146,19 +155,22 @@ impl<V: Default> Prop<V> {
     fn get_index(&self) -> usize { self.index.i }
 
     pub fn init(&mut self, producer: fn() -> PBox) {
+        // There are 3 things that can happen:
+        // 1: This function was called already on the same Prop.
+        // 2: This is the first time a property with this name has been registered.
+        // 3: Another PropRef with the same name
         if self.index.i != UNSET {
-            // Indicates `init` being called more than once.
-            // Just in case.
+            // This handles the first case.
             return;
         }
         let mut pmap = PROPERTIES.write().unwrap();
         let new_id = pmap.id2producer.len();
         let mut first_instance = false;
-        self.index.i = *pmap.name2id.entry(self.name.to_string()).or_insert_with(|| {
+        self.index.i = *pmap.name2id.entry(self.name).or_insert_with(|| {
             first_instance = true;
             new_id
         });
-        pmap.id2name.insert(self.index.i, self.name.to_string());
+        pmap.id2name.insert(self.index.i, self.name);
         if first_instance {
             pmap.id2producer.push(producer);
         }
@@ -194,12 +206,12 @@ impl Universe {
         }
     }
 
-    pub fn list_properties(&self) -> Vec<(String, &PBox)> {
+    pub fn list_properties(&self) -> Vec<(PropertyName, &PBox)> {
         let count = self.properties.len();
         let mut ret = Vec::with_capacity(count);
         let pmap = PROPERTIES.read().unwrap();
         for id in 0..count {
-            ret.push((pmap.id2name.get(&id).unwrap().clone(), &self.properties[id]));
+            ret.push((*pmap.id2name.get(&id).unwrap(), &self.properties[id]));
         }
         ret
     }
