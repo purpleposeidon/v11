@@ -1,42 +1,165 @@
+// FIXME: The concept of domain belongs in a separate file.
 
 use std::marker::PhantomData;
 use std::collections::HashMap;
 use std::any::Any;
 use std::sync::RwLock;
+use std::fmt;
 
 use super::Universe;
 use super::intern::PBox;
 
+use intern;
+
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct PropertyName(pub &'static str);
-use std::fmt;
 impl fmt::Display for PropertyName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PropertyName({})", self.0)
+        write!(f, "{:?}", self.0)
     }
 }
 
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+/**
+ * Each property name is in the form "domain/property_name".
+ * This struct represents the `domain` part of the property name, and is also used to reference
+ * that domain by calling `domain_name.register()`.
+ * */
+pub struct DomainName(pub &'static str);
+impl fmt::Display for DomainName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+impl DomainName {
+    pub fn register_domain(&self) {
+        intern::check_name(self.0);
+        let mut properties = PROPERTIES.write().unwrap();
+        let next_id = DomainId(properties.domains.len());
+        properties.domains.entry(*self).or_insert_with(|| {
+            DomainInfo {
+                id: next_id,
+                name: *self,
+                members: Vec::new(),
+            }
+        });
+        properties.did2name.push(*self);
+        debug_assert_eq!(&properties.did2name[next_id.0], self);
+    }
+}
 
-struct GlobalProperties {
-    name2id: HashMap<PropertyName, usize>,
-    id2name: HashMap<usize, PropertyName>,
+#[macro_export]
+macro_rules! domain {
+    (pub $name:ident) => {
+        pub const $name: $crate::property::DomainName = $crate::property::DomainName(stringify!($name));
+    };
+    ($name:ident) => {
+        const $name: $crate::property::DomainName = $crate::property::DomainName(stringify!($name));
+    };
+}
 
-    id2producer: Vec<fn() -> PBox>,
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub struct DomainedPropertyId(usize);
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub struct GlobalPropertyId(usize);
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub struct DomainId(usize);
+
+/// Internal.
+pub mod unset {
+    use super::{DomainedPropertyId, GlobalPropertyId, DomainId};
+    const UNSET: usize = ::std::usize::MAX;
+    pub const DOMAIN_PROPERTY_ID: DomainedPropertyId = DomainedPropertyId(UNSET);
+    pub const GLOBAL_PROPERTY_ID: GlobalPropertyId = GlobalPropertyId(UNSET);
+    pub const DOMAIN_ID: DomainId = DomainId(UNSET);
+}
+
+
+#[derive(Default)]
+#[derive(Debug)]
+pub struct GlobalProperties {
+    name2gid: HashMap<PropertyName, GlobalPropertyId>,
+    gid2name: HashMap<GlobalPropertyId, PropertyName>,
+
+    gid2producer: Vec<fn() -> PBox>,
+    domains: HashMap<DomainName, DomainInfo>,
+    did2name: Vec<DomainName>,
+}
+
+pub struct DomainInfo {
+    id: DomainId,
+    name: DomainName,
+    members: Vec<GlobalPropertyId>,
+}
+impl fmt::Debug for DomainInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let pmap = PROPERTIES.read().unwrap();
+        writeln!(f, "\t\t\tDomainInfo: {:?}", self.name)?;
+        for m in self.members.iter() {
+            writeln!(f, "\t\t\t\t{:?}: {:?}", m, pmap.gid2name.get(&m))?;
+        }
+        write!(f, "")
+    }
+}
+impl DomainInfo {
+    fn instantiate(&self, gid2producer: &Vec<fn() -> PBox>) -> DomainInstance {
+        DomainInstance {
+            id: self.id,
+            name: self.name,
+            members: self.members.iter().map(|id| {
+                gid2producer[id.0]()
+            }).collect(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum MaybeDomain {
+    /// The Universe does not have this domain.
+    Unset(DomainName),
+    /// The does have that domain.
+    Domain(DomainInstance),
+}
+
+pub struct DomainInstance {
+    id: DomainId,
+    name: DomainName,
+    members: Vec<PBox>,
+}
+impl fmt::Debug for DomainInstance {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let pmap = PROPERTIES.read().unwrap();
+        writeln!(f, "id: {:?}, name: {:?}, members.len(): {:?}", self.id, self.name, self.members.len())?;
+        writeln!(f, "{:?}", pmap.domains[&self.name])
+    }
+}
+impl DomainInstance {
+    fn add_properties(&mut self, all_properties: &GlobalProperties) {
+        let info = &all_properties.domains[&self.name];
+        while self.members.len() < info.members.len() {
+            let gid = info.members[self.members.len()];
+            let producer = all_properties.gid2producer[gid.0];
+            self.members.push(producer());
+        }
+    }
 }
 
 lazy_static! {
-    // References by a constructor!, so might have windows problems.
-    static ref PROPERTIES: RwLock<GlobalProperties> = RwLock::new(GlobalProperties {
-        name2id: HashMap::new(),
-        id2name: HashMap::new(),
-        id2producer: Vec::new(),
-    });
+    pub static ref PROPERTIES: RwLock<GlobalProperties> = Default::default();
 }
+
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct PropertyIndex<V> {
-    pub i: usize,
+    pub domain_id: DomainId,
+    pub domained_index: DomainedPropertyId,
+    pub global_index: GlobalPropertyId,
     pub v: PhantomData<V>,
+}
+impl<V: Default> fmt::Debug for PropertyIndex<V> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "gid={} domain/domained={}/{}", self.global_index.0, self.domain_id.0, self.domained_index.0)
+    }
 }
 
 pub trait ToPropRef<V: Default + Sync>: Sync {
@@ -45,9 +168,6 @@ pub trait ToPropRef<V: Default + Sync>: Sync {
 }
 
 
-use std::usize;
-/// Internal.
-pub const UNSET: usize = usize::MAX;
 
 /**
  * Usage example:
@@ -56,11 +176,17 @@ pub const UNSET: usize = usize::MAX;
  * # #[macro_use]
  * # extern crate v11;
  * mod table_use {}
- * property!{static THING: i32}
+ * domain! { EXAMPLE_DOMAIN }
+ * property! { static EXAMPLE_DOMAIN/THING: i32 }
  * fn main() {
- *     let universe = v11::Universe::new();
- *     let mut val = universe[THING].write().unwrap();
- *     *val = 90;
+ *     EXAMPLE_DOMAIN.register_domain();
+ *     THING.register();
+ *     let universe = v11::Universe::new(&[EXAMPLE_DOMAIN]);
+ *     {
+ *         let mut val = universe[THING].write().unwrap();
+ *         *val = 90;
+ *     }
+ *     assert_eq!(90, universe.get(THING));
  * }
  * ```
  *
@@ -70,50 +196,66 @@ pub const UNSET: usize = usize::MAX;
 // FIXME: Better documentation.
 #[macro_export]
 macro_rules! property {
-    // There's room for improvement here. :/
-    ($(#[$ATTR:meta])+ static $NAME:ident: $TYPE:ty) => {
-        property!($(#[$ATTR])* static $NAME (stringify!($NAME)): $TYPE);
-    };
-    (static $NAME:ident: $TYPE:ty) => {
-        property!(static $NAME (stringify!($NAME)): $TYPE);
-    };
-    ($(#[$ATTR:meta])+ static $NAME:ident ($NAMESTR:expr): $TYPE:ty) => {
-        property!($NAME ($NAMESTR): $TYPE $(; #[$ATTR])*);
-    };
-    (static $NAME:ident ($NAME_STR:expr): $TYPE:ty $(; #[$ATTR:meta])*) => {
-        #[allow(non_snake_case)]
+    (
+        $(#[$ATTR:meta])*
+        static $DOMAIN:ident/$NAME:ident: $TYPE:ty
+    ) => {
+        $(#[$ATTR])*
+        static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_property_macro_internal::PropRef as &$crate::property::ToPropRef<$TYPE>;
+
         #[doc(hidden)]
-        pub mod $NAME {
-            use $crate::intern::PBox;
-            use $crate::property::*;
+        #[allow(non_snake_case)]
+        mod $NAME {
+            property!(@mod $DOMAIN/$NAME: $TYPE);
+        }
+    };
+    (
+        $(#[$ATTR:meta])*
+        pub static $DOMAIN:ident/$NAME:ident: $TYPE:ty
+    ) => {
+        $(#[$ATTR])*
+        pub static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_property_macro_internal::PropRef as &$crate::property::ToPropRef<$TYPE>;
 
-            #[allow(unused_imports)]
-            use super::table_use::*;
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        mod $NAME {
+            property!(@mod $DOMAIN/$NAME: $TYPE);
+        }
+    };
 
-            #[doc(hidden)]
-            pub type Type = $TYPE;
-            
-            constructor! { $NAME: init }
-            #[allow(dead_code)]
-            #[doc(hidden)]
-            extern fn init() {
-                unsafe {
-                    VAL.init(producer as fn() -> PBox)
-                };
-            }
+    (@mod $DOMAIN:ident/$NAME:ident: $TYPE:ty) => {
+        // So we're using $ty in a macro that's in modules, how do we be able to resolve it?
+        // Easy, we use super::*. But then how do we avoid clashes?
+        // Easy! We put everything else in a sub-module with a weird name.
+        #[allow(unused_imports)]
+        use super::*;
 
-            use std::sync::RwLock;
+        #[doc(hidden)]
+        #[allow(non_camel_case_types)]
+        pub type _property_macro_Type = $TYPE;
+
+        #[doc(hidden)]
+        pub mod _property_macro_internal {
+            pub use $crate::intern::PBox;
+            pub use $crate::property::*;
+            pub use std::sync::RwLock;
+            use super::_property_macro_Type as Type;
+
             #[doc(hidden)]
             fn producer() -> PBox {
+                // FIXME: Can't this go on Prop?
                 Box::new(RwLock::new(Type::default())) as PBox
             }
 
             // Can't access this directly because 'static mut' is unsafe to touch in any way.
             #[doc(hidden)]
             static mut VAL: Prop<Type> = Prop {
-                name: PropertyName($NAME_STR),
+                domain_name: DomainName(stringify!($DOMAIN)),
+                name: PropertyName(concat!(stringify!($DOMAIN), "/", stringify!($NAME))),
                 index: PropertyIndex {
-                    i: UNSET,
+                    domain_id: unset::DOMAIN_ID,
+                    global_index: unset::GLOBAL_PROPERTY_ID,
+                    domained_index: unset::DOMAIN_PROPERTY_ID,
                     v: ::std::marker::PhantomData,
                 },
             };
@@ -126,18 +268,17 @@ macro_rules! property {
                     unsafe { &VAL }
                 }
                 fn register(&self) {
-                    init();
+                    unsafe {
+                        VAL.init(producer as fn() -> PBox)
+                    };
                 }
             }
         }
 
-        #[doc(hidden)]
-        $(#[$ATTR])*
-        pub static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::PropRef as &$crate::property::ToPropRef<$TYPE>;
     };
 }
 
-pub fn property_count() -> usize { PROPERTIES.read().unwrap().id2producer.len() }
+pub fn property_count() -> usize { PROPERTIES.read().unwrap().gid2producer.len() }
 
 /**
  * Custom properties associated with a universe.
@@ -145,40 +286,87 @@ pub fn property_count() -> usize { PROPERTIES.read().unwrap().id2producer.len() 
  * */
 #[derive(Clone, Copy)]
 pub struct Prop<V: Default> {
+    pub domain_name: DomainName,
     pub name: PropertyName,
     pub index: PropertyIndex<V>,
     // ideal: "universe[debug_enabled]"
     // Unfortunately it's more like "*universe[debug_enabled].read()", although
-    // "universe.get(debug_enabled)" can be used also.
+    // "universe.get(debug_enabled)" can be used when V is Copy.
+}
+impl<V: Default> fmt::Debug for Prop<V> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}[{:?}]", self.name.0, self.index)
+    }
 }
 impl<V: Default> Prop<V> {
-    fn get_index(&self) -> usize { self.index.i }
+    fn get_domain_id(&self) -> DomainId { self.index.domain_id }
+    fn get_index_within_domain(&self) -> DomainedPropertyId { self.index.domained_index }
+    fn get_global_index(&self) -> GlobalPropertyId { self.index.global_index }
 
     pub fn init(&mut self, producer: fn() -> PBox) {
+        let mut pmap: &mut GlobalProperties = &mut *PROPERTIES.write().unwrap();
+        // We must acquire the global lock at the beginning of this function. If we wait, and a
+        // property is being registered from multiple threads simultaneous, there will be duplicate
+        // registrations. This must happen before the if below.
+
         // There are 3 things that can happen:
         // 1: This function was called already on the same Prop.
         // 2: This is the first time a property with this name has been registered.
         // 3: Another PropRef with the same name
-        if self.index.i != UNSET {
+        if self.get_global_index() != unset::GLOBAL_PROPERTY_ID {
             // This handles the first case.
             return;
         }
-        let mut pmap = PROPERTIES.write().unwrap();
-        let new_id = pmap.id2producer.len();
+        self.check_name();
         let mut first_instance = false;
-        self.index.i = *pmap.name2id.entry(self.name).or_insert_with(|| {
+        let mut domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
+        let _next_gid = GlobalPropertyId(pmap.gid2producer.len());
+        let global_index = *pmap.name2gid.entry(self.name).or_insert_with(|| {
             first_instance = true;
-            new_id
+            _next_gid
         });
-        pmap.id2name.insert(self.index.i, self.name);
+        let domained_index = DomainedPropertyId(domain_info.members.len());
+        self.index = PropertyIndex {
+            domain_id: domain_info.id,
+            domained_index: domained_index,
+            global_index: global_index,
+            v: PhantomData,
+        };
+        pmap.gid2name.insert(self.index.global_index, self.name);
+        domain_info.members.push(global_index);
         if first_instance {
-            pmap.id2producer.push(producer);
+            pmap.gid2producer.push(producer);
         }
+    }
+
+    fn check_name(&self) {
+        intern::check_name(self.domain_name.0);
+        let mut parts = self.name.0.splitn(2, "/");
+        let domain_name = parts.next().expect("str::split failed?");
+        let name = parts.next().unwrap_or_else(|| panic!("{:?} is not in the format 'domain/name'", self.name.0));
+        if domain_name != self.domain_name.0 {
+            panic!("Domain names do not match: {:?}, {:?}", domain_name, self.domain_name);
+        }
+        intern::check_name(name);
+    }
+}
+impl<V: Default> fmt::Display for Prop<V> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
 
 
 impl Universe {
+    pub fn new_properties(pmap: &GlobalProperties, domains: &[DomainName]) -> Vec<MaybeDomain> {
+        let mut ret = (0..pmap.domains.len()).map(|x| MaybeDomain::Unset(pmap.did2name[x])).collect::<Vec<MaybeDomain>>();
+        for name in domains.iter() {
+            let info = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name));
+            ret[info.id.0] = MaybeDomain::Domain(info.instantiate(&pmap.gid2producer));
+        }
+        ret
+    }
+
     /// Returns a copy of the value of the given property. Only works for properties that are `Copy`.
     pub fn get<V: Any + Sync + Default + Copy>(&self, prop: &ToPropRef<V>) -> V {
         use std::sync::RwLockReadGuard;
@@ -194,24 +382,26 @@ impl Universe {
     /// Adds any properties that are unknown. This function should be called if any libraries have
     /// been loaded since before the universe was created.
     pub fn add_properties(&mut self) {
+        // We only allow domains to be set at creation, so we don't need to look for new ones.
+        // Trying to get a property at a new domain is an errorneous/exceptional case, so this is
+        // fine.
         let pmap = PROPERTIES.read().unwrap();
-        let to_add = pmap.id2producer.len() - self.properties.len();
-        if to_add <= 0 { return; } // nothing new exists in the universe
-        self.properties.reserve(to_add);
-        for i in self.properties.len()..pmap.id2producer.len() {
-            assert!(self.properties.len() == i);
-            let func_ptr = pmap.id2producer[i];
-            self.properties.push(func_ptr());
-            // So self.properties is a Vec of Box<Any> of RwLock<value>
+        for prop in self.property_domains.iter_mut() {
+            match prop {
+                &mut MaybeDomain::Domain(ref mut instance) => instance.add_properties(&*pmap),
+                _ => (),
+            }
         }
     }
 
-    pub fn list_properties(&self) -> Vec<(PropertyName, &PBox)> {
-        let count = self.properties.len();
-        let mut ret = Vec::with_capacity(count);
-        let pmap = PROPERTIES.read().unwrap();
-        for id in 0..count {
-            ret.push((*pmap.id2name.get(&id).unwrap(), &self.properties[id]));
+    /// Return a list of the names of all registered domains.
+    pub fn get_domain_names(&self) -> Vec<DomainName> {
+        let mut ret = Vec::new();
+        for prop in self.property_domains.iter() {
+            match prop {
+                &MaybeDomain::Domain(ref instance) => ret.push(instance.name),
+                _ => (),
+            }
         }
         ret
     }
@@ -219,76 +409,80 @@ impl Universe {
 impl<'a, V: Default + Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
     type Output = RwLock<V>;
     fn index(&self, prop: &'a ToPropRef<V>) -> &RwLock<V> {
-        let prop = prop.get();
-        let l: Option<&RwLock<V>> = match self.properties.get(prop.get_index()) {
-            None => if prop.get_index() == UNSET {
-                panic!("property '{}' is uninitialized; perhaps the `constructor!` failed to take? Make the module hierarchy all `pub`, or initialize it explicitly.", prop.name);
+        let prop: &Prop<V> = prop.get();
+        let domain = self.property_domains.get(prop.get_domain_id().0);
+        let domain_instance: &DomainInstance = match domain {
+            None if prop.get_domain_id() == unset::DOMAIN_ID => {
+                panic!("The property {:?} was not registered.", prop);
+            },
+            Some(&MaybeDomain::Unset(_))
+            | None /* Must be some new fangled domain this Universe doesn't care about */
+            => {
+                panic!("The property {} is not in this Unvierse's domain.", prop);
+            },
+            Some(&MaybeDomain::Domain(ref e)) => e,
+        };
+        let l: Option<&RwLock<V>> = match domain_instance.members.get(prop.get_index_within_domain().0) {
+            None => if prop.get_domain_id() == unset::DOMAIN_ID {
+                panic!("The property {} was never initialized.", prop);
             } else {
-                panic!("property #{} '{}' was never registered; perhaps there is a missed call to Universe.add_properties()?", prop.get_index(), prop.name);
+                panic!("The universe does not know about property {}; perhaps there is a missed call to Universe.add_properties()?", prop);
             },
             Some(v) => {
                 ::desync_box(v).downcast_ref()
             },
         };
         match l {
-            None => panic!("property #{} '{}' is not the expected type", prop.get_index(), prop.name),
-            // FIXME: Say what the type is
+            None => panic!("The type of property {} does not match the type of what the Universe has.", prop),
+            // FIXME: Say what the type is?
             Some(ret) => ret
         }
     }
 }
 
-
 #[cfg(test)]
 pub /* property! requires this */ mod test {
     mod table_use {}
 
+    domain! { TEST }
+
     use super::super::*;
     property! {
-        static COMPILING_PROP ("foo"): usize; #[allow(dead_code)]
-    }
-
-    /*
-
-    #[test]
-    #[should_panic(expect = "property 'foo' was never registered")]
-    fn unregistered_dynamic_property() {
-        use ::Universe;
-        let some_prop = Prop::<usize>::new("foo");
-        let universe = Universe::new();
-        universe.get(some_prop);
+        #[allow(dead_code)]
+        static TEST/PROPERTY_MACRO_COMPILES: usize
     }
 
     #[test]
-    fn late_dynamic_registered_property() {
-        use ::Universe;
-        let universe = Universe::new();
-        let some_prop = Prop::<usize>::new("foo");
-        universe.get(some_prop);
-    }*/
+    fn void_universe1() {
+        test_universe();
+        Universe::new(&[]);
+    }
 
-    property! { static EXPLICIT_INIT: usize }
+    #[test]
+    fn void_universe2() {
+        Universe::new(&[]);
+    }
+
+    property! { static TEST/EXPLICIT_INIT: usize }
     #[test]
     fn explicit_init() {
-        EXPLICIT_INIT.register();
-        let universe = Universe::new();
+        let universe = test_universe();
         assert_eq!(0, universe.get(EXPLICIT_INIT));
     }
 
-    property! { static STANDARD_PROPERTY: i64 }
+    property! { static TEST/STANDARD_PROPERTY: i64 }
     #[test]
     fn standard_property_usage() {
-        let universe = Universe::new();
+        let universe = test_universe();
         assert_eq!(0, universe.get(STANDARD_PROPERTY));
         universe.set(STANDARD_PROPERTY, 20);
         assert_eq!(20, universe.get(STANDARD_PROPERTY));
     }
 
-    property! { static PROP: usize }
-    property! { static OTHER_PROP ("PROP"): usize }
+    property! { static TEST/PROP: usize }
     #[test]
     fn property_basics() {
-        let universe = Universe::new();
+        let universe = test_universe();
 
         // default value
         assert!(universe.get(PROP) == 0);
@@ -296,21 +490,13 @@ pub /* property! requires this */ mod test {
         // set should work
         universe.set(PROP, 99);
         assert!(universe.get(PROP) == 99);
-
-        // get from another property
-        assert!(universe.get(OTHER_PROP) == 99);
-
-        // set via another property
-        universe.set(OTHER_PROP, 66);
-        assert!(universe.get(PROP) == 66);
-        assert!(*universe[PROP].read().unwrap() == 66);
     }
 
-    property! { static MAP: ::std::collections::HashMap<String, i32> }
+    property! { static TEST/MAP: ::std::collections::HashMap<String, i32> }
 
     #[test]
     fn hashmaps_with_threads() {
-        let universe = Universe::new().guard();
+        let universe = test_universe().guard();
         {
             let universe = universe.read().unwrap();
             let mut map = universe[MAP].write().unwrap();
@@ -325,11 +511,19 @@ pub /* property! requires this */ mod test {
             let universe = universe.clone();
             ::std::thread::spawn(move || {
                 let universe = universe.read().unwrap();
+                //println!("{:?}", &*universe);
                 let map = universe[MAP].read().unwrap();
-                println!("thread says: {}", map.get("foo").unwrap());
+                let got = map.get("foo").unwrap();
+                assert_eq!(got, &90);
             })
         };
-        thread.join().expect("thread failed");
+        let j = thread.join();
+        {
+            let universe = universe.read().unwrap();
+            let map = universe[MAP].read().unwrap();
+            println!("After join: {}", map.get("foo").unwrap());
+        }
+        j.expect("thread failed");
         {
             let universe = universe.read().unwrap();
             let map = universe[MAP].read().unwrap();
@@ -338,13 +532,18 @@ pub /* property! requires this */ mod test {
     }
 
     #[test]
-    fn get_properties() {
-        let universe = Universe::new().guard();
-        let universe = universe.read().unwrap();
-        let props = universe.list_properties();
-        assert!(props.len() >= 4);
-        for (name, _) in props {
-            println!("{:?}", name);
+    fn hashmaps_many_times() {
+        for _ in 0..100 {
+            hashmaps_with_threads();
         }
+    }
+
+    fn test_universe() -> Universe {
+        TEST.register_domain(); // FIXME: Not having to register the domain'd be nice. Can we avoid it?
+        EXPLICIT_INIT.register();
+        STANDARD_PROPERTY.register();
+        PROP.register();
+        MAP.register();
+        Universe::new(&[TEST])
     }
 }

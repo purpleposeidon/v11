@@ -48,24 +48,27 @@ impl<T> Storable for T where T: Sync + Copy + Sized + ::std::fmt::Debug + Decoda
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
+// FIXME: split up
+use property::{MaybeDomain, DomainName, PROPERTIES, GlobalProperties};
+
 /**
  * A context object whose reference should be passed around everywhere.
  * */
 pub struct Universe {
+    // FIXME: Tables should have domains
+    // FIXME: Tables should be in Arcs.
+    //  - allows table links
+    //  - probably add 'struct Domain { tables: Vec, properties: Vec }'
+    //  Actually it's the 'Domain' that should be in an Arc, not the table.
     pub tables: HashMap<String, RwLock<GenericTable>>,
-    pub properties: Vec<PBox>,
+    pub property_domains: Vec<MaybeDomain>,
 }
 impl Universe {
-    pub fn new() -> Universe {
-        let mut ret = Self::with_no_properties();
-        ret.add_properties();
-        ret
-    }
-
-    pub fn with_no_properties() -> Universe {
+    pub fn new(domains: &[DomainName]) -> Universe {
+        let pmap = &*PROPERTIES.read().unwrap();
         Universe {
-            tables: HashMap::new(),
-            properties: Vec::new(),
+            tables: Self::new_tables(pmap, domains),
+            property_domains: Self::new_properties(pmap, domains),
         }
     }
 
@@ -81,10 +84,28 @@ impl Universe {
         }).collect::<Vec<String>>().join(" ")
     }
 
+    // FIXME: These two belong in different files.
     pub fn table_names(&self) -> Vec<String> {
         self.tables.keys().map(String::clone).collect()
     }
+
+    fn new_tables(_: &GlobalProperties, _: &[DomainName]) -> HashMap<String, RwLock<GenericTable>> {
+        // FIXME: Tables can have domained_index as well, so we can ditch the HashMap for O(1).
+        HashMap::new()
+    }
 }
+use std::fmt;
+impl fmt::Debug for Universe {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Universe:")?;
+        writeln!(f, "\tProperties:")?;
+        for domain in self.property_domains.iter() {
+            writeln!(f, "\t\t{:?}", domain)?;
+        }
+        write!(f, "")
+    }
+}
+
 
 
 use num_traits::int::PrimInt;
