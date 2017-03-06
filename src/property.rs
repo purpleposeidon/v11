@@ -116,7 +116,7 @@ impl DomainInfo {
 pub enum MaybeDomain {
     /// The Universe does not have this domain.
     Unset(DomainName),
-    /// The does have that domain.
+    /// The Universe does have that domain.
     Domain(DomainInstance),
 }
 
@@ -162,7 +162,7 @@ impl<V> fmt::Debug for PropertyIndex<V> {
 }
 
 pub trait ToPropRef<V: Sync>: Sync {
-    fn get(&self) -> &Prop<V>;
+    unsafe fn get(&self) -> &Prop<V>;
     fn register(&self);
 }
 
@@ -212,7 +212,7 @@ macro_rules! property {
         static $DOMAIN:ident/$NAME:ident: $TYPE:ty = $INIT:expr;
     ) => {
         $(#[$ATTR])*
-        static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_v11_property_internal_mod::PropRef as &$crate::property::ToPropRef<$TYPE>;
+        static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::PropRef as &$crate::property::ToPropRef<$TYPE>;
 
         #[doc(hidden)]
         #[allow(non_snake_case)]
@@ -225,7 +225,7 @@ macro_rules! property {
         pub static $DOMAIN:ident/$NAME:ident: $TYPE:ty = $INIT:expr;
     ) => {
         $(#[$ATTR])*
-        pub static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_v11_property_internal_mod::PropRef as &$crate::property::ToPropRef<$TYPE>;
+        pub static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::PropRef as &$crate::property::ToPropRef<$TYPE>;
 
         #[doc(hidden)]
         #[allow(non_snake_case)]
@@ -235,64 +235,49 @@ macro_rules! property {
     };
 
     (@mod $DOMAIN:ident/$NAME:ident: $TYPE:ty = $INIT:expr;) => {
-        // So we're using $ty in a macro that's in modules, how do we be able to resolve it?
-        // Easy, we use super::*. But then how do we avoid things in super::* clashing with ours?
-        // Easy! We put everything else in a sub-module with a weird name.
-
-        // So this import...
         #[allow(unused_imports)]
         use super::*;
 
-        // ...allows this to compile
+        type Type = $TYPE;
+
+        use $crate::intern::PBox;
+        use $crate::property::{unset, PropertyName, DomainName, Prop, ToPropRef, PropertyIndex};
+        use std::sync::RwLock;
+
+        pub fn producer() -> PBox {
+            let val: Type = $INIT;
+            Box::new(RwLock::new(val)) as PBox
+            // Yeah, this guy's a bit ridiculous.
+        }
+
+        // Can't access this directly because 'static mut' is unsafe to touch in any way.
         #[doc(hidden)]
-        #[allow(non_camel_case_types)]
-        type _v11_property_internal_Type = $TYPE;
+        static mut VAL: Prop<Type> = Prop {
+            domain_name: DomainName(stringify!($DOMAIN)),
+            name: PropertyName(concat!(stringify!($DOMAIN), "/", stringify!($NAME))),
+            index: PropertyIndex {
+                domain_id: unset::DOMAIN_ID,
+                global_index: unset::GLOBAL_PROPERTY_ID,
+                domained_index: unset::DOMAIN_PROPERTY_ID,
+                v: ::std::marker::PhantomData,
+            },
+        };
 
-        // These two items are the only things that might collide. Not a problem!
+        #[derive(Clone, Copy)]
         #[doc(hidden)]
-        pub mod _v11_property_internal_mod {
-            //  This gives us a reasonable name.
-            use super::_v11_property_internal_Type as Type;
-
-            use $crate::intern::PBox;
-            use $crate::property::*;
-            use std::sync::RwLock;
-
-            mod producer {
-                pub fn producer() -> super::PBox {
-                    #[allow(unused_imports)]
-                    use super::super::super::*; // :D
-                    let val: super::Type = $INIT;
-                    Box::new(super::RwLock::new(val)) as super::PBox
-                    // Yeah, this guy's a bit ridiculous.
-                }
+        pub struct PropRef;
+        impl ToPropRef<Type> for PropRef {
+            // Unsafe as register could being called simultaneously.
+            // Could have a lock thing to make things actually-safe, but, well...
+            // That's overhead. Just do things in proper life-cycles.
+            unsafe fn get(&self) -> &Prop<Type> {
+                &VAL
             }
 
-            // Can't access this directly because 'static mut' is unsafe to touch in any way.
-            #[doc(hidden)]
-            static mut VAL: Prop<Type> = Prop {
-                domain_name: DomainName(stringify!($DOMAIN)),
-                name: PropertyName(concat!(stringify!($DOMAIN), "/", stringify!($NAME))),
-                index: PropertyIndex {
-                    domain_id: unset::DOMAIN_ID,
-                    global_index: unset::GLOBAL_PROPERTY_ID,
-                    domained_index: unset::DOMAIN_PROPERTY_ID,
-                    v: ::std::marker::PhantomData,
-                },
-            };
-
-            #[derive(Clone, Copy)]
-            #[doc(hidden)]
-            pub struct PropRef;
-            impl ToPropRef<Type> for PropRef {
-                fn get(&self) -> &Prop<Type> {
-                    // FIXME: This fn is unsafe. Run it through the pmap lock!
-                    unsafe { &VAL }
-                }
-                fn register(&self) {
-                    unsafe {
-                        VAL.init(producer::producer as fn() -> PBox)
-                    };
+            fn register(&self) {
+                let producer = producer as fn() -> PBox;
+                unsafe {
+                    VAL.init(producer);
                 }
             }
         }
@@ -431,7 +416,10 @@ impl Universe {
 impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
     type Output = RwLock<V>;
     fn index(&self, prop: &'a ToPropRef<V>) -> &RwLock<V> {
-        let prop: &Prop<V> = prop.get();
+        let prop: &Prop<V> = unsafe {
+            // FIXME: Just don't call Prop.register() at the same time as this!
+            prop.get()
+        };
         let domain = self.property_domains.get(prop.get_domain_id().0);
         let domain_instance: &DomainInstance = match domain {
             None if prop.get_domain_id() == unset::DOMAIN_ID => {
