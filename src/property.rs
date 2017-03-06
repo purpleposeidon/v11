@@ -156,13 +156,13 @@ pub struct PropertyIndex<V> {
     pub global_index: GlobalPropertyId,
     pub v: PhantomData<V>,
 }
-impl<V: Default> fmt::Debug for PropertyIndex<V> {
+impl<V> fmt::Debug for PropertyIndex<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "gid={} domain/domained={}/{}", self.global_index.0, self.domain_id.0, self.domained_index.0)
     }
 }
 
-pub trait ToPropRef<V: Default + Sync>: Sync {
+pub trait ToPropRef<V: Sync>: Sync {
     fn get(&self) -> &Prop<V>;
     fn register(&self);
 }
@@ -200,51 +200,73 @@ macro_rules! property {
         $(#[$ATTR:meta])*
         static $DOMAIN:ident/$NAME:ident: $TYPE:ty
     ) => {
-        $(#[$ATTR])*
-        static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_property_macro_internal::PropRef as &$crate::property::ToPropRef<$TYPE>;
-
-        #[doc(hidden)]
-        #[allow(non_snake_case)]
-        mod $NAME {
-            property!(@mod $DOMAIN/$NAME: $TYPE);
-        }
+        property! { static $DOMAIN/$NAME: $TYPE = Default::default(); }
     };
     (
         $(#[$ATTR:meta])*
         pub static $DOMAIN:ident/$NAME:ident: $TYPE:ty
     ) => {
+        property! { pub static $DOMAIN/$NAME: $TYPE = Default::default(); }
+    };
+    (
+        $(#[$ATTR:meta])*
+        static $DOMAIN:ident/$NAME:ident: $TYPE:ty = $INIT:expr;
+    ) => {
         $(#[$ATTR])*
-        pub static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_property_macro_internal::PropRef as &$crate::property::ToPropRef<$TYPE>;
+        static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_v11_property_internal_mod::PropRef as &$crate::property::ToPropRef<$TYPE>;
 
         #[doc(hidden)]
         #[allow(non_snake_case)]
         mod $NAME {
-            property!(@mod $DOMAIN/$NAME: $TYPE);
+            property!(@mod $DOMAIN/$NAME: $TYPE = $INIT;);
+        }
+    };
+    (
+        $(#[$ATTR:meta])*
+        pub static $DOMAIN:ident/$NAME:ident: $TYPE:ty = $INIT:expr;
+    ) => {
+        $(#[$ATTR])*
+        pub static $NAME: &'static $crate::property::ToPropRef<$TYPE> = &$NAME::_v11_property_internal_mod::PropRef as &$crate::property::ToPropRef<$TYPE>;
+
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        mod $NAME {
+            property!(@mod $DOMAIN/$NAME: $TYPE = $INIT;);
         }
     };
 
-    (@mod $DOMAIN:ident/$NAME:ident: $TYPE:ty) => {
+    (@mod $DOMAIN:ident/$NAME:ident: $TYPE:ty = $INIT:expr;) => {
         // So we're using $ty in a macro that's in modules, how do we be able to resolve it?
-        // Easy, we use super::*. But then how do we avoid clashes?
+        // Easy, we use super::*. But then how do we avoid things in super::* clashing with ours?
         // Easy! We put everything else in a sub-module with a weird name.
+
+        // So this import...
         #[allow(unused_imports)]
         use super::*;
 
+        // ...allows this to compile
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
-        pub type _property_macro_Type = $TYPE;
+        type _v11_property_internal_Type = $TYPE;
 
+        // These two items are the only things that might collide. Not a problem!
         #[doc(hidden)]
-        pub mod _property_macro_internal {
-            pub use $crate::intern::PBox;
-            pub use $crate::property::*;
-            pub use std::sync::RwLock;
-            use super::_property_macro_Type as Type;
+        pub mod _v11_property_internal_mod {
+            //  This gives us a reasonable name.
+            use super::_v11_property_internal_Type as Type;
 
-            #[doc(hidden)]
-            fn producer() -> PBox {
-                // FIXME: Can't this go on Prop?
-                Box::new(RwLock::new(Type::default())) as PBox
+            use $crate::intern::PBox;
+            use $crate::property::*;
+            use std::sync::RwLock;
+
+            mod producer {
+                pub fn producer() -> super::PBox {
+                    #[allow(unused_imports)]
+                    use super::super::super::*; // :D
+                    let val: super::Type = $INIT;
+                    Box::new(super::RwLock::new(val)) as super::PBox
+                    // Yeah, this guy's a bit ridiculous.
+                }
             }
 
             // Can't access this directly because 'static mut' is unsafe to touch in any way.
@@ -265,11 +287,12 @@ macro_rules! property {
             pub struct PropRef;
             impl ToPropRef<Type> for PropRef {
                 fn get(&self) -> &Prop<Type> {
+                    // FIXME: This fn is unsafe. Run it through the pmap lock!
                     unsafe { &VAL }
                 }
                 fn register(&self) {
                     unsafe {
-                        VAL.init(producer as fn() -> PBox)
+                        VAL.init(producer::producer as fn() -> PBox)
                     };
                 }
             }
@@ -285,7 +308,7 @@ pub fn property_count() -> usize { PROPERTIES.read().unwrap().gid2producer.len()
  * Access to a registered or previously used property is `O(1)`.
  * */
 #[derive(Clone, Copy)]
-pub struct Prop<V: Default> {
+pub struct Prop<V> {
     pub domain_name: DomainName,
     pub name: PropertyName,
     pub index: PropertyIndex<V>,
@@ -293,12 +316,12 @@ pub struct Prop<V: Default> {
     // Unfortunately it's more like "*universe[debug_enabled].read()", although
     // "universe.get(debug_enabled)" can be used when V is Copy.
 }
-impl<V: Default> fmt::Debug for Prop<V> {
+impl<V> fmt::Debug for Prop<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}[{:?}]", self.name.0, self.index)
     }
 }
-impl<V: Default> Prop<V> {
+impl<V> Prop<V> {
     fn get_domain_id(&self) -> DomainId { self.index.domain_id }
     fn get_index_within_domain(&self) -> DomainedPropertyId { self.index.domained_index }
     fn get_global_index(&self) -> GlobalPropertyId { self.index.global_index }
@@ -350,7 +373,7 @@ impl<V: Default> Prop<V> {
         intern::check_name(name);
     }
 }
-impl<V: Default> fmt::Display for Prop<V> {
+impl<V> fmt::Display for Prop<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.name)
     }
@@ -368,14 +391,14 @@ impl Universe {
     }
 
     /// Returns a copy of the value of the given property. Only works for properties that are `Copy`.
-    pub fn get<V: Any + Sync + Default + Copy>(&self, prop: &ToPropRef<V>) -> V {
+    pub fn get<V: Any + Sync + Copy>(&self, prop: &ToPropRef<V>) -> V {
         use std::sync::RwLockReadGuard;
         let v: RwLockReadGuard<V> = self[prop].read().unwrap();
         *v
     }
 
     /// Sets the value of a property.
-    pub fn set<V: Any + Sync + Default>(&self, prop: &ToPropRef<V>, val: V) {
+    pub fn set<V: Any + Sync>(&self, prop: &ToPropRef<V>, val: V) {
         *self[prop].write().unwrap() = val;
     }
 
@@ -406,7 +429,7 @@ impl Universe {
         ret
     }
 }
-impl<'a, V: Default + Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
+impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
     type Output = RwLock<V>;
     fn index(&self, prop: &'a ToPropRef<V>) -> &RwLock<V> {
         let prop: &Prop<V> = prop.get();
@@ -447,10 +470,6 @@ pub /* property! requires this */ mod test {
     domain! { TEST }
 
     use super::super::*;
-    property! {
-        #[allow(dead_code)]
-        static TEST/PROPERTY_MACRO_COMPILES: usize
-    }
 
     #[test]
     fn void_universe1() {
@@ -538,12 +557,28 @@ pub /* property! requires this */ mod test {
         }
     }
 
+    #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+    enum BestColors {
+        #[allow(dead_code)]
+        Purple,
+        Pink,
+    }
+
+    property! { static TEST/BEST_COLORS: BestColors = BestColors::Pink; }
+
+    #[test]
+    fn very_best_color() {
+        let universe = test_universe();
+        assert_eq!(universe.get(BEST_COLORS), BestColors::Pink);
+    }
+
     fn test_universe() -> Universe {
         TEST.register_domain(); // FIXME: Not having to register the domain'd be nice. Can we avoid it?
         EXPLICIT_INIT.register();
         STANDARD_PROPERTY.register();
         PROP.register();
         MAP.register();
+        BEST_COLORS.register();
         Universe::new(&[TEST])
     }
 }
