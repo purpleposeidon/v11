@@ -285,8 +285,6 @@ macro_rules! property {
     };
 }
 
-pub fn property_count() -> usize { PROPERTIES.read().unwrap().gid2producer.len() }
-
 /**
  * Custom properties associated with a universe.
  * Access to a registered or previously used property is `O(1)`.
