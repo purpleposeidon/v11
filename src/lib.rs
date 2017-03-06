@@ -23,6 +23,7 @@ use std::marker::PhantomData;
 use std::any::Any;
 
 
+pub mod domain;
 pub mod constructor;
 pub mod tables;
 pub mod property;
@@ -47,8 +48,7 @@ impl<T> Storable for T where T: Sync + Copy + Sized + ::std::fmt::Debug + Decoda
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
-// FIXME: split up
-use property::{MaybeDomain, DomainName, PROPERTIES, GlobalProperties};
+use domain::{MaybeDomain, DomainName, PROPERTIES, GlobalProperties};
 
 /**
  * A context object whose reference should be passed around everywhere.

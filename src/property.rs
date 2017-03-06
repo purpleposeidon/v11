@@ -1,7 +1,6 @@
 // FIXME: The concept of domain belongs in a separate file.
 
 use std::marker::PhantomData;
-use std::collections::HashMap;
 use std::any::Any;
 use std::sync::RwLock;
 use std::fmt;
@@ -9,6 +8,7 @@ use std::fmt;
 use Universe;
 use intern::PBox;
 use intern;
+use domain::*;
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct PropertyName(pub &'static str);
@@ -19,50 +19,9 @@ impl fmt::Display for PropertyName {
 }
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
-/**
- * Each property name is in the form "domain/property_name".
- * This struct represents the `domain` part of the property name, and is also used to reference
- * that domain by calling `domain_name.register()`.
- * */
-pub struct DomainName(pub &'static str);
-impl fmt::Display for DomainName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
-impl DomainName {
-    pub fn register_domain(&self) {
-        intern::check_name(self.0);
-        let mut properties = PROPERTIES.write().unwrap();
-        let next_id = DomainId(properties.domains.len());
-        properties.domains.entry(*self).or_insert_with(|| {
-            DomainInfo {
-                id: next_id,
-                name: *self,
-                members: Vec::new(),
-            }
-        });
-        properties.did2name.push(*self);
-        debug_assert_eq!(&properties.did2name[next_id.0], self);
-    }
-}
-
-#[macro_export]
-macro_rules! domain {
-    (pub $name:ident) => {
-        pub const $name: $crate::property::DomainName = $crate::property::DomainName(stringify!($name));
-    };
-    ($name:ident) => {
-        const $name: $crate::property::DomainName = $crate::property::DomainName(stringify!($name));
-    };
-}
-
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct DomainedPropertyId(usize);
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
-pub struct GlobalPropertyId(usize);
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
-pub struct DomainId(usize);
+pub struct GlobalPropertyId(pub usize);
 
 /// Internal.
 pub mod unset {
@@ -73,79 +32,6 @@ pub mod unset {
     pub const DOMAIN_ID: DomainId = DomainId(UNSET);
 }
 
-
-#[derive(Default)]
-#[derive(Debug)]
-pub struct GlobalProperties {
-    name2gid: HashMap<PropertyName, GlobalPropertyId>,
-    gid2name: HashMap<GlobalPropertyId, PropertyName>,
-
-    gid2producer: Vec<fn() -> PBox>,
-    domains: HashMap<DomainName, DomainInfo>,
-    did2name: Vec<DomainName>,
-}
-
-pub struct DomainInfo {
-    id: DomainId,
-    name: DomainName,
-    members: Vec<GlobalPropertyId>,
-}
-impl fmt::Debug for DomainInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let pmap = PROPERTIES.read().unwrap();
-        writeln!(f, "\t\t\tDomainInfo: {:?}", self.name)?;
-        for m in self.members.iter() {
-            writeln!(f, "\t\t\t\t{:?}: {:?}", m, pmap.gid2name.get(&m))?;
-        }
-        write!(f, "")
-    }
-}
-impl DomainInfo {
-    fn instantiate(&self, gid2producer: &Vec<fn() -> PBox>) -> DomainInstance {
-        DomainInstance {
-            id: self.id,
-            name: self.name,
-            members: self.members.iter().map(|id| {
-                gid2producer[id.0]()
-            }).collect(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum MaybeDomain {
-    /// The Universe does not have this domain.
-    Unset(DomainName),
-    /// The Universe does have that domain.
-    Domain(DomainInstance),
-}
-
-pub struct DomainInstance {
-    id: DomainId,
-    name: DomainName,
-    members: Vec<PBox>,
-}
-impl fmt::Debug for DomainInstance {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let pmap = PROPERTIES.read().unwrap();
-        writeln!(f, "id: {:?}, name: {:?}, members.len(): {:?}", self.id, self.name, self.members.len())?;
-        writeln!(f, "{:?}", pmap.domains[&self.name])
-    }
-}
-impl DomainInstance {
-    fn add_properties(&mut self, all_properties: &GlobalProperties) {
-        let info = &all_properties.domains[&self.name];
-        while self.members.len() < info.members.len() {
-            let gid = info.members[self.members.len()];
-            let producer = all_properties.gid2producer[gid.0];
-            self.members.push(producer());
-        }
-    }
-}
-
-lazy_static! {
-    pub static ref PROPERTIES: RwLock<GlobalProperties> = Default::default();
-}
 
 
 #[derive(Copy, Clone, PartialEq)]
@@ -241,7 +127,8 @@ macro_rules! property {
         type Type = $TYPE;
 
         use $crate::intern::PBox;
-        use $crate::property::{unset, PropertyName, DomainName, Prop, ToPropRef, PropertyIndex};
+        use $crate::property::{unset, PropertyName, Prop, ToPropRef, PropertyIndex};
+        use $crate::domain::DomainName;
         use std::sync::RwLock;
 
         pub fn producer() -> PBox {
@@ -330,7 +217,7 @@ impl<V> Prop<V> {
             first_instance = true;
             _next_gid
         });
-        let domained_index = DomainedPropertyId(domain_info.members.len());
+        let domained_index = DomainedPropertyId(domain_info.property_members.len());
         self.index = PropertyIndex {
             domain_id: domain_info.id,
             domained_index: domained_index,
@@ -338,7 +225,7 @@ impl<V> Prop<V> {
             v: PhantomData,
         };
         pmap.gid2name.insert(self.index.global_index, self.name);
-        domain_info.members.push(global_index);
+        domain_info.property_members.push(global_index);
         if first_instance {
             pmap.gid2producer.push(producer);
         }
@@ -430,7 +317,7 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
             },
             Some(&MaybeDomain::Domain(ref e)) => e,
         };
-        let l: Option<&RwLock<V>> = match domain_instance.members.get(prop.get_index_within_domain().0) {
+        let l: Option<&RwLock<V>> = match domain_instance.property_members.get(prop.get_index_within_domain().0) {
             None => if prop.get_domain_id() == unset::DOMAIN_ID {
                 panic!("The property {} was never initialized.", prop);
             } else {
@@ -450,11 +337,9 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
 
 #[cfg(test)]
 pub /* property! requires this */ mod test {
-    mod table_use {}
+    use super::super::*;
 
     domain! { TEST }
-
-    use super::super::*;
 
     #[test]
     fn void_universe1() {
