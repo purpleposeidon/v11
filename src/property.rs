@@ -6,9 +6,8 @@ use std::any::Any;
 use std::sync::RwLock;
 use std::fmt;
 
-use super::Universe;
-use super::intern::PBox;
-
+use Universe;
+use intern::PBox;
 use intern;
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
