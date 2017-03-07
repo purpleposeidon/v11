@@ -95,7 +95,7 @@ This allows skipping some codegen.
  **/
 #[macro_export]
 macro_rules! table {
-    (pub $name:ident $($args:tt)*) => {
+    (pub $domain:ident/$name:ident $($args:tt)*) => {
         pub mod $name {
             include!(concat!(
                 env!("OUT_DIR"),
@@ -105,7 +105,7 @@ macro_rules! table {
             ));
         }
     };
-    ($name:ident $($args:tt)*) => {
+    ($domain:ident/$name:ident $($args:tt)*) => {
         mod $name {
             include!(concat!(
                 env!("OUT_DIR"),
@@ -120,6 +120,7 @@ macro_rules! table {
 use Universe;
 use intern;
 use intern::PBox;
+use domain::DomainName;
 
 impl Universe {
     pub fn add_table(&mut self, table: GenericTable) {
@@ -144,18 +145,17 @@ impl Universe {
 
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 pub struct GenericTable {
+    pub domain: DomainName,
     pub name: String,
-    // FIXME: Remove
-    pub is_sorted: bool,
     pub columns: Vec<GenericColumn>,
 }
 impl GenericTable {
-    pub fn new(name: &str) -> GenericTable {
+    pub fn new(domain: DomainName, name: &str) -> GenericTable {
         intern::check_name(name);
         GenericTable {
+            domain: domain,
             name: name.to_string(),
             columns: Vec::new(),
-            is_sorted: true,
         }
     }
 
