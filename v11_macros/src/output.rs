@@ -60,7 +60,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "Header"]
 
         use v11;
-        use v11::intern::{GenericTable, GenericRowId, PBox, TableName};
+        use v11::intern::PBox;
+        use v11::tables::{GenericTable, GenericRowId, TableName};
         use v11::columns::{TCol, ColWrapper};
 
         #[allow(unused_imports)]
