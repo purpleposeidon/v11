@@ -32,8 +32,6 @@ pub mod columns;
 pub mod joincore;
 
 
-use intern::*;
-
 /**
  * Trait that all storable types must implement.
  *
@@ -49,6 +47,8 @@ impl<T> Storable for T where T: Sync + Copy + Sized + ::std::fmt::Debug + Decoda
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
 use domain::{MaybeDomain, DomainName, PROPERTIES, GlobalProperties};
+use tables::{GenericTable, TableName, GenericRowId};
+use intern::PBox;
 
 /**
  * A context object whose reference should be passed around everywhere.

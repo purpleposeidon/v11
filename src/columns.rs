@@ -1,7 +1,8 @@
 use std::ops::{Index, IndexMut, Range};
 use std::marker::PhantomData;
 use num_traits::PrimInt;
-use {Storable, TableName, GenericRowId};
+use Storable;
+use tables::{TableName, GenericRowId};
 
 pub trait TCol {
     type Element: Storable;
