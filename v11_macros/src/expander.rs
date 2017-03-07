@@ -1,5 +1,5 @@
 
-use syntex_syntax::ext::base::{TTMacroExpander, ExtCtxt, MacResult};
+use syntex_syntax::ext::base::{TTMacroExpander, ExtCtxt, MacResult, DummyResult};
 use syntex_syntax::ext::quote::rt::Span;
 use syntex_syntax::tokenstream::TokenTree;
 use syntex_syntax::parse::parser::Parser;
@@ -26,7 +26,7 @@ impl TTMacroExpander for TableExpander {
     fn expand<'cx>(
         &self,
         ecx: &'cx mut ExtCtxt,
-        _span: Span,
+        span: Span,
         token_tree: &[TokenTree],
     ) -> Box<MacResult + 'cx> {
         let mut tokens = Vec::new();
@@ -34,14 +34,14 @@ impl TTMacroExpander for TableExpander {
         let mut parser = Parser::new(ecx.parse_sess, tokens, None, false);
         let mut table = match super::parse::parse_table(&mut parser) {
             Ok(t) => t,
-            Err(m) => {
-                error(&format!("{}", m.message()));
-                // m.emit();
-                // return DummyResult::any(span);
+            Err(mut m) => {
+                m.emit();
+                return DummyResult::any(span);
             },
         };
         if let Some(err) = table.validate() {
             error(err);
+            return DummyResult::any(span);
         }
         let path = self.out.join(&format!("{}.rs", table.name));
         {

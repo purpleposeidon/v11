@@ -73,14 +73,16 @@ impl Drop for TmpFile {
 
 #[allow(dead_code)]
 fn warn<S: AsRef<str>>(msg: S) {
+    // FIXME: Nah, use a macro
     for line in msg.as_ref().split("\n") {
         println!("cargo:warning={}", line);
     }
 }
 
 #[allow(dead_code)]
-fn error<S: AsRef<str> + Clone>(msg: S) -> ! {
+fn error<S: AsRef<str> + Clone>(msg: S) {
+    // FIXME: Nah, use a macro
     // How to give error? panic's very unfriendly.
     warn(msg.clone());
-    panic!("{}", msg.as_ref())
+    //panic!("{}", msg.as_ref())
 }

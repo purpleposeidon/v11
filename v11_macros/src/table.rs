@@ -7,6 +7,7 @@ pub struct Table {
     // Header
     pub attrs: Vec<Attribute>,
     pub is_pub: bool,
+    pub domain: String,
     pub name: String,
     pub cols: Vec<Col>,
 
@@ -38,6 +39,12 @@ impl Table {
         }
     }
     pub fn validate(&mut self) -> Option<&str> {
+        if self.domain.is_empty() {
+            return Some("No domain");
+        }
+        if self.name.is_empty() {
+            return Some("No name");
+        }
         if self.cols.is_empty() {
             return Some("No columns");
         }

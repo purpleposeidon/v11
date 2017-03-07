@@ -1,5 +1,5 @@
 use syntex_syntax::parse::parser::Parser;
-use syntex_syntax::parse::token::{Token, DelimToken};
+use syntex_syntax::parse::token::{Token, DelimToken, BinOpToken};
 use syntex_syntax::parse::common::SeqSep;
 use syntex_syntax::parse::PResult;
 use syntex_syntax::tokenstream::TokenTree;
@@ -10,10 +10,16 @@ use syntex_syntax::print::pprust as pp;
 use super::table::{Table, Col, Serializer};
 use super::{warn, error};
 
+macro_rules! err {
+    ($parser:expr, $($args:tt),*) => {
+        return Err($parser.sess.span_diagnostic.struct_span_err($parser.span, &format!($($args),*)));
+    }
+}
+
 /*
  * table! {
  *     #[some_attribute]
- *     pub table_name {
+ *     pub domain_name/table_name {
  *         position: VecCol<MyCoordinate>,
  *         color: SegCol<RgbHexColor>,
  *         is_active: BitCol,
@@ -44,6 +50,8 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
     // [#[attr]] [pub] table_name { ... }
     table.attrs = parser.parse_outer_attributes()?;
     table.is_pub = parser.eat_keyword(keyword::Pub);
+    table.domain = parser.parse_ident()?.to_string();
+    parser.expect(&Token::BinOp(BinOpToken::Slash))?;
     table.name = parser.parse_ident()?.to_string();
     let structure_block = parser.parse_token_tree()?;
 
@@ -139,14 +147,14 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
                         } else if e == "Serde" {
                             out.push(Serializer::Serde);
                         } else {
-                            panic!("Unknown serializer {:?}", e);
+                            err!(parser, "Unknown serializer {:?}", e);
                         }
                     }
                 }
             } else if name == "Static" {
                 table.static_data = true;
             } else {
-                panic!("Unknown modifier {}", name);
+                err!(parser, "Unknown modifier {:?}", name);
             }
             parser.expect(&Token::Semi)?;
         }
@@ -158,7 +166,9 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
     } else {
         let got = match parser.parse_token_tree()? {
             TokenTree::Delimited(_, d) => pp::tts_to_string(&d.tts[..]),
-            what @ _ => error(&format!("Expected module code, got: {:?}", what)),
+            what @ _ => {
+                err!(parser, "Expected module code, got: {:?}", what);
+            },
         };
         Some(got)
     };

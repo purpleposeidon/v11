@@ -56,6 +56,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_TYPE2 = COL_TYPE;
 
     let TABLE_NAME_STR = table.name.clone();
+    let TABLE_DOMAIN_STR = table.domain.clone();
     write_quote! {
         [table, out, "Header"]
 
@@ -63,11 +64,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use v11::intern::PBox;
         use v11::tables::{GenericTable, GenericRowId, TableName};
         use v11::columns::{TCol, ColWrapper};
+        use v11::domain::DomainName;
 
         #[allow(unused_imports)]
         use v11::columns::{VecCol, BoolCol, SegCol};
         // Having them automatically imported is a reasonable convenience.
 
+        pub const TABLE_DOMAIN: DomainName = DomainName(#TABLE_DOMAIN_STR);
         pub const TABLE_NAME: &'static str = #TABLE_NAME_STR;
 
         #[allow(non_upper_case_globals)]
@@ -318,7 +321,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// Register the table to the universe.
         pub fn register(universe: &mut v11::Universe) {
-            let table = GenericTable::new(TABLE_NAME);
+            let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME);
             let table = table #(.add_column(
                 #COL_NAME_STR,
                 column_format::#COL_NAME,
@@ -614,7 +617,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
             match found {
                 Some(f) => f,
-                _ => super::error(&format!("SortBy({}) does not refer to a real column", sort_key)),
+                _ => {
+                    super::error(&format!("SortBy({}) does not refer to a real column", sort_key));
+                    return Ok(());
+                },
             }
         };
 
