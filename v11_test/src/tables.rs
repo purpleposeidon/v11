@@ -1,6 +1,6 @@
 use v11::{Universe, Action};
 
-domain! { TEST }
+domain! { pub TEST }
 
 table! {
     pub TEST/new_table_test {

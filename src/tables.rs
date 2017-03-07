@@ -97,6 +97,7 @@ This allows skipping some codegen.
 macro_rules! table {
     (pub $domain:ident/$name:ident $($args:tt)*) => {
         pub mod $name {
+            use super::$domain as TABLE_DOMAIN;
             include!(concat!(
                 env!("OUT_DIR"),
                 "/v11_generated_tables/",
@@ -107,6 +108,7 @@ macro_rules! table {
     };
     ($domain:ident/$name:ident $($args:tt)*) => {
         mod $name {
+            use super::$domain as TABLE_DOMAIN;
             include!(concat!(
                 env!("OUT_DIR"),
                 "/v11_generated_tables/",

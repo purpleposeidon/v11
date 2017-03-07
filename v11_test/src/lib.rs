@@ -7,7 +7,7 @@ extern crate rustc_serialize;
 
 
 #[cfg(test)]
-mod addons;
+pub mod addons;
 
 #[cfg(test)]
-mod tables;
+pub mod tables;

@@ -1,4 +1,6 @@
 
+use tables::TEST;
+
 table! {
     TEST/yes_debug {
         foo: [i32; SegCol<i32>],
