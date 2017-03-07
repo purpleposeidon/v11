@@ -21,7 +21,7 @@ use v11::Universe;
 
 #[test]
 fn compiles_with_or_without_debug() {
-    let mut universe = Universe::new();
+    let mut universe = Universe::new(&[]);
     yes_debug::register(&mut universe);
     no_debug::register(&mut universe);
 }
