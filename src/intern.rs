@@ -30,4 +30,14 @@ impl<I> Iterator for VoidIter<I> {
 }
 
 
+// FIXME: Are these actually necessary?
+pub fn desync_box<'a>(v: &'a PBox) -> &'a Any {
+    use std::ops::Deref;
+    v.deref()
+}
+
+pub fn desync_box_mut<'a>(v: &'a mut PBox) -> &'a mut Any {
+    use std::ops::DerefMut;
+    v.deref_mut()
+}
 

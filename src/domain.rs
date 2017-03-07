@@ -59,14 +59,14 @@ impl fmt::Debug for DomainInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let pmap = PROPERTIES.read().unwrap();
         writeln!(f, "\t\t\tDomainInfo: {:?}", self.name)?;
-        for m in self.property_members.iter() {
+        for m in &self.property_members {
             writeln!(f, "\t\t\t\t{:?}: {:?}", m, pmap.gid2name.get(&m))?;
         }
         write!(f, "")
     }
 }
 impl DomainInfo {
-    pub fn instantiate(&self, gid2producer: &Vec<fn() -> PBox>) -> DomainInstance {
+    pub fn instantiate(&self, gid2producer: &[fn() -> PBox]) -> DomainInstance {
         DomainInstance {
             id: self.id,
             name: self.name,

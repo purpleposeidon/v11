@@ -233,7 +233,7 @@ impl<V> Prop<V> {
 
     fn check_name(&self) {
         intern::check_name(self.domain_name.0);
-        let mut parts = self.name.0.splitn(2, "/");
+        let mut parts = self.name.0.splitn(2, '/');
         let domain_name = parts.next().expect("str::split failed?");
         let name = parts.next().unwrap_or_else(|| panic!("{:?} is not in the format 'domain/name'", self.name.0));
         if domain_name != self.domain_name.0 {
@@ -278,10 +278,9 @@ impl Universe {
         // Trying to get a property at a new domain is an errorneous/exceptional case, so this is
         // fine.
         let pmap = PROPERTIES.read().unwrap();
-        for prop in self.property_domains.iter_mut() {
-            match prop {
-                &mut MaybeDomain::Domain(ref mut instance) => instance.add_properties(&*pmap),
-                _ => (),
+        for prop in &mut self.property_domains {
+            if let MaybeDomain::Domain(ref mut instance) = *prop {
+                instance.add_properties(&*pmap);
             }
         }
     }
@@ -289,10 +288,9 @@ impl Universe {
     /// Return a list of the names of all registered domains.
     pub fn get_domain_names(&self) -> Vec<DomainName> {
         let mut ret = Vec::new();
-        for prop in self.property_domains.iter() {
-            match prop {
-                &MaybeDomain::Domain(ref instance) => ret.push(instance.name),
-                _ => (),
+        for prop in &self.property_domains {
+            if let MaybeDomain::Domain(ref instance) = *prop {
+                ret.push(instance.name);
             }
         }
         ret
@@ -324,7 +322,7 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
                 panic!("The universe does not know about property {}; perhaps there is a missed call to Universe.add_properties()?", prop);
             },
             Some(v) => {
-                ::desync_box(v).downcast_ref()
+                ::intern::desync_box(v).downcast_ref()
             },
         };
         match l {

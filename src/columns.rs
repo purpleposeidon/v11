@@ -8,6 +8,7 @@ pub trait TCol {
     type Element: Storable;
     fn new() -> Self;
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool { self.len() == 0 }
     fn col_index(&self, i: usize) -> &Self::Element;
     fn col_index_mut(&mut self, i: usize) -> &mut Self::Element;
     fn clear(&mut self);
@@ -72,7 +73,7 @@ impl<E: Storable> TCol for VecCol<E> {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BoolCol {
     data: ::bit_vec::BitVec,
     ref_id: Option<usize>,
@@ -80,23 +81,16 @@ pub struct BoolCol {
 }
 impl BoolCol {
     fn flush(&mut self) {
-        match self.ref_id {
-            Some(i) => {
-                self.data.set(i, self.ref_val);
-                self.ref_id = None;
-            },
-            _ => (),
+        if let Some(i) = self.ref_id {
+            self.data.set(i, self.ref_val);
+            self.ref_id = None;
         }
     }
 }
 impl TCol for BoolCol {
     type Element = bool;
     fn new() -> BoolCol {
-        BoolCol {
-            data: ::bit_vec::BitVec::new(),
-            ref_id: None,
-            ref_val: false,
-        }
+        Default::default()
     }
 
     fn len(&self) -> usize { self.data.len() }

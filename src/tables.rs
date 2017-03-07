@@ -137,7 +137,7 @@ impl Universe {
     pub fn get_generic_table<'u, 's>(&'u self, name: &'s str) -> &'u RwLock<GenericTable> {
         match self.tables.get(name) {
             None => panic!("Table {} was not registered", name),
-            Some(t) => t.clone(),
+            Some(t) => t,
         }
     }
 }
@@ -162,7 +162,7 @@ impl GenericTable {
     pub fn add_column(mut self, name: &str, type_name: &'static str, inst: PBox) -> Self {
         // Why is the 'static necessary??? Does it refer to the vtable or something?
         intern::check_name(name);
-        for c in self.columns.iter() {
+        for c in &self.columns {
             if c.name == name {
                 panic!("Duplicate column name {}", name);
             }
@@ -176,11 +176,11 @@ impl GenericTable {
     }
 
     pub fn get_column<C: Any>(&self, name: &str, type_name: &'static str) -> &C {
-        let c = self.columns.iter().filter(|c| c.name == name).next().unwrap_or_else(|| {
+        let c = self.columns.iter().find(|c| c.name == name).unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
-        match ::desync_box(&c.data).downcast_ref() {
+        match ::intern::desync_box(&c.data).downcast_ref() {
             Some(ret) => ret,
             None => {
                 panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
@@ -190,11 +190,11 @@ impl GenericTable {
 
     pub fn get_column_mut<C: Any>(&mut self, name: &str, type_name: &'static str) -> &mut C {
         let my_name = &self.name;
-        let c = self.columns.iter_mut().filter(|c| c.name == name).next().unwrap_or_else(|| {
+        let c = self.columns.iter_mut().find(|c| c.name == name).unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", my_name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
-        match ::desync_box_mut(&mut c.data).downcast_mut() {
+        match ::intern::desync_box_mut(&mut c.data).downcast_mut() {
             Some(ret) => ret,
             None => {
                 panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
@@ -220,7 +220,7 @@ impl GenericTable {
 
     pub fn info(&self) -> String {
         let mut ret = format!("{}:", self.name);
-        for col in self.columns.iter() {
+        for col in &self.columns {
             ret.push_str(&format!(" {}:[{}]", col.name, col.stored_type_name));
         }
         ret

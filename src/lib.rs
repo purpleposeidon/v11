@@ -20,7 +20,6 @@ use std::sync::*;
 use std::collections::HashMap;
 use rustc_serialize::{Decodable, Encodable};
 use std::marker::PhantomData;
-use std::any::Any;
 
 
 pub mod domain;
@@ -48,7 +47,6 @@ pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
 use domain::{MaybeDomain, DomainName, PROPERTIES, GlobalProperties};
 use tables::{GenericTable, TableName, GenericRowId};
-use intern::PBox;
 
 /**
  * A context object whose reference should be passed around everywhere.
@@ -98,7 +96,7 @@ impl fmt::Debug for Universe {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Universe:")?;
         writeln!(f, "\tProperties:")?;
-        for domain in self.property_domains.iter() {
+        for domain in &self.property_domains {
             writeln!(f, "\t\t{:?}", domain)?;
         }
         write!(f, "")
@@ -160,15 +158,5 @@ pub enum Action<I, IT: Iterator<Item=I>> {
     /// If you want to do a Remove and Add at the same time, move the first item in the iterator
     /// into the passed in row.
     Add(IT),
-}
-
-fn desync_box<'a>(v: &'a PBox) -> &'a Any {
-    use std::ops::Deref;
-    v.deref()
-}
-
-fn desync_box_mut<'a>(v: &'a mut PBox) -> &'a mut Any {
-    use std::ops::DerefMut;
-    v.deref_mut()
 }
 
