@@ -3,7 +3,7 @@ use v11::{Universe, Action};
 domain! { TEST }
 
 table! {
-    pub new_table_test {
+    pub TEST/new_table_test {
         random_number: [usize; VecCol<usize>],
     }
     impl {
@@ -17,7 +17,7 @@ table! {
 }
 
 table! {
-    easy {
+    TEST/easy {
         x: [i32; VecCol<i32>],
     }
 }
@@ -36,7 +36,7 @@ pub type EasyRowId = easy::RowId;
 
 
 table! {
-    cheese {
+    TEST/cheese {
         mass: [usize; VecCol<usize>],
         holes: [u16; VecCol<u16>],
         kind: [CheeseKind; VecCol<CheeseKind>],
@@ -47,7 +47,7 @@ table! {
 }
 
 table! {
-    test_foreign {
+    TEST/test_foreign {
         id: [EasyRowId; VecCol<EasyRowId>],
     }
     mod {
@@ -239,7 +239,7 @@ fn remove_one() {
 }
 
 table! {
-    sortie {
+    TEST/sortie {
         i: [usize; VecCol<usize>],
     }
     impl {
@@ -274,7 +274,7 @@ fn sort() {
 
 
 table! {
-    bsortie {
+    TEST/bsortie {
         i: [bool; BoolCol],
     }
     impl {
@@ -306,7 +306,7 @@ fn bsort() {
 }
 
 table! {
-    bits {
+    TEST/bits {
         a: [bool; BoolCol],
         b: [bool; VecCol<bool>],
     }
@@ -376,7 +376,7 @@ fn compile_rowid_in_hashmap() {
 }
 
 table! {
-    test_u16 {
+    TEST/test_u16 {
         x: [i32; VecCol<i32>],
     }
     impl {
