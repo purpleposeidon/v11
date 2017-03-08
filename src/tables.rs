@@ -100,6 +100,8 @@ macro_rules! table {
             include!(concat!(
                 env!("OUT_DIR"),
                 "/v11_generated_tables/",
+                stringify!($domain),
+                "/",
                 stringify!($name),
                 ".rs",
             ));
@@ -113,6 +115,8 @@ macro_rules! table {
             include!(concat!(
                 env!("OUT_DIR"),
                 "/v11_generated_tables/",
+                stringify!($domain),
+                "/",
                 stringify!($name),
                 ".rs",
             ));

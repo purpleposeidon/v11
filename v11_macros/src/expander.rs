@@ -40,10 +40,14 @@ impl TTMacroExpander for TableExpander {
             },
         };
         if let Some(err) = table.validate() {
-            error(err);
+            error(format!("Problem with table {:?}/{:?}: {}", table.domain, table.name, err));
             return DummyResult::any(span);
         }
-        let path = self.out.join(&format!("{}.rs", table.name));
+        let path = {
+            let basedir = self.out.join(&table.domain);
+            ::std::fs::create_dir_all(&basedir).expect("Could not create output directory");
+            basedir.join(&format!("{}.rs", table.name))
+        };
         {
             let out = File::create(&path);
             super::output::write_out(table, out.expect("Unable to open table module output file!")).expect("Write failed!");

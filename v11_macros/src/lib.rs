@@ -36,7 +36,6 @@ pub fn process(crate_name: &str, input: &Path, output: &Path, run_rust_format: b
     // We can't use `cargo:rerun-if-changed` because a new table could
     // be defined anywhere.
     assert!(input.is_dir(), "Input path is not a directory: {:?}", input);
-    ::std::fs::create_dir_all(output).expect("Could not create output directory");
     let tmp = TmpFile::new();
     let dot_rs = Some(OsStr::new("rs"));
     // FIXME: temp file, remove? Hmm.

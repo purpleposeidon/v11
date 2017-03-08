@@ -38,7 +38,7 @@ impl Table {
             .. Table::default()
         }
     }
-    pub fn validate(&mut self) -> Option<&str> {
+    pub fn validate(&mut self) -> Option<&'static str> {
         if self.domain.is_empty() {
             return Some("No domain");
         }
