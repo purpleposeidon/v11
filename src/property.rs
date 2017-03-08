@@ -250,15 +250,6 @@ impl<V> fmt::Display for Prop<V> {
 
 
 impl Universe {
-    pub fn new_properties(pmap: &GlobalProperties, domains: &[DomainName]) -> Vec<MaybeDomain> {
-        let mut ret = (0..pmap.domains.len()).map(|x| MaybeDomain::Unset(pmap.did2name[x])).collect::<Vec<MaybeDomain>>();
-        for name in domains.iter() {
-            let info = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name));
-            ret[info.id.0] = MaybeDomain::Domain(info.instantiate(&pmap.gid2producer));
-        }
-        ret
-    }
-
     /// Returns a copy of the value of the given property. Only works for properties that are `Copy`.
     pub fn get<V: Any + Sync + Copy>(&self, prop: &ToPropRef<V>) -> V {
         use std::sync::RwLockReadGuard;
@@ -278,7 +269,7 @@ impl Universe {
         // Trying to get a property at a new domain is an errorneous/exceptional case, so this is
         // fine.
         let pmap = PROPERTIES.read().unwrap();
-        for prop in &mut self.property_domains {
+        for prop in &mut self.domains {
             if let MaybeDomain::Domain(ref mut instance) = *prop {
                 instance.add_properties(&*pmap);
             }
@@ -288,8 +279,8 @@ impl Universe {
     /// Return a list of the names of all registered domains.
     pub fn get_domain_names(&self) -> Vec<DomainName> {
         let mut ret = Vec::new();
-        for prop in &self.property_domains {
-            if let MaybeDomain::Domain(ref instance) = *prop {
+        for domain in &self.domains {
+            if let MaybeDomain::Domain(ref instance) = *domain {
                 ret.push(instance.name);
             }
         }
@@ -303,7 +294,7 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
             // FIXME: Just don't call Prop.register() at the same time as this!
             prop.get()
         };
-        let domain = self.property_domains.get(prop.get_domain_id().0);
+        let domain = self.domains.get(prop.get_domain_id().0);
         let domain_instance: &DomainInstance = match domain {
             None if prop.get_domain_id() == unset::DOMAIN_ID => {
                 panic!("The property {:?} was not registered.", prop);

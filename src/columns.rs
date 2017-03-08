@@ -2,7 +2,7 @@ use std::ops::{Index, IndexMut, Range};
 use std::marker::PhantomData;
 use num_traits::PrimInt;
 use Storable;
-use tables::{TableName, GenericRowId};
+use tables::{GetTableName, GenericRowId};
 
 pub trait TCol {
     type Element: Storable;
@@ -46,11 +46,11 @@ impl<C: TCol, R> TCol for ColWrapper<C, R> {
     fn append(&mut self, other: &mut Vec<Self::Element>) { self.data.append(other) }
     fn reserve(&mut self, additional: usize) { self.data.reserve(additional) }
 }
-impl<C: TCol, R: PrimInt, T: TableName> Index<GenericRowId<R, T>> for ColWrapper<C, GenericRowId<R, T>> {
+impl<C: TCol, R: PrimInt, T: GetTableName> Index<GenericRowId<R, T>> for ColWrapper<C, GenericRowId<R, T>> {
     type Output = C::Element;
     fn index(&self, index: GenericRowId<R, T>) -> &Self::Output { self.data.col_index(index.to_usize()) }
 }
-impl<C: TCol, R: PrimInt, T: TableName> IndexMut<GenericRowId<R, T>> for ColWrapper<C, GenericRowId<R, T>> {
+impl<C: TCol, R: PrimInt, T: GetTableName> IndexMut<GenericRowId<R, T>> for ColWrapper<C, GenericRowId<R, T>> {
     fn index_mut(&mut self, index: GenericRowId<R, T>) -> &mut Self::Output { self.data.col_index_mut(index.to_usize()) }
 }
 

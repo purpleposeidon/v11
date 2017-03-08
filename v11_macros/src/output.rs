@@ -61,14 +61,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         use v11;
         use v11::intern::PBox;
-        use v11::tables::{GenericTable, GenericRowId, TableName};
+        use v11::tables::{GenericTable, GenericRowId, TableName, GetTableName};
         use v11::columns::{TCol, ColWrapper};
 
         #[allow(unused_imports)]
         use v11::columns::{VecCol, BoolCol, SegCol};
         // Having them automatically imported is a reasonable convenience.
 
-        pub const TABLE_NAME: &'static str = #TABLE_NAME_STR;
+        pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
+        // TABLE_DOMAIN = super::#TABLE_DOMAIN
 
         #[allow(non_upper_case_globals)]
         mod column_format {
@@ -163,8 +164,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub struct Row {
             #(pub #COL_NAME: #COL_ELEMENT,)*
         }
-        impl TableName for Row {
-            fn get_name() -> &'static str { TABLE_NAME }
+        impl GetTableName for Row {
+            fn get_name() -> TableName { TABLE_NAME }
         }
     };
 
@@ -282,11 +283,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "Lock & Load"]
 
         use std::mem::transmute;
+        use std::sync::RwLock;
+
+        fn get_generic_table(universe: &v11::Universe) -> &RwLock<GenericTable> {
+            let domain_id = TABLE_DOMAIN.get_id();
+            universe.get_generic_table(domain_id, TABLE_NAME)
+        }
 
         /// Locks the table for reading.
-        pub fn read<'u>(universe: &'u v11::Universe) -> Read<'u> {
-            // FIXME: can we ditch the 'u?
-            let table = universe.get_generic_table(TABLE_NAME);
+        pub fn read(universe: &v11::Universe) -> Read {
+            let table = get_generic_table(universe);
             let _lock = table.read().unwrap();
             #(let #COL_NAME = {
                 let got = _lock.get_column::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
@@ -301,8 +307,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         /// Locks the table for writing.
-        pub fn write<'u>(universe: &'u v11::Universe) -> Write<'u> {
-            let table = universe.get_generic_table(TABLE_NAME);
+        pub fn write(universe: &v11::Universe) -> Write {
+            let table = get_generic_table(universe);
             let mut _lock = table.write().unwrap();
             #(let #COL_NAME = {
                 let got = _lock.get_column_mut::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
@@ -317,17 +323,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         /// Register the table to the universe.
-        pub fn register(universe: &mut v11::Universe) {
+        pub fn register() {
             let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME);
             let table = table #(.add_column(
                 #COL_NAME_STR,
                 column_format::#COL_NAME,
                 {
-                    type CT = #COL_TYPE2;
-                    Box::new(CT::new()) as PBox
+                    fn maker() -> PBox {
+                        type CT = #COL_TYPE2;
+                        Box::new(CT::new()) as PBox
+                    }
+                    maker
                 },
             ))*;
-            universe.add_table(table);
+            table.register();
         }
     };
 

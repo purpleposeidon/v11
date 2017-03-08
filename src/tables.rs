@@ -123,46 +123,63 @@ macro_rules! table {
 use Universe;
 use intern;
 use intern::PBox;
-use domain::DomainName;
+use domain::{DomainName, DomainId, MaybeDomain};
 
 impl Universe {
-    pub fn add_table(&mut self, table: GenericTable) {
-        if table.columns.is_empty() { panic!("Table has no columns"); }
-        use std::collections::hash_map::Entry;
-        match self.tables.entry(table.name.clone()) {
-            Entry::Occupied(e) => {
-                e.get().read().unwrap().assert_mergable(&table);
-                // Maybe it's not unreasonable to be able to add columns.
-            },
-            Entry::Vacant(e) => { e.insert(RwLock::new(table)); },
+    pub fn get_generic_table(&self, domain_id: DomainId, name: TableName) -> &RwLock<GenericTable> {
+        use domain::MaybeDomain;
+        if let Some(&MaybeDomain::Domain(ref domain)) = self.domains.get(domain_id.0) {
+            return domain.get_generic_table(name);
         }
+        panic!("Request for table {} in unknown domain", name);
     }
 
-    pub fn get_generic_table<'u, 's>(&'u self, name: &'s str) -> &'u RwLock<GenericTable> {
-        match self.tables.get(name) {
-            None => panic!("Table {} was not registered", name),
-            Some(t) => t,
+    pub fn table_names(&self) -> Vec<TableName> {
+        let mut ret = Vec::new();
+        for domain in &self.domains {
+            if let MaybeDomain::Domain(ref domain) = *domain {
+                for table in domain.tables.keys() {
+                    ret.push(*table);
+                }
+            }
         }
+        ret
     }
 }
 
+type Prototyper = fn() -> PBox;
+
 /// A table held by `Universe`. Its information is used to populate concrete tables.
+#[derive(Debug)]
 pub struct GenericTable {
     pub domain: DomainName,
-    pub name: String,
+    pub name: TableName,
     pub columns: Vec<GenericColumn>,
 }
 impl GenericTable {
-    pub fn new(domain: DomainName, name: &str) -> GenericTable {
-        intern::check_name(name);
+    pub fn new(domain: DomainName, name: TableName) -> GenericTable {
+        intern::check_name(name.0);
         GenericTable {
             domain: domain,
-            name: name.to_string(),
+            name: name,
             columns: Vec::new(),
         }
     }
 
-    pub fn add_column(mut self, name: &str, type_name: &'static str, inst: PBox) -> Self {
+    pub fn guard(self) -> RwLock<GenericTable> {
+        RwLock::new(self)
+    }
+
+    /// Create a copy of this table with empty columns.
+    pub fn prototype(&self) -> GenericTable {
+        GenericTable {
+            domain: self.domain,
+            name: self.name,
+            columns: self.columns.iter().map(GenericColumn::prototype).collect(),
+        }
+    }
+
+    pub fn add_column(mut self, name: &'static str, type_name: &'static str, prototyper: Prototyper) -> Self {
         // Why is the 'static necessary??? Does it refer to the vtable or something?
         intern::check_name(name);
         for c in &self.columns {
@@ -171,9 +188,10 @@ impl GenericTable {
             }
         }
         self.columns.push(GenericColumn {
-            name: name.to_string(),
-            data: inst,
+            name: name,
             stored_type_name: type_name,
+            data: prototyper(),
+            prototyper: prototyper,
         });
         self
     }
@@ -205,22 +223,6 @@ impl GenericTable {
         }
     }
 
-    fn assert_mergable(&self, other: &GenericTable) {
-        if self.name != other.name {
-            panic!("Mismatched table names: {:?} vs {:?}", self.name, other.name);
-        }
-        let crash = || {
-            panic!("Tried to register table {} with incompatible columns!\nOld table: {}\nNew table: {}\n", other.name, self.info(), other.info());
-        };
-        if self.columns.len() != other.columns.len() {
-            crash();
-        }
-        for (a, b) in self.columns.iter().zip(other.columns.iter()) {
-            if a.name != b.name { crash(); }
-            if a.stored_type_name != b.stored_type_name { crash(); }
-        }
-    }
-
     pub fn info(&self) -> String {
         let mut ret = format!("{}:", self.name);
         for col in &self.columns {
@@ -228,12 +230,60 @@ impl GenericTable {
         }
         ret
     }
+
+    pub fn register(self) {
+        use domain::{GlobalProperties, PROPERTIES};
+        use std::collections::hash_map::Entry;
+        let mut pmap: &mut GlobalProperties = &mut *PROPERTIES.write().unwrap();
+        match pmap.domains.get_mut(&self.domain) {
+            None => panic!("Table {:?} registered before its domain {:?}", self.name, self.domain),
+            Some(mut info) => match info.tables.entry(self.name) {
+                Entry::Vacant(entry) => { entry.insert(self); },
+                Entry::Occupied(entry) => {
+                    let entry = entry.get();
+                    if !self.equivalent(entry) {
+                        panic!("Tried to register {:?} on top of an existing table with different structure, {:?}", self, entry);
+                    }
+                },
+            }
+        }
+    }
+
+    fn equivalent(&self, other: &GenericTable) -> bool {
+        return self.domain == other.domain
+            && self.name == other.name
+            && self.columns.len() == other.columns.len()
+            && {
+                for (a, b) in self.columns.iter().zip(other.columns.iter()) {
+                    if a.name != b.name { return false; }
+                    if a.stored_type_name != b.stored_type_name { return false; }
+                }
+                true
+            };
+    }
 }
 
 pub struct GenericColumn {
-    name: String,
+    name: &'static str,
     stored_type_name: &'static str,
+    // FIXME: PBox here is lame.
     data: PBox,
+    prototyper: Prototyper,
+}
+impl fmt::Debug for GenericColumn {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "GenericColumn(name: {:?}, stored_type_name: {:?})", self.name, self.stored_type_name)
+    }
+}
+impl GenericColumn {
+    fn prototype(&self) -> GenericColumn {
+        GenericColumn {
+            name: self.name,
+            stored_type_name: self.stored_type_name,
+            data: (self.prototyper)(),
+            prototyper: self.prototyper,
+        }
+    }
 }
 
 
@@ -244,18 +294,26 @@ pub struct GenericColumn {
 use std::marker::PhantomData;
 use num_traits::PrimInt;
 
-pub trait TableName {
-    fn get_name() -> &'static str;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TableName(pub &'static str);
+impl fmt::Display for TableName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+pub trait GetTableName {
+    fn get_name() -> TableName;
 }
 
 #[derive(Copy, Clone)]
-pub struct GenericRowId<I: PrimInt, T: TableName> {
+pub struct GenericRowId<I: PrimInt, T: GetTableName> {
     #[doc(hidden)]
     pub i: I,
     #[doc(hidden)]
     pub t: PhantomData<T>,
 }
-impl<I: PrimInt, T: TableName> GenericRowId<I, T> {
+impl<I: PrimInt, T: GetTableName> GenericRowId<I, T> {
     pub fn new(i: I) -> Self {
         GenericRowId {
             i: i,
@@ -269,7 +327,7 @@ impl<I: PrimInt, T: TableName> GenericRowId<I, T> {
         Self::new(self.i + I::one())
     }
 }
-impl<I: PrimInt, T: TableName> Default for GenericRowId<I, T> {
+impl<I: PrimInt, T: GetTableName> Default for GenericRowId<I, T> {
     fn default() -> Self {
         GenericRowId {
             i: I::max_value() /* UNDEFINED_INDEX */,
@@ -279,17 +337,17 @@ impl<I: PrimInt, T: TableName> Default for GenericRowId<I, T> {
 }
 
 use std::fmt;
-impl<I: PrimInt + fmt::Display, T: TableName> fmt::Debug for GenericRowId<I, T> {
+impl<I: PrimInt + fmt::Display, T: GetTableName> fmt::Debug for GenericRowId<I, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}[{}]", T::get_name(), self.i)
+        write!(f, "{}[{}]", T::get_name().0, self.i)
     }
 }
 
 #[test]
 fn test_formatting() {
     struct TestName;
-    impl TableName for TestName {
-        fn get_name() -> &'static str { "test_table" }
+    impl GetTableName for TestName {
+        fn get_name() -> TableName { TableName("test_table") }
     }
     let gen: GenericRowId<usize, TestName> = GenericRowId {
         i: 23,
@@ -300,18 +358,18 @@ fn test_formatting() {
 
 
 use std::cmp::{Eq, PartialEq, PartialOrd, Ord};
-impl<I: PrimInt, T: TableName> PartialEq for GenericRowId<I, T> {
+impl<I: PrimInt, T: GetTableName> PartialEq for GenericRowId<I, T> {
     fn eq(&self, other: &GenericRowId<I, T>) -> bool {
         self.i == other.i
     }
 }
-impl<I: PrimInt, T: TableName> Eq for GenericRowId<I, T> {}
-impl<I: PrimInt, T: TableName> PartialOrd for GenericRowId<I, T> {
+impl<I: PrimInt, T: GetTableName> Eq for GenericRowId<I, T> {}
+impl<I: PrimInt, T: GetTableName> PartialOrd for GenericRowId<I, T> {
     fn partial_cmp(&self, other: &GenericRowId<I, T>) -> Option<::std::cmp::Ordering> {
         self.i.partial_cmp(&other.i)
     }
 }
-impl<I: PrimInt, T: TableName> Ord for GenericRowId<I, T> {
+impl<I: PrimInt, T: GetTableName> Ord for GenericRowId<I, T> {
     fn cmp(&self, other: &GenericRowId<I, T>) -> ::std::cmp::Ordering {
         self.i.cmp(&other.i)
     }
@@ -319,20 +377,20 @@ impl<I: PrimInt, T: TableName> Ord for GenericRowId<I, T> {
 
 // Things get displeasingly manual due to the PhantomData.
 use std::hash::{Hash, Hasher};
-impl<I: PrimInt + Hash, T: TableName> Hash for GenericRowId<I, T> {
+impl<I: PrimInt + Hash, T: GetTableName> Hash for GenericRowId<I, T> {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
         self.i.hash(state);
     }
 }
 
 use rustc_serialize::{Encoder, Encodable, Decoder, Decodable};
-impl<I: PrimInt + Encodable, T: TableName> Encodable for GenericRowId<I, T> {
+impl<I: PrimInt + Encodable, T: GetTableName> Encodable for GenericRowId<I, T> {
     fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
         self.i.encode(s)
     }
 }
 
-impl<I: PrimInt + Decodable, T: TableName> Decodable for GenericRowId<I, T> {
+impl<I: PrimInt + Decodable, T: GetTableName> Decodable for GenericRowId<I, T> {
     fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
         Ok(Self::new(try!(I::decode(d))))
     }

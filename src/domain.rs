@@ -29,10 +29,16 @@ impl DomainName {
                 id: next_id,
                 name: *self,
                 property_members: Vec::new(),
+                tables: HashMap::new(),
             }
         });
         properties.did2name.push(*self);
         debug_assert_eq!(&properties.did2name[next_id.0], self);
+    }
+
+    pub fn get_id(&self) -> DomainId {
+        let properties = PROPERTIES.read().unwrap();
+        properties.domains.get(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self)).id
     }
 }
 
@@ -49,11 +55,13 @@ macro_rules! domain {
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct DomainId(pub usize);
 
+use tables::{TableName, GenericTable};
 
 pub struct DomainInfo {
     pub id: DomainId,
     pub name: DomainName,
     pub property_members: Vec<GlobalPropertyId>,
+    pub tables: HashMap<TableName, GenericTable>,
 }
 impl fmt::Debug for DomainInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -67,12 +75,15 @@ impl fmt::Debug for DomainInfo {
 }
 impl DomainInfo {
     pub fn instantiate(&self, gid2producer: &[fn() -> PBox]) -> DomainInstance {
+        let properties = self.property_members.iter().map(|id| {
+            gid2producer[id.0]()
+        }).collect();
+        let tables = self.tables.iter().map(|(k, v)| (*k, v.prototype().guard())).collect();
         DomainInstance {
             id: self.id,
             name: self.name,
-            property_members: self.property_members.iter().map(|id| {
-                gid2producer[id.0]()
-            }).collect(),
+            property_members: properties,
+            tables: tables,
         }
     }
 }
@@ -85,16 +96,36 @@ pub enum MaybeDomain {
     Domain(DomainInstance),
 }
 
+use Universe;
+impl Universe {
+    pub fn get_domains(domains: &[DomainName]) -> Vec<MaybeDomain> {
+        let pmap = &*PROPERTIES.read().unwrap();
+        let mut ret = (0..pmap.domains.len()).map(|x| MaybeDomain::Unset(pmap.did2name[x])).collect::<Vec<MaybeDomain>>();
+        for name in domains.iter() {
+            let info = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name));
+            ret[info.id.0] = MaybeDomain::Domain(info.instantiate(&pmap.gid2producer));
+        }
+        ret
+    }
+}
+
 pub struct DomainInstance {
     pub id: DomainId,
     pub name: DomainName,
     pub property_members: Vec<PBox>,
+    // FIXME: Tables can have domained_index as well, so we can ditch the HashMap for O(1).
+    pub tables: HashMap<TableName, RwLock<GenericTable>>,
 }
 impl fmt::Debug for DomainInstance {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let pmap = PROPERTIES.read().unwrap();
         writeln!(f, "id: {:?}, name: {:?}, property_members.len(): {:?}", self.id, self.name, self.property_members.len())?;
-        writeln!(f, "{:?}", pmap.domains[&self.name])
+        writeln!(f, "properties: {:?}", pmap.domains[&self.name])?;
+        write!(f, "tables:")?;
+        for n in self.tables.keys() {
+            write!(f, " {:?}", n.0)?;
+        }
+        Ok(())
     }
 }
 impl DomainInstance {
@@ -106,10 +137,15 @@ impl DomainInstance {
             self.property_members.push(producer());
         }
     }
+
+    pub fn get_generic_table(&self, name: TableName) -> &RwLock<GenericTable> {
+        self.tables.get(&name).unwrap_or_else(|| panic!("Table {:?} is not in domain {:?}", self.name, name))
+    }
 }
 
 #[derive(Default)]
 #[derive(Debug)]
+// FIXME: Rename to...? Multiverse?
 pub struct GlobalProperties {
     pub name2gid: HashMap<PropertyName, GlobalPropertyId>,
     pub gid2name: HashMap<GlobalPropertyId, PropertyName>,

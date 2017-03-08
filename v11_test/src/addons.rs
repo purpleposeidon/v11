@@ -23,7 +23,8 @@ use v11::Universe;
 
 #[test]
 fn compiles_with_or_without_debug() {
-    let mut universe = Universe::new(&[]);
-    yes_debug::register(&mut universe);
-    no_debug::register(&mut universe);
+    TEST.register_domain();
+    yes_debug::register();
+    no_debug::register();
+    let universe = Universe::new(&[]);
 }

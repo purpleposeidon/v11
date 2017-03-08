@@ -17,8 +17,6 @@ extern crate num_traits;
 extern crate lazy_static;
 
 use std::sync::*;
-use std::collections::HashMap;
-use rustc_serialize::{Decodable, Encodable};
 use std::marker::PhantomData;
 
 
@@ -37,16 +35,14 @@ pub mod joincore;
  * Types that implement this trait should also not implement `Drop`, although this is not yet
  * expressable, and is not presently required.
  * */
-// FIXME: Ditch 'codable.
-// FIXME: Ditch Debug
-pub trait Storable : Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable /* + !Drop */ { }
-impl<T> Storable for T where T: Sync + Copy + Sized + ::std::fmt::Debug + Decodable + Encodable /* + !Drop */ { }
+pub trait Storable: Sync + Copy + Sized /* + !Drop */ {}
+impl<T> Storable for T where T: Sync + Copy + Sized /* + !Drop */ {}
 
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
-use domain::{MaybeDomain, DomainName, PROPERTIES, GlobalProperties};
-use tables::{GenericTable, TableName, GenericRowId};
+use domain::{MaybeDomain, DomainName};
+use tables::{GetTableName, GenericRowId};
 
 /**
  * A context object whose reference should be passed around everywhere.
@@ -57,15 +53,12 @@ pub struct Universe {
     //  - allows table links
     //  - probably add 'struct Domain { tables: Vec, properties: Vec }'
     //  Actually it's the 'Domain' that should be in an Arc, not the table.
-    pub tables: HashMap<String, RwLock<GenericTable>>,
-    pub property_domains: Vec<MaybeDomain>,
+    pub domains: Vec<MaybeDomain>,
 }
 impl Universe {
     pub fn new(domains: &[DomainName]) -> Universe {
-        let pmap = &*PROPERTIES.read().unwrap();
         Universe {
-            tables: Self::new_tables(pmap, domains),
-            property_domains: Self::new_properties(pmap, domains),
+            domains: Self::get_domains(domains),
         }
     }
 
@@ -76,28 +69,27 @@ impl Universe {
      * contents.)
      * */
     pub fn info(&self) -> String {
-        self.tables.iter().map(|(_, table)| {
-            table.read().unwrap().info()
-        }).collect::<Vec<String>>().join(" ")
-    }
-
-    // FIXME: These two belong in different files.
-    pub fn table_names(&self) -> Vec<String> {
-        self.tables.keys().map(String::clone).collect()
-    }
-
-    fn new_tables(_: &GlobalProperties, _: &[DomainName]) -> HashMap<String, RwLock<GenericTable>> {
-        // FIXME: Tables can have domained_index as well, so we can ditch the HashMap for O(1).
-        HashMap::new()
+        let mut out = "".to_owned();
+        for domain in &self.domains {
+            let domain = match *domain {
+                MaybeDomain::Unset(_) => continue,
+                MaybeDomain::Domain(ref i) => i,
+            };
+            use itertools::Itertools;
+            let info: String = domain.tables.iter().map(|(_, table)| {
+                table.read().unwrap().info()
+            }).join(" ");
+            out += &format!("{}: {}\n", domain.name, info);
+        }
+        out
     }
 }
 use std::fmt;
 impl fmt::Debug for Universe {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Universe:")?;
-        writeln!(f, "\tProperties:")?;
-        for domain in &self.property_domains {
-            writeln!(f, "\t\t{:?}", domain)?;
+        for domain in &self.domains {
+            writeln!(f, "\t{:?}", domain)?;
         }
         write!(f, "")
     }
@@ -122,7 +114,7 @@ impl<I: PrimInt, T> RowIdIterator<I, T> {
         }
     }
 }
-impl<I: PrimInt + ::num_traits::ToPrimitive, T: TableName> Iterator for RowIdIterator<I, T> {
+impl<I: PrimInt + ::num_traits::ToPrimitive, T: GetTableName> Iterator for RowIdIterator<I, T> {
     type Item = GenericRowId<I, T>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.i >= self.end { return None; }

@@ -57,13 +57,19 @@ table! {
 
 fn make_universe() -> Universe {
     TEST.register_domain();
+    easy::register();
+    cheese::register();
+    test_foreign::register();
+    sortie::register();
+    bsortie::register();
+    bits::register();
+    test_u16::register();
     Universe::new(&[TEST])
 }
 
 #[test]
 fn small_table() {
-    let mut universe = make_universe();
-    cheese::register(&mut universe);
+    let universe = make_universe();
 
     {
         let mut cheese = cheese::write(&universe);
@@ -77,8 +83,7 @@ fn small_table() {
 
 #[test]
 fn large_table() {
-    let mut universe = make_universe();
-    cheese::register(&mut universe);
+    let universe = make_universe();
     let mut cheese = cheese::write(&universe);
     for x in 10..1000 {
         cheese.push(cheese::Row {
@@ -91,8 +96,7 @@ fn large_table() {
 
 #[test]
 fn walk_table() {
-    let mut universe = make_universe();
-    cheese::register(&mut universe);
+    let universe = make_universe();
     {
         let mut cheese = cheese::write(&universe);
         for x in 0..10 {
@@ -116,8 +120,7 @@ fn dump(easy: &mut easy::Write) {
 
 #[test]
 fn visit_remove() {
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     easy.push(easy::Row {x: 1});
     dump(&mut easy);
@@ -146,8 +149,7 @@ fn visit_remove() {
 
 #[test]
 fn visit_break_immediate() {
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     easy.push(easy::Row {x: 1});
     easy.visit(|_, _| -> easy::ClearVisit { Action::Break } );
@@ -160,8 +162,7 @@ fn visit_add() {
             println!("{:?}", easy.get_row(i));
         }
     }
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     easy.push(easy::Row {x: 1});
     //dump(&mut easy);
@@ -193,8 +194,7 @@ fn visit_remove_continue() {
 }
 
 fn visit_remove_and<A: Fn() -> easy::ClearVisit>(act: A) {
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     for n in 0..10 {
         easy.push(easy::Row {x: n});
@@ -215,8 +215,7 @@ fn visit_remove_and<A: Fn() -> easy::ClearVisit>(act: A) {
 
 #[test]
 fn remove_one() {
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     for i in 0..2 {
         easy.push(easy::Row { x: i });
@@ -250,8 +249,7 @@ table! {
 
 #[test]
 fn sort() {
-    let mut universe = make_universe();
-    sortie::register(&mut universe);
+    let universe = make_universe();
     println!("Input:");
     let orig_len = {
         let mut sortie = sortie::write(&universe);
@@ -284,8 +282,7 @@ table! {
 
 #[test]
 fn bsort() {
-    let mut universe = make_universe();
-    bsortie::register(&mut universe);
+    let universe = make_universe();
     let orig_len = {
         let mut bsortie = bsortie::write(&universe);
         bsortie.push(bsortie::Row { i: false });
@@ -319,8 +316,7 @@ table! {
 
 #[test]
 fn bool_col() {
-    let mut universe = make_universe();
-    bits::register(&mut universe);
+    let universe = make_universe();
     {
         let mut bits = bits::write(&universe);
         bits.push(bits::Row { a: true, b: true });
@@ -357,8 +353,7 @@ fn bool_col() {
 
 #[test]
 fn push() {
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
     assert_eq!(er.to_usize(), 0);
@@ -369,8 +364,7 @@ fn compile_rowid_in_hashmap() {
     #![allow(unused_variables)]
     use std::collections::HashMap;
     let x: HashMap<easy::RowId, ()> = HashMap::new();
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
 }
@@ -386,8 +380,7 @@ table! {
 
 #[test]
 fn compile_rowid_cmp() {
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     let a = easy.push(easy::Row {x: 1});
     assert!(a == a);
@@ -400,8 +393,7 @@ fn compile_rowid_cmp() {
 
 #[test]
 fn contains() {
-    let mut universe = make_universe();
-    easy::register(&mut universe);
+    let universe = make_universe();
     let mut easy = easy::write(&universe);
     assert!(!easy.contains(easy::at(1)));
     let a = easy.push(easy::Row {x: 1});
