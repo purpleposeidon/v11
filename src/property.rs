@@ -60,7 +60,6 @@ pub trait ToPropRef<V: Sync>: Sync {
  * ```
  * # #[macro_use]
  * # extern crate v11;
- * mod table_use {}
  * domain! { EXAMPLE_DOMAIN }
  * property! { static EXAMPLE_DOMAIN/THING: i32 }
  * fn main() {
@@ -74,9 +73,6 @@ pub trait ToPropRef<V: Sync>: Sync {
  *     assert_eq!(90, universe.get(THING));
  * }
  * ```
- *
- * Like `table!`, this macro requires access to a 'mod table_use'.
- * Like `constructor!`, this macro must be invoked from an externally visible module.
  * */
 // FIXME: Better documentation.
 #[macro_export]

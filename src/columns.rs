@@ -148,6 +148,7 @@ impl TCol for BoolCol {
 }
 
 /// Temporary (hopefully) stub for avec.
+// FIXME: Implement.
 pub type SegCol<E> = VecCol<E>;
 
 #[cfg(test)]

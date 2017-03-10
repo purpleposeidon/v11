@@ -42,6 +42,22 @@ impl DomainName {
     }
 }
 
+/**
+ * Declares a domain. This is equivalent to a namespace, but only has one level.
+ * 
+ * Domains are used in `property!`s and `table!`s.
+ * 
+ * # Usage
+ * 
+ * ```
+ * domain! { DOMAIN_NAME }
+ * // or domain! { pub DOMAIN_NAME }
+ * 
+ * fn main() {
+ *     DOMAIN_NAME.register_domain();
+ * }
+ * ```
+ * */
 #[macro_export]
 macro_rules! domain {
     (pub $name:ident) => {

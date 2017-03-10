@@ -56,6 +56,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_TYPE2 = COL_TYPE;
 
     let TABLE_NAME_STR = table.name.clone();
+    let TABLE_VERSION = table.version;
     write_quote! {
         [table, out, "Header"]
 
@@ -70,6 +71,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         // TABLE_DOMAIN = super::#TABLE_DOMAIN
+        pub const VERSION: usize = #TABLE_VERSION;
 
         #[allow(non_upper_case_globals)]
         mod column_format {
@@ -161,6 +163,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[derive(PartialEq, Copy, Clone)]
         #DERIVE_ENCODING
         #DERIVE_DEBUG
+        // FIXME: Do we need PartialEq?
+        // FIXME: How about RowDerive()?
         pub struct Row {
             #(pub #COL_NAME: #COL_ELEMENT,)*
         }

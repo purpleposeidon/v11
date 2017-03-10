@@ -1,5 +1,5 @@
 use syntex_syntax::parse::parser::Parser;
-use syntex_syntax::parse::token::{Token, DelimToken, BinOpToken};
+use syntex_syntax::parse::token::{Token, DelimToken, BinOpToken, Lit, };
 use syntex_syntax::parse::common::SeqSep;
 use syntex_syntax::parse::PResult;
 use syntex_syntax::tokenstream::TokenTree;
@@ -22,7 +22,7 @@ macro_rules! err {
  *     pub domain_name/table_name {
  *         position: VecCol<MyCoordinate>,
  *         color: SegCol<RgbHexColor>,
- *         is_active: BitCol,
+ *         is_active: BoolCol,
  *         observing: SegCol<::watchers::MyTable::RowId>,
  *     }
  *
@@ -153,6 +153,23 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
                 }
             } else if name == "Static" {
                 table.static_data = true;
+            } else if name == "Version" || name == "Legacy" {
+                // Version(1);
+                parser.expect(&Token::OpenDelim(DelimToken::Paren))?;
+                let version = parser.bump_and_get();
+                parser.expect(&Token::CloseDelim(DelimToken::Paren))?;
+                table.version = if let Token::Literal(Lit::Integer(name), _) = version {
+                    use std::str::FromStr;
+                    match usize::from_str(&name.as_str()) {
+                        Ok(v) => v,
+                        Err(_) => err!(parser, "Failed to parse version number {:?}", name),
+                    }
+                } else {
+                    err!(parser, "Expected integer version, not {:?}", version);
+                };
+                if name == "Legacy" {
+                    table.static_data = true;
+                }
             } else {
                 err!(parser, "Unknown modifier {:?}", name);
             }
