@@ -97,13 +97,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 Serializer::Serde => serde_decode = true,
             }
         }
-        let stuffs = [
-            (rustc_encode, "use rustc_serialize::{Encoder, Encodable}", "RustcEncodable"),
-            (rustc_decode, "use rustc_serialize::{Decoder, Decodable}", "RustcDecodable"),
-            (serde_encode, "use serde::{Deserializer, Deserialize};", "RustcDecodable"),
-            (serde_decode, "use serde::{Serializer, Serialize};", "Deserialize"),
+        let stuffs = vec![
+            (rustc_encode, "use rustc_serialize::{Encoder, Encodable};", quote! [RustcEncodable ]),
+            (rustc_decode, "use rustc_serialize::{Decoder, Decodable};", quote! [RustcDecodable ]),
+            (serde_encode, "use serde::{Deserializer, Deserialize};", quote! [RustcDecodable ]),
+            (serde_decode, "use serde::{Serializer, Serialize};", quote! [Deserialize ]),
         ];
-        for stuff in stuffs.iter() {
+        for stuff in stuffs.into_iter() {
             if !stuff.0 { continue; }
             writeln!(out, "{}", stuff.1)?;
             ret.push(stuff.2);
@@ -353,7 +353,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     let rows = self.rows();
                     e.emit_u32(rows as u32)?;
                     for i in self.range() {
-                        let row = self.row(i);
+                        let row = self.get_row(i);
                         row.encode(e)?;
                     }
                     Ok(())
