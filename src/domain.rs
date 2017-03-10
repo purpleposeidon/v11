@@ -58,6 +58,7 @@ impl DomainName {
  * # Usage
  * 
  * ```
+ * # #[macro_use] extern crate v11;
  * domain! { DOMAIN_NAME }
  * // or domain! { pub DOMAIN_NAME }
  * 
