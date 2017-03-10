@@ -24,14 +24,22 @@ impl DomainName {
         intern::check_name(self.0);
         let mut properties = PROPERTIES.write().unwrap();
         let next_id = DomainId(properties.domains.len());
-        properties.domains.entry(*self).or_insert_with(|| {
-            DomainInfo {
-                id: next_id,
-                name: *self,
-                property_members: Vec::new(),
-                tables: HashMap::new(),
+        {
+            use std::collections::hash_map::Entry;
+            let entry = properties.domains.entry(*self);
+            if let Entry::Occupied(entry) = entry {
+                assert_eq!(&entry.get().name, self);
+                return;
             }
-        });
+            entry.or_insert_with(|| {
+                DomainInfo {
+                    id: next_id,
+                    name: *self,
+                    property_members: Vec::new(),
+                    tables: HashMap::new(),
+                }
+            });
+        }
         properties.did2name.push(*self);
         debug_assert_eq!(&properties.did2name[next_id.0], self);
     }
@@ -172,6 +180,26 @@ pub struct GlobalProperties {
 }
 
 lazy_static! {
+    // FIXME: Rename
     pub static ref PROPERTIES: RwLock<GlobalProperties> = Default::default();
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn register_domains_once() {
+        domain! { A }
+        domain! { B }
+        A.register_domain();
+        B.register_domain();
+    }
+
+    #[test]
+    fn register_domain_multiple_times() {
+        domain! { MULTI_REG }
+        domain! { SINGLE }
+        MULTI_REG.register_domain();
+        MULTI_REG.register_domain();
+        SINGLE.register_domain();
+    }
+}
