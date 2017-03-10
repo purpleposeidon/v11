@@ -41,7 +41,8 @@ impl<T> Storable for T where T: Sync + Copy + Sized /* + !Drop */ {}
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
-use domain::{MaybeDomain, DomainName};
+pub use domain::DomainName;
+use domain::MaybeDomain;
 use tables::{GetTableName, GenericRowId};
 
 /**
