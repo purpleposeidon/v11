@@ -26,5 +26,5 @@ fn compiles_with_or_without_debug() {
     TEST.register_domain();
     yes_debug::register();
     no_debug::register();
-    let universe = Universe::new(&[]);
+    Universe::new(&[]);
 }
