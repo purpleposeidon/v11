@@ -62,6 +62,7 @@ pub trait ToPropRef<V: Sync>: Sync {
  * # extern crate v11;
  * domain! { EXAMPLE_DOMAIN }
  * property! { static EXAMPLE_DOMAIN/THING: i32 }
+ * property! { static EXAMPLE_DOMAIN/NON_DEFAULT: i32 = 42; }
  * fn main() {
  *     EXAMPLE_DOMAIN.register_domain();
  *     THING.register();
