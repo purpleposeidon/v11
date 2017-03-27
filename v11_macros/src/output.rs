@@ -227,6 +227,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             ret
         }
 
+        /** Release this lock. (R/W) */
+        pub fn close(self) {} // Highly sophisticated! :D
+
         // FIXME: Join
     };
     write_quote! {
