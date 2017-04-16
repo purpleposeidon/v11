@@ -80,13 +80,19 @@ macro_rules! property {
         $(#[$ATTR:meta])*
         static $DOMAIN:ident/$NAME:ident: $TYPE:ty
     ) => {
-        property! { static $DOMAIN/$NAME: $TYPE = Default::default(); }
+        property! {
+            $(#[$ATTR])*
+            static $DOMAIN/$NAME: $TYPE = Default::default();
+        }
     };
     (
         $(#[$ATTR:meta])*
         pub static $DOMAIN:ident/$NAME:ident: $TYPE:ty
     ) => {
-        property! { pub static $DOMAIN/$NAME: $TYPE = Default::default(); }
+        property! {
+            $(#[$ATTR])*
+            pub static $DOMAIN/$NAME: $TYPE = Default::default();
+        }
     };
     (
         $(#[$ATTR:meta])*
