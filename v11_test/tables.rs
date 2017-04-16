@@ -56,7 +56,7 @@ table! {
 }
 
 fn make_universe() -> Universe {
-    TEST.register_domain();
+    TEST.register();
     easy::register();
     cheese::register();
     test_foreign::register();

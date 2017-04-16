@@ -20,7 +20,7 @@ impl fmt::Display for DomainName {
     }
 }
 impl DomainName {
-    pub fn register_domain(&self) {
+    pub fn register(&self) {
         intern::check_name(self.0);
         let mut properties = PROPERTIES.write().unwrap();
         let next_id = DomainId(properties.domains.len());
@@ -63,7 +63,7 @@ impl DomainName {
  * // or domain! { pub DOMAIN_NAME }
  * 
  * fn main() {
- *     DOMAIN_NAME.register_domain();
+ *     DOMAIN_NAME.register();
  * }
  * ```
  * */
@@ -191,16 +191,16 @@ mod tests {
     fn register_domains_once() {
         domain! { A }
         domain! { B }
-        A.register_domain();
-        B.register_domain();
+        A.register();
+        B.register();
     }
 
     #[test]
     fn register_domain_multiple_times() {
         domain! { MULTI_REG }
         domain! { SINGLE }
-        MULTI_REG.register_domain();
-        MULTI_REG.register_domain();
-        SINGLE.register_domain();
+        MULTI_REG.register();
+        MULTI_REG.register();
+        SINGLE.register();
     }
 }

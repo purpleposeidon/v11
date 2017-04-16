@@ -23,7 +23,7 @@ use v11::Universe;
 
 #[test]
 fn compiles_with_or_without_debug() {
-    TEST.register_domain();
+    TEST.register();
     yes_debug::register();
     no_debug::register();
     Universe::new(&[]);

@@ -1,5 +1,3 @@
-// FIXME: The concept of domain belongs in a separate file.
-
 use std::marker::PhantomData;
 use std::any::Any;
 use std::sync::RwLock;
@@ -64,7 +62,7 @@ pub trait ToPropRef<V: Sync>: Sync {
  * property! { static EXAMPLE_DOMAIN/THING: i32 }
  * property! { static EXAMPLE_DOMAIN/NON_DEFAULT: i32 = 42; }
  * fn main() {
- *     EXAMPLE_DOMAIN.register_domain();
+ *     EXAMPLE_DOMAIN.register();
  *     THING.register();
  *     let universe = v11::Universe::new(&[EXAMPLE_DOMAIN]);
  *     {
@@ -429,7 +427,7 @@ pub /* property! requires this */ mod test {
     }
 
     fn test_universe() -> Universe {
-        TEST.register_domain(); // FIXME: Not having to register the domain'd be nice. Can we avoid it?
+        TEST.register(); // FIXME: Not having to register the domain'd be nice. Can we avoid it?
         EXPLICIT_INIT.register();
         STANDARD_PROPERTY.register();
         PROP.register();
