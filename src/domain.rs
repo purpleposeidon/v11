@@ -7,7 +7,7 @@ use intern;
 use intern::PBox;
 use property::{GlobalPropertyId, PropertyName};
 
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord)]
 /**
  * Each property name is in the form "domain/property_name".
  * This struct represents the `domain` part of the property name, and is also used to reference
