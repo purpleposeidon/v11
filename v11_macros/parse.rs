@@ -8,6 +8,7 @@ use syntex_syntax::diagnostics::plugin::DiagnosticBuilder;
 use syntex_syntax::print::pprust as pp;
 
 use super::table::{Table, Col, Serializer};
+#[allow(unused_imports)]
 use super::{warn, error};
 
 macro_rules! err {

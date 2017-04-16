@@ -2,12 +2,12 @@
 name = "v11_test"
 version = "0.1.0"
 authors = ["neptunepink <purpleposeidon@gmail.com>"]
-build = "build.rs"
 
 [dependencies]
 v11 = { path = "../" }
+v11_macros = { path = "../v11_macros" }
 rustc-serialize = "*"
 
+[lib]
+path = "lib.rs"
 
-[build-dependencies]
-v11_macros = { path = "../v11_macros" }

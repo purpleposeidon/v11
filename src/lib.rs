@@ -8,6 +8,10 @@
 // I'm almost certain that's how that works.
 //! 
 
+#[macro_use]
+extern crate v11_macros;
+#[macro_use]
+extern crate procedural_masquerade;
 extern crate rustc_serialize;
 extern crate itertools;
 extern crate joinkit;

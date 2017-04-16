@@ -3,9 +3,13 @@ name = "v11_macros"
 version = "0.1.0"
 authors = ["neptunepink <purpleposeidon@gmail.com>"]
 
+[lib]
+proc-macro = true
+path = "lib.rs"
+
 [dependencies]
+procedural-masquerade = "0.1.1"
 syntex = "0.58.*"
 syntex_syntax = "0.58.*"
 quote = "0.3.*"
-walkdir = "1.0"
 rustfmt = "0.7.1"
