@@ -30,9 +30,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let str2i = |v: &Vec<String>| -> Vec<Ident> { v.iter().map(i).collect() };
 
     // "name": ["element"; "col_type"],
+    use ::table::Col;
     let COL_NAME_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ident_to_string(x.name)).collect();
     let COL_ELEMENT_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ty_to_string(&*x.element)).collect();
     let COL_TYPE_STR: &Vec<_> = &table.cols.iter().map(|x| format!("ColWrapper<{}, RowId>", pp::ty_to_string(&*x.colty))).collect();
+    let COL_ATTR: Vec<_> = table.cols.iter().map(|x: &Col| {
+        let r = if let Some(a) = x.attrs.as_ref() {
+            a.iter().map(pp::attr_to_string).map(|x| format!("{}\n", x)).collect()
+        } else {
+            "".to_string()
+        };
+        r
+    }).map(i).collect();
 
     // name: [element; col_type],
     let COL_NAME: &Vec<_> = &str2i(COL_NAME_STR);
@@ -166,7 +175,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         // FIXME: Do we need PartialEq?
         // FIXME: How about RowDerive()?
         pub struct Row {
-            #(pub #COL_NAME: #COL_ELEMENT,)*
+            #(#COL_ATTR pub #COL_NAME: #COL_ELEMENT,)*
         }
         impl GetTableName for Row {
             fn get_name() -> TableName { TABLE_NAME }

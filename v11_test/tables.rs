@@ -3,7 +3,7 @@ use v11::{Universe, Action};
 domain! { pub TEST }
 
 table! {
-    pub TEST/new_table_test {
+    pub [TEST/new_table_test] {
         random_number: [usize; VecCol<usize>],
     }
     impl {
@@ -17,7 +17,7 @@ table! {
 }
 
 table! {
-    TEST/easy {
+    [TEST/easy] {
         x: [i32; VecCol<i32>],
     }
 }
@@ -36,7 +36,7 @@ pub type EasyRowId = easy::RowId;
 
 
 table! {
-    TEST/cheese {
+    [TEST/cheese] {
         mass: [usize; VecCol<usize>],
         holes: [u16; VecCol<u16>],
         kind: [CheeseKind; VecCol<CheeseKind>],
@@ -47,7 +47,7 @@ table! {
 }
 
 table! {
-    TEST/test_foreign {
+    [TEST/test_foreign] {
         id: [EasyRowId; VecCol<EasyRowId>],
     }
     mod {
@@ -238,7 +238,7 @@ fn remove_one() {
 }
 
 table! {
-    TEST/sortie {
+    [TEST/sortie] {
         i: [usize; VecCol<usize>],
     }
     impl {
@@ -272,7 +272,7 @@ fn sort() {
 
 
 table! {
-    TEST/bsortie {
+    [TEST/bsortie] {
         i: [bool; BoolCol],
     }
     impl {
@@ -303,7 +303,7 @@ fn bsort() {
 }
 
 table! {
-    TEST/bits {
+    [TEST/bits] {
         a: [bool; BoolCol],
         b: [bool; VecCol<bool>],
     }
@@ -370,7 +370,7 @@ fn compile_rowid_in_hashmap() {
 }
 
 table! {
-    TEST/test_u16 {
+    [TEST/test_u16] {
         x: [i32; VecCol<i32>],
     }
     impl {

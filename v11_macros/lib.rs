@@ -37,7 +37,26 @@ define_proc_macros! {
 
         let mut ret = Vec::new();
         ::output::write_out(table, &mut ret).unwrap();
-        String::from_utf8(ret).unwrap()
+        let ret = String::from_utf8(ret).unwrap();
+        if false {
+            // formatting
+            let formatted = {
+                use rustfmt::*;
+                let mut formatted = Vec::new();
+                let (_, mut filemap, _) = format_input(
+                    Input::Text(ret),
+                    &config::Config::default(),
+                    Some(&mut formatted),
+                ).unwrap();
+                let out = filemap.pop().unwrap();
+                out.1.to_string()
+            };
+            println!("==== formatted ==== ");
+            println!("{}", formatted);
+            formatted
+        } else {
+            ret
+        }
     }
 }
 

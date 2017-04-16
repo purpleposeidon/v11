@@ -2,7 +2,7 @@
 use tables::TEST;
 
 table! {
-    TEST/yes_debug {
+    [TEST/yes_debug] {
         foo: [i32; SegCol<i32>],
     }
     impl {
@@ -10,7 +10,7 @@ table! {
     }
 }
 table! {
-    TEST/no_debug {
+    [TEST/no_debug] {
         foo: [i32; SegCol<i32>],
     }
     impl {

@@ -17,7 +17,7 @@ The simplified syntax for this macro is:
 
 ```ignored
 table! {
-    DOMAIN/name_of_table {
+    [DOMAIN/name_of_table] {
         column_name_1: [Element1; ColumnType1],
         column_name_2: [Element2; ColumnType2],
         column_name_3: [Element3; ColumnType3],
@@ -42,7 +42,7 @@ The full syntax for this macro is:
 
 ```ignored
 table! {
-    pub DOMAIN/name_of_table {
+    pub [DOMAIN/name_of_table] {
         column_name: [element_type; ColumnType<element_type>],
     }
     impl {
@@ -115,12 +115,22 @@ Equivalent to `Version` and `Static`.
 **/
 #[macro_export]
 macro_rules! table {
-    ($domain:ident/$name:ident $($args:tt)*) => {
+    (
+        $(#[$meta:meta])*
+        [$domain:ident/$name:ident]
+        $($args:tt)*
+    ) => {
+        $(#[$meta])*
         mod $name {
             table!(mod $domain/$name $($args)*);
         }
     };
-    (pub $domain:ident/$name:ident $($args:tt)*) => {
+    (
+        $(#[$meta:meta])*
+        pub [$domain:ident/$name:ident]
+        $($args:tt)*
+    ) => {
+        $(#[$meta])*
         pub mod $name {
             table!(mod $domain/$name $($args)*);
         }
