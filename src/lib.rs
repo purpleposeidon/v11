@@ -25,7 +25,6 @@ use std::marker::PhantomData;
 
 
 pub mod domain;
-pub mod constructor;
 pub mod tables;
 pub mod property;
 pub mod intern;
