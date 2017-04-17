@@ -120,6 +120,14 @@ pub enum MaybeDomain {
     /// The Universe does have that domain.
     Domain(DomainInstance),
 }
+impl MaybeDomain {
+    fn is_set(&self) -> bool {
+        match self {
+            &MaybeDomain::Unset(_) => false,
+            &MaybeDomain::Domain(_) => true,
+        }
+    }
+}
 
 use Universe;
 impl Universe {
@@ -129,6 +137,46 @@ impl Universe {
         for name in domains.iter() {
             let info = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name));
             ret[info.id.0] = MaybeDomain::Domain(info.instantiate(&pmap.gid2producer));
+        }
+        ret
+    }
+
+    pub fn add_domain(&mut self, domain: DomainName) {
+        self.sync_domain_list();
+        let id = domain.get_id().0;
+        if self.domains[id].is_set() { return; }
+        let properties = PROPERTIES.read().unwrap();
+        self.domains[id] = MaybeDomain::Domain(properties.domains[&domain].instantiate(&properties.gid2producer));
+    }
+
+    /// Make sure this Universe has a MaybeDomain for every globally registered DomainName.
+    fn sync_domain_list(&mut self) {
+        let properties = PROPERTIES.read().unwrap();
+        let news = &properties.did2name[self.domains.len()..];
+        self.domains.extend(news.iter().map(|d| MaybeDomain::Unset(*d)));
+    }
+
+    /// Adds any properties that are unknown. This function should be called if any libraries have
+    /// been loaded since before the universe was created.
+    pub fn add_properties(&mut self) {
+        // We only allow domains to be set at creation, so we don't need to look for new ones.
+        // Trying to get a property at a new domain is an errorneous/exceptional case, so this is
+        // fine.
+        let pmap = PROPERTIES.read().unwrap();
+        for prop in &mut self.domains {
+            if let MaybeDomain::Domain(ref mut instance) = *prop {
+                instance.add_properties(&*pmap);
+            }
+        }
+    }
+
+    /// Return a list of the names of all registered domains.
+    pub fn get_domain_names(&self) -> Vec<DomainName> {
+        let mut ret = Vec::new();
+        for domain in &self.domains {
+            if let MaybeDomain::Domain(ref instance) = *domain {
+                ret.push(instance.name);
+            }
         }
         ret
     }

@@ -199,13 +199,13 @@ impl<V> Prop<V> {
     pub fn init(&mut self, producer: fn() -> PBox) {
         let mut pmap: &mut GlobalProperties = &mut *PROPERTIES.write().unwrap();
         // We must acquire the global lock at the beginning of this function. If we wait, and a
-        // property is being registered from multiple threads simultaneous, there will be duplicate
+        // property is being registered from multiple threads simultaneously, there will be duplicate
         // registrations. This must happen before the if below.
 
-        // There are 3 things that can happen:
+        // These are the states:
         // 1: This function was called already on the same Prop.
         // 2: This is the first time a property with this name has been registered.
-        // 3: Another PropRef with the same name
+        // 3: A twin PropRef was already registered.
         if self.get_global_index() != unset::GLOBAL_PROPERTY_ID {
             // This handles the first case.
             return;
@@ -230,6 +230,8 @@ impl<V> Prop<V> {
         if first_instance {
             pmap.gid2producer.push(producer);
         }
+        // FIXME: Shouldn't we panic if we're adding something to a domain that was already used to
+        // make a universe?
     }
 
     fn check_name(&self) {
@@ -261,31 +263,6 @@ impl Universe {
     /// Sets the value of a property.
     pub fn set<V: Any + Sync>(&self, prop: &ToPropRef<V>, val: V) {
         *self[prop].write().unwrap() = val;
-    }
-
-    /// Adds any properties that are unknown. This function should be called if any libraries have
-    /// been loaded since before the universe was created.
-    pub fn add_properties(&mut self) {
-        // We only allow domains to be set at creation, so we don't need to look for new ones.
-        // Trying to get a property at a new domain is an errorneous/exceptional case, so this is
-        // fine.
-        let pmap = PROPERTIES.read().unwrap();
-        for prop in &mut self.domains {
-            if let MaybeDomain::Domain(ref mut instance) = *prop {
-                instance.add_properties(&*pmap);
-            }
-        }
-    }
-
-    /// Return a list of the names of all registered domains.
-    pub fn get_domain_names(&self) -> Vec<DomainName> {
-        let mut ret = Vec::new();
-        for domain in &self.domains {
-            if let MaybeDomain::Domain(ref instance) = *domain {
-                ret.push(instance.name);
-            }
-        }
-        ret
     }
 
     /// Gets the property locked for reading. Panics if poisoned.
