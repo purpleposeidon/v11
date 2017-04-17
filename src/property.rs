@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use std::any::Any;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt;
 
 use Universe;
@@ -286,6 +286,16 @@ impl Universe {
             }
         }
         ret
+    }
+
+    /// Gets the property locked for reading. Panics if poisoned.
+    pub fn read<V: Any + Sync>(&self, prop: &ToPropRef<V>) -> RwLockReadGuard<V> {
+        self[prop].read().unwrap()
+    }
+
+    /// Gets the property locked for writing. Panics if poisoned.
+    pub fn write<V: Any + Sync>(&self, prop: &ToPropRef<V>) -> RwLockWriteGuard<V> {
+        self[prop].write().unwrap()
     }
 }
 impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
