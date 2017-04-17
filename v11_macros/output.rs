@@ -140,7 +140,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     write_quote! {
         [table, out, "Indexes"]
 
+        /// This is the type used to index into `#TABLE_NAME`'s columns.
+        /// It is typed specifically for this table.
         pub type RowId = GenericRowId<#ROW_ID_TYPE, Row>;
+        /// The internal index type, which specifies the maximum number of rows. It is controlled
+        /// by `impl { RawType = u32 }`.
         pub type RawType = #ROW_ID_TYPE;
 
         /// An undefined index value to be used for default values.
@@ -338,7 +342,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
 
-        /// Register the table to the universe.
+        /// Register the table onto its domain.
         pub fn register() {
             let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME);
             let table = table #(.add_column(
@@ -361,6 +365,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             [table, out, "Rustc Encode"]
 
             impl<'u> Read<'u> {
+                /// Row-based encoding.
                 pub fn encode<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
                     let rows = self.rows();
                     e.emit_u32(rows as u32)?;
@@ -379,6 +384,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             [table, out, "Rustc Decode"]
 
             impl<'u> Write<'u> {
+                /// Row-based decoding.
                 pub fn decode<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
                     let rows = d.read_u32()? as usize;
                     self.reserve(rows);
@@ -598,6 +604,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             use std::cmp::Ordering;
             impl<'u> Write<'u> {
+                /// Sorts the table using the provided function.
                 #PUB fn sort_with<C>(&mut self, mut compare: C)
                 where C: FnMut(&Write<'u>, RowId, RowId) -> Ordering
                 {
@@ -641,8 +648,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             impl<'u> Write<'u> {
                 /**
-                 * Sorts by the first key only. If you wanted to sort by multiple columns, you will
-                 * have to pack them into a tuple in the first column.
+                 * Sort the table by the indicated key.
                  * */
                 pub fn #SORT_BY_COL(&mut self) {
                     self.sort_with(|me: &Write<'u>, a: RowId, b: RowId| {
