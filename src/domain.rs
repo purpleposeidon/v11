@@ -77,10 +77,10 @@ impl DomainName {
 #[macro_export]
 macro_rules! domain {
     (pub $name:ident) => {
-        domain!(pub $name (stringify!($name)))
+        domain! { pub $name (stringify!($name)) }
     };
     ($name:ident) => {
-        domain!($name (stringify!($name)))
+        domain! { $name (stringify!($name)) }
     };
     (pub $name:ident ($truename:expr)) => {
         pub const $name: $crate::domain::DomainName = $crate::domain::DomainName($truename);

@@ -1,5 +1,7 @@
 use v11::*;
 
+domain! { COMPILE_TRUE_NAME ("FOO") }
+
 domain! { OLD }
 domain! { NEW }
 

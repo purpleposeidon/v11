@@ -17,6 +17,8 @@ pub mod tables;
 #[cfg(test)]
 pub mod domains;
 
+// FIXME: Test sorting.
+
 // FIXME: Can this go into "tests/" as is standard? Previous usage of build.rs probably made that
 // difficult.
 
