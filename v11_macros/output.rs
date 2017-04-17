@@ -587,13 +587,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
-    if table.generic_sort {
+    if table.generic_sort || !table.sort_by.is_empty() {
+        let PUB = if table.generic_sort {
+            i("pub")
+        } else {
+            i("")
+        };
         write_quote! {
             [table, out, "Generic sort"]
 
             use std::cmp::Ordering;
             impl<'u> Write<'u> {
-                pub fn sort_with<C>(&mut self, mut compare: C)
+                #PUB fn sort_with<C>(&mut self, mut compare: C)
                 where C: FnMut(&Write<'u>, RowId, RowId) -> Ordering
                 {
                     // We do this the lame way to avoid having to implement our own sorting
@@ -630,21 +635,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     for sort_key in table.sort_by.iter() {
         let SORT_BY_COL = i(format!("sort_by_{}", sort_key));
         let SORT_KEY = i(sort_key);
-        let ELEMENT_TYPE = {
-            let mut found = None;
-            for col in table.cols.iter() {
-                if &pp::ident_to_string(col.name) == sort_key {
-                    found = Some(i(pp::ty_to_string(&*col.element)));
-                }
-            }
-            match found {
-                Some(f) => f,
-                _ => {
-                    super::error(&format!("SortBy({}) does not refer to a real column", sort_key));
-                    return Ok(());
-                },
-            }
-        };
 
         write_quote! {
             [table, out, "sorting"]
@@ -655,15 +645,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                  * have to pack them into a tuple in the first column.
                  * */
                 pub fn #SORT_BY_COL(&mut self) {
-                    type ET = #ELEMENT_TYPE;
                     self.sort_with(|me: &Write<'u>, a: RowId, b: RowId| {
                         let col = &me.#SORT_KEY;
                         col[a].cmp(&col[b])
                     })
                 }
             }
-
-
         }
     }
 
