@@ -56,24 +56,37 @@ impl DomainName {
  * Domains are used in `property!`s and `table!`s.
  * 
  * # Usage
- * 
+ *
  * ```
  * # #[macro_use] extern crate v11;
  * domain! { DOMAIN_NAME }
  * // or domain! { pub DOMAIN_NAME }
- * 
+ *
  * fn main() {
  *     DOMAIN_NAME.register();
  * }
  * ```
+ *
+ * A 'true name' can be used to disambiguate same-named domains in different libraries.
+ * ```
+ * # #[macro_use] extern crate v11;
+ * domain! { DOMAIN_NAME ("TRUE_NAME") }
+ * ```
+ *
  * */
 #[macro_export]
 macro_rules! domain {
     (pub $name:ident) => {
-        pub const $name: $crate::domain::DomainName = $crate::domain::DomainName(stringify!($name));
+        domain!(pub $name (stringify!($name)))
     };
     ($name:ident) => {
-        const $name: $crate::domain::DomainName = $crate::domain::DomainName(stringify!($name));
+        domain!($name (stringify!($name)))
+    };
+    (pub $name:ident ($truename:expr)) => {
+        pub const $name: $crate::domain::DomainName = $crate::domain::DomainName($truename);
+    };
+    ($name:ident ($truename:expr)) => {
+        const $name: $crate::domain::DomainName = $crate::domain::DomainName($truename);
     };
 }
 
