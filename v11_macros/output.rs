@@ -641,6 +641,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     for sort_key in table.sort_by.iter() {
         let SORT_BY_COL = i(format!("sort_by_{}", sort_key));
+        let SORTED_BY_COL = i(format!("sorted_by_{}", sort_key));
         let SORT_KEY = i(sort_key);
 
         write_quote! {
@@ -656,6 +657,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         col[a].cmp(&col[b])
                     })
                 }
+            }
+            /// Return the table locked for writing and sorted by $column.
+            pub fn #SORTED_BY_COL(universe: &Universe) -> Write {
+                let mut w = write(universe);
+                w.#SORT_BY_COL();
+                w
             }
         }
     }
