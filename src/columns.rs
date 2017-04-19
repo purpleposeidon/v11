@@ -1,9 +1,13 @@
+//! Column storage types.
+
 use std::ops::{Index, IndexMut, Range};
 use std::marker::PhantomData;
 use num_traits::PrimInt;
 use Storable;
 use tables::{GetTableName, GenericRowId};
 
+/// All columns must implement this trait.
+/// It exposes an interface similar to `Vec`.
 pub trait TCol {
     type Element: Storable;
     fn new() -> Self;
@@ -19,6 +23,7 @@ pub trait TCol {
     fn reserve(&mut self, additional: usize);
 }
 
+/// Column wrapper, used by tables. Internal.
 #[derive(Serialize, Deserialize)]
 pub struct ColWrapper<C: TCol, R> {
     pub data: C,
@@ -55,6 +60,9 @@ impl<C: TCol, R: PrimInt, T: GetTableName> IndexMut<GenericRowId<R, T>> for ColW
     fn index_mut(&mut self, index: GenericRowId<R, T>) -> &mut Self::Output { self.data.col_index_mut(index.to_usize()) }
 }
 
+/// Stores data contiguously using the standard rust `Vec`.
+/// This column type is ideal for tables that are 'static': written once, and then modified.
+/// Indexing is slightly more efficient than a SegCol.
 #[derive(Debug)]
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
@@ -74,6 +82,7 @@ impl<E: Storable> TCol for VecCol<E> {
 }
 
 
+/// Densely packed booleans.
 #[derive(Debug, Default)]
 pub struct BoolCol {
     data: ::bit_vec::BitVec,
@@ -149,6 +158,7 @@ impl TCol for BoolCol {
 }
 
 /// Temporary (hopefully) stub for avec.
+/// Use this for tables that may be heavily extended at run-time.
 // FIXME: Implement.
 pub type SegCol<E> = VecCol<E>;
 
