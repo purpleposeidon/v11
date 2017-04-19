@@ -3,7 +3,7 @@ use std::io::Write;
 use quote::{Ident, Tokens};
 use syntex_syntax::print::pprust as pp;
 
-use super::table::{Table, Serializer};
+use super::table::Table;
 
 /// Convert a string into a quote `Ident`.
 fn i<S: AsRef<str>>(s: S) -> Ident {
@@ -88,43 +88,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }
 
-    let mut rustc_encode = false;
-    let mut rustc_decode = false;
-    let mut serde_encode = false;
-    let mut serde_decode = false;
     let DERIVE_ENCODING: Tokens = {
-        let mut ret = Vec::new();
-        for v in table.encode.iter() {
-            match *v {
-                Serializer::Rustc => rustc_encode = true,
-                Serializer::Serde => serde_encode = true,
-            }
-        }
-        for v in table.decode.iter() {
-            match *v {
-                Serializer::Rustc => rustc_decode = true,
-                Serializer::Serde => serde_decode = true,
-            }
-        }
-        let stuffs = vec![
-            (rustc_encode, "use rustc_serialize::{Encoder, Encodable};", quote! [RustcEncodable ]),
-            (rustc_decode, "use rustc_serialize::{Decoder, Decodable};", quote! [RustcDecodable ]),
-            (serde_encode, "use serde::{Deserializer, Deserialize};", quote! [RustcDecodable ]),
-            (serde_decode, "use serde::{Serializer, Serialize};", quote! [Deserialize ]),
-        ];
-        for stuff in stuffs.into_iter() {
-            if !stuff.0 { continue; }
-            writeln!(out, "{}", stuff.1)?;
-            ret.push(stuff.2);
-        }
-        if ret.is_empty() {
-            quote! {}
+        if table.serde {
+            quote! { #[Serialize, Deserialize] }
         } else {
-            let mut RES = Tokens::new();
-            RES.append_separated(ret.into_iter(), ",");
-            quote! {
-                #[derive(#RES)]
-            }
+            quote! {}
         }
     };
 
@@ -242,7 +210,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /** Release this lock. (R/W) */
         pub fn close(self) {} // Highly sophisticated! :D
-
         // FIXME: Join
     };
     write_quote! {
@@ -360,33 +327,35 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
-    if rustc_encode {
+    if table.serde {
         write_quote! {
-            [table, out, "Rustc Encode"]
+            [table, out, "Serde"]
 
             impl<'u> Read<'u> {
                 /// Row-based encoding.
-                pub fn encode<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
+                pub fn encode_rows<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
                     let rows = self.rows();
-                    e.emit_u32(rows as u32)?;
+                    e.emit_u64(rows as u64)?;
                     for i in self.range() {
                         let row = self.get_row(i);
                         row.encode(e)?;
                     }
                     Ok(())
                 }
-            }
-        };
-    }
 
-    if rustc_decode {
-        write_quote! {
-            [table, out, "Rustc Decode"]
+                /// Column-based encoding.
+                pub fn encode_columns<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
+                    #(self.#COL_NAME.data.encode(e)?;)*
+                    Ok(())
+                }
+            }
 
             impl<'u> Write<'u> {
-                /// Row-based decoding.
-                pub fn decode<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
-                    let rows = d.read_u32()? as usize;
+                /// Row-based decoding. Clears the table before reading, and clears the table if
+                /// there is an error.
+                pub fn decode_rows<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
+                    self.clear();
+                    let rows = d.read_u64()? as usize;
                     self.reserve(rows);
                     for _ in 0..rows {
                         let row = Row::decode(d)?;
@@ -394,12 +363,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     }
                     Ok(())
                 }
+
+                /// Column-based decoding. Clears the table before reading, and clears the table if
+                /// there is an error.
+                pub fn decode_columns<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
+                    self.clear();
+                    let decode = || {
+                        #(self.#COL_NAME.data.decode(d)?;)*
+                    };
+                    if decode.is_err() {
+                        self.clear();
+                    }
+                    decode
+                }
             }
         };
-    }
-
-    if serde_encode || serde_decode {
-        unimplemented!();
     }
 
     write_quote! {

@@ -12,7 +12,9 @@
 extern crate v11_macros;
 #[macro_use]
 extern crate procedural_masquerade;
-extern crate rustc_serialize;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
 extern crate itertools;
 extern crate joinkit;
 extern crate bit_vec;

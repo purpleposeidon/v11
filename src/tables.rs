@@ -96,9 +96,8 @@ Add a method to sort the table by that column.
 (FIXME: nyi. Also tricky.)
 Allow marking rows as dead, and pushing new rows will pick a dead row.
 
-## `Encode(method);` and `Decode(method);`
-(FIXME: Serde nyi)
-method can be `Serde` or `Rustc`. Adds methods for encoding or decoding the table.
+## `Serde;`
+Add methods for encoding or decoding the table by row (or column), using Serde.
 
 ## `Static;`
 Marks the table as being something that is only modified once.
@@ -409,15 +408,17 @@ impl<I: PrimInt + Hash, T: GetTableName> Hash for GenericRowId<I, T> {
     }
 }
 
-use rustc_serialize::{Encoder, Encodable, Decoder, Decodable};
-impl<I: PrimInt + Encodable, T: GetTableName> Encodable for GenericRowId<I, T> {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        self.i.encode(s)
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
+impl<I: PrimInt + Serialize, T: GetTableName> Serialize for GenericRowId<I, T> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.i.serialize(s)
     }
 }
-
-impl<I: PrimInt + Decodable, T: GetTableName> Decodable for GenericRowId<I, T> {
-    fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
-        Ok(Self::new(try!(I::decode(d))))
+impl<I: PrimInt + Deserialize, T: GetTableName> Deserialize for GenericRowId<I, T> {
+    fn deserialize<D: Deserializer>(d: D) -> Result<Self, D::Error> {
+        Ok(GenericRowId {
+            i: I::deserialize(d)?,
+            t: PhantomData,
+        })
     }
 }

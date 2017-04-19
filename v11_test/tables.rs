@@ -22,7 +22,7 @@ table! {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug)]
 pub enum CheeseKind {
     Swiss,
     Stinky,

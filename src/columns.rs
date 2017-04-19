@@ -19,6 +19,7 @@ pub trait TCol {
     fn reserve(&mut self, additional: usize);
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ColWrapper<C: TCol, R> {
     pub data: C,
     stored_type: PhantomData<C::Element>,

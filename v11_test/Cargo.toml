@@ -6,7 +6,6 @@ authors = ["neptunepink <purpleposeidon@gmail.com>"]
 [dependencies]
 v11 = { path = "../" }
 v11_macros = { path = "../v11_macros" }
-rustc-serialize = "*"
 
 [lib]
 path = "lib.rs"

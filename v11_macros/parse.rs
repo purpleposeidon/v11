@@ -7,7 +7,7 @@ use syntex_syntax::symbol::keywords as keyword;
 use syntex_syntax::diagnostics::plugin::DiagnosticBuilder;
 use syntex_syntax::print::pprust as pp;
 
-use super::table::{Table, Col, Serializer};
+use super::table::{Table, Col};
 #[allow(unused_imports)]
 use super::{warn, error};
 
@@ -132,26 +132,8 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
             } else if name == "FreeList" {
                 // add a list of unused RowIds
                 table.free_list = true;
-            } else if name == "Encode" || name == "Decode" {
-                let out = if name == "Encode" {
-                    &mut table.encode
-                } else {
-                    &mut table.decode
-                };
-                let modes = parse_arglist(parser)?;
-                if modes.is_empty() {
-                    out.push(Serializer::Rustc);
-                } else {
-                    for e in modes {
-                        if e == "Rustc" {
-                            out.push(Serializer::Rustc);
-                        } else if e == "Serde" {
-                            out.push(Serializer::Serde);
-                        } else {
-                            err!(parser, "Unknown serializer {:?}", e);
-                        }
-                    }
-                }
+            } else if name == "Serde" {
+                table.serde = true;
             } else if name == "Static" {
                 table.static_data = true;
             } else if name == "Version" || name == "Legacy" {

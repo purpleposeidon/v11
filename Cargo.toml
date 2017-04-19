@@ -10,12 +10,13 @@ members = ["./v11_test"]
 [dependencies]
 v11_macros = { path = "./v11_macros" }
 procedural-masquerade = "0.1.2"
-rustc-serialize = "*"
 itertools = "0.4.16"
 joinkit = "0.2.0"
 bit-vec = "0.4.3"
 num-traits = "*"
 lazy_static = "*"
+serde = "0.9.*"
+serde_derive = "0.9.*"
 
 # mopa = "0.2.*"
 # "my own personal Any", allows downcasting or something.

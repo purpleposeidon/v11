@@ -19,8 +19,7 @@ pub struct Table {
     pub track_rm: bool,
     pub sync_rm: Option<String>,
     pub free_list: bool,
-    pub encode: Vec<Serializer>,
-    pub decode: Vec<Serializer>,
+    pub serde: bool,
     pub cascade_deletions: Vec<String>,
     pub generic_sort: bool,
     pub sort_by: Vec<String>,
@@ -74,10 +73,3 @@ pub struct Col {
     pub element: P<Ty>,
     pub colty: P<Ty>,
 }
-
-#[derive(Debug, Copy, Clone)]
-pub enum Serializer {
-    Rustc,
-    Serde,
-}
-
