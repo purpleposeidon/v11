@@ -64,6 +64,7 @@ impl<C: TCol, R: PrimInt, T: GetTableName> IndexMut<GenericRowId<R, T>> for ColW
 /// This column type is ideal for tables that are 'static': written once, and then modified.
 /// Indexing is slightly more efficient than a SegCol.
 #[derive(Debug)]
+#[derive(RustcEncodable, RustcDecodable)]
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }
@@ -84,8 +85,9 @@ impl<E: Storable> TCol for VecCol<E> {
 
 /// Densely packed booleans.
 #[derive(Debug, Default)]
+#[derive(RustcEncodable, RustcDecodable)]
 pub struct BoolCol {
-    data: ::bit_vec::BitVec,
+    data: ::bit_vec::BitVec<u64 /* explicit! */>,
     ref_id: Option<usize>,
     ref_val: bool,
 }

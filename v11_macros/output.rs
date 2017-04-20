@@ -346,7 +346,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
                 /// Column-based encoding.
                 pub fn encode_columns<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
-                    #(self.#COL_NAME.data.encode(e)?;)*
+                    #(self.#COL_NAME.encode(e)?;)*
                     Ok(())
                 }
             }
@@ -359,8 +359,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     let rows = d.read_u64()? as usize;
                     self.reserve(rows);
                     for _ in 0..rows {
-                        let row = Row::decode(d)?;
-                        #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                        let row = Row::decode(d);
+                        if let Ok(row) = row {
+                            #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                        } else {
+                            self.clear();
+                            return Err(d.error("failed to decode row"));
+                        }
                     }
                     Ok(())
                 }
@@ -369,17 +374,22 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// there is an error.
                 pub fn decode_columns<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
                     self.clear();
-                    let decode = || {
-                        #(self.#COL_NAME.data.decode(d)?;)*
-                    };
+                    let decode = (|| {
+                        #({
+                            type T = #COL_TYPE;
+                            T::decode(d)?;
+                        })*
+                        Ok(())
+                    })();
                     if decode.is_err() {
                         self.clear();
                     }
                     if self.inconsistent_columns() {
                         self.clear();
-                        return d.error("inconsistent column heights");
+                        Err(d.error("inconsistent column heights"))
+                    } else {
+                        decode
                     }
-                    decode
                 }
 
                 fn inconsistent_columns(&self) -> bool {

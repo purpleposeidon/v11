@@ -438,3 +438,11 @@ fn contains() {
 //    assert_eq!(237, b::twin::read(&universe).value[spot]);
 //}
 
+table! {
+    pub [TEST/compile_serialization] {
+        random_number: [usize; VecCol<usize>],
+    }
+    impl {
+        Save;
+    }
+}
