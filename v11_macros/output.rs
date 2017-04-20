@@ -89,8 +89,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }
 
     let DERIVE_ENCODING: Tokens = {
-        if table.serde {
-            quote! { #[Serialize, Deserialize] }
+        if table.save {
+            quote! { #[derive(RustcEncodable, RustcDecodable)] }
         } else {
             quote! {}
         }
@@ -327,10 +327,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
-    if table.serde {
+    if table.save {
         write_quote! {
-            [table, out, "Serde"]
+            [table, out, "Save"]
 
+            use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
             impl<'u> Read<'u> {
                 /// Row-based encoding.
                 pub fn encode_rows<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {

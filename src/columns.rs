@@ -24,7 +24,7 @@ pub trait TCol {
 }
 
 /// Column wrapper, used by tables. Internal.
-#[derive(Serialize, Deserialize)]
+#[derive(RustcEncodable, RustcDecodable)]
 pub struct ColWrapper<C: TCol, R> {
     pub data: C,
     stored_type: PhantomData<C::Element>,

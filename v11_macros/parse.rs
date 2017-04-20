@@ -132,8 +132,8 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
             } else if name == "FreeList" {
                 // add a list of unused RowIds
                 table.free_list = true;
-            } else if name == "Serde" {
-                table.serde = true;
+            } else if name == "Save" {
+                table.save = true;
             } else if name == "Static" {
                 table.static_data = true;
             } else if name == "Version" || name == "Legacy" {
