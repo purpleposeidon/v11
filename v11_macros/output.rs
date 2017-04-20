@@ -375,7 +375,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     if decode.is_err() {
                         self.clear();
                     }
+                    if self.inconsistent_columns() {
+                        self.clear();
+                        return d.error("inconsistent column heights");
+                    }
                     decode
+                }
+
+                fn inconsistent_columns(&self) -> bool {
+                    let len = self.rows();
+                    #({
+                        if len != self.#COL_NAME.len() {
+                            return true;
+                        }
+                    })*
+                    false
                 }
             }
         };
