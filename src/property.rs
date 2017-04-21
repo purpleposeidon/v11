@@ -298,7 +298,7 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
             None => if prop.get_domain_id() == unset::DOMAIN_ID {
                 panic!("The property {} was never initialized.", prop);
             } else {
-                panic!("The universe does not know about property {}; perhaps there is a missed call to Universe.add_properties()?", prop);
+                panic!("Property {} is on a domain, {}, that the universe does not have.", prop, prop.domain_name);
             },
             Some(v) => {
                 ::intern::desync_box(v).downcast_ref()
