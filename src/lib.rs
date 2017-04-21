@@ -8,7 +8,9 @@
 // I'm almost certain that's how that works.
 //! 
 
+#[allow(unused_imports)]
 #[macro_use]
+// We don't actually use macros or the derive, but this silences up a warning.
 extern crate v11_macros;
 #[macro_use]
 extern crate procedural_masquerade;
