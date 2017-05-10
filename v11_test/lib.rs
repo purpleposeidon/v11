@@ -9,6 +9,7 @@ extern crate rustc_serialize;
 
 
 
+
 #[cfg(test)]
 pub mod addons;
 
@@ -22,7 +23,6 @@ pub mod domains;
 
 // FIXME: Can this go into "tests/" as is standard? Previous usage of build.rs probably made that
 // difficult.
-
 
 domain! { pub DOCTEST }
 table! {

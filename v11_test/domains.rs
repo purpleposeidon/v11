@@ -1,32 +1,43 @@
-use v11::*;
 
 domain! { COMPILE_TRUE_NAME ("FOO") }
 
-domain! { OLD }
-domain! { NEW }
+mod add_domain {
+    use v11::*;
+    domain! { ADD_OLD }
+    domain! { ADD_NEW }
 
-property! { static OLD/OLD_VAL: usize = 9; }
-property! { static NEW/NEW_VAL: usize = 10; }
+    property! { static ADD_OLD/ADD_OLD_VAL: usize = 9; }
+    property! { static ADD_NEW/ADD_NEW_VAL: usize = 10; }
 
-#[test]
-fn add_domain() {
-    OLD.register();
-    OLD_VAL.register();
-    let mut universe = Universe::new(&[OLD]);
-    assert_eq!(universe.get(OLD_VAL), 9);
-    NEW.register();
-    NEW_VAL.register();
-    universe.add_domain(NEW);
-    assert_eq!(universe.get(NEW_VAL), 10);
+    #[test]
+    fn add_domain() {
+        ADD_OLD.register();
+        ADD_OLD_VAL.register();
+        let mut universe = Universe::new(&[ADD_OLD]);
+        assert_eq!(universe.get(ADD_OLD_VAL), 9);
+        ADD_NEW.register();
+        ADD_NEW_VAL.register();
+        universe.add_domain(ADD_NEW);
+        assert_eq!(universe.get(ADD_NEW_VAL), 10);
+    }
 }
 
-#[test]
-#[should_panic]
-fn missing_domain() {
-    OLD.register();
-    OLD_VAL.register();
-    NEW.register();
-    NEW_VAL.register();
-    let universe = Universe::new(&[OLD]);
-    universe.get(NEW_VAL);
+mod missing_domain {
+    use v11::*;
+    domain! { MISSING_OLD }
+    domain! { MISSING_NEW }
+
+    property! { static MISSING_OLD/MISSING_OLD_VAL: usize = 9; }
+    property! { static MISSING_NEW/MISSING_NEW_VAL: usize = 10; }
+
+    #[test]
+    #[should_panic]
+    fn missing_domain() {
+        MISSING_OLD.register();
+        MISSING_OLD_VAL.register();
+        MISSING_NEW.register();
+        MISSING_NEW_VAL.register();
+        let universe = Universe::new(&[MISSING_OLD]);
+        universe.get(MISSING_NEW_VAL);
+    }
 }

@@ -55,16 +55,28 @@ table! {
     }
 }
 
+
 fn make_universe() -> Universe {
-    TEST.register();
-    easy::register();
-    cheese::register();
-    test_foreign::register();
-    sortie::register();
-    bsortie::register();
-    bits::register();
-    test_u16::register();
+    // Prevent lock clobbering breaking tests w/ threading.
+    use std::sync::{Once, ONCE_INIT};
+    static REGISTER: Once = ONCE_INIT;
+    REGISTER.call_once(|| {
+        TEST.register();
+        easy::register();
+        cheese::register();
+        test_foreign::register();
+        sortie::register();
+        bsortie::register();
+        bits::register();
+        test_u16::register();
+    });
     Universe::new(&[TEST])
+}
+
+#[test]
+fn two_universes() {
+    make_universe();
+    make_universe();
 }
 
 #[test]

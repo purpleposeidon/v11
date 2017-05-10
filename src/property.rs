@@ -213,6 +213,9 @@ impl<V> Prop<V> {
         self.check_name();
         let mut first_instance = false;
         let mut domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
+        if ::domain::check_lock() && domain_info.locked() {
+            panic!("Adding {:?} on a locked domain", self);
+        }
         let _next_gid = GlobalPropertyId(pmap.gid2producer.len());
         let global_index = *pmap.name2gid.entry(self.name).or_insert_with(|| {
             first_instance = true;
@@ -294,11 +297,12 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
             },
             Some(&MaybeDomain::Domain(ref e)) => e,
         };
-        let l: Option<&RwLock<V>> = match domain_instance.property_members.get(prop.get_index_within_domain().0) {
+        let domained_index = prop.get_index_within_domain().0;
+        let l: Option<&RwLock<V>> = match domain_instance.property_members.get(domained_index) {
             None => if prop.get_domain_id() == unset::DOMAIN_ID {
                 panic!("The property {} was never initialized.", prop);
             } else {
-                panic!("Property {} is on a domain that the universe does not have.", prop);
+                panic!("The property {} was added to the domain AFTER this Universe was created.", prop);
             },
             Some(v) => {
                 ::intern::desync_box(v).downcast_ref()
@@ -427,5 +431,20 @@ pub /* property! requires this */ mod test {
         MAP.register();
         BEST_COLORS.register();
         Universe::new(&[TEST])
+    }
+
+    property! { static TEST/LATE: usize }
+
+    #[test]
+    #[should_panic(expected = "added to the domain AFTER this Universe was created")]
+    fn domain_locking() {
+        // This test is poisonous!
+        // So long as this is the only one, we can cheat! But don't have a slow computer!
+        // (Otherwise we could use #[ignore].)
+        ::std::thread::sleep(::std::time::Duration::from_millis(200));
+
+        let verse = test_universe();
+        LATE.register();
+        let _ = verse[LATE].read().unwrap();
     }
 }

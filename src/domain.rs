@@ -1,7 +1,7 @@
 #![macro_use]
 use std::fmt;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use intern;
 use intern::PBox;
@@ -17,6 +17,7 @@ pub struct DomainName(pub &'static str);
 impl fmt::Display for DomainName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.0)
+        // requires a lock: write!(f, "{:?} ({:?})", self.0, self.get_id())
     }
 }
 impl DomainName {
@@ -37,6 +38,7 @@ impl DomainName {
                     name: *self,
                     property_members: Vec::new(),
                     tables: HashMap::new(),
+                    locked: false,
                 }
             });
         }
@@ -44,10 +46,39 @@ impl DomainName {
         debug_assert_eq!(&properties.did2name[next_id.0], self);
     }
 
-    pub fn get_id(&self) -> DomainId {
+    fn get_info<'a, 'b>(&'a self, slot: &'b mut Option<RwLockReadGuard<GlobalProperties>>) -> &'b DomainInfo {
         let properties = PROPERTIES.read().unwrap();
-        properties.domains.get(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self)).id
+        *slot = Some(properties);
+        let properties = slot.as_ref().unwrap();
+        properties.domains.get(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self))
     }
+
+    fn get_info_mut<'a, 'b>(&'a self, slot: &'b mut Option<RwLockWriteGuard<GlobalProperties>>) -> &'b mut DomainInfo {
+        let properties = PROPERTIES.write().unwrap();
+        *slot = Some(properties);
+        let properties = slot.as_mut().unwrap();
+        properties.domains.get_mut(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self))
+    }
+
+    pub fn get_id(&self) -> DomainId {
+        let lock = &mut None;
+        self.get_info(lock).id
+    }
+
+    pub fn locked(&self) -> bool {
+        let lock = &mut None;
+        self.get_info(lock).locked()
+    }
+
+    pub fn set_locked(&self, is_locked: bool) {
+        let lock = &mut None;
+        self.get_info_mut(lock).set_locked(is_locked);
+    }
+}
+
+#[inline]
+pub fn check_lock() -> bool {
+    !cfg!(test)
 }
 
 /**
@@ -100,19 +131,27 @@ pub struct DomainInfo {
     pub name: DomainName,
     pub property_members: Vec<GlobalPropertyId>,
     pub tables: HashMap<TableName, GenericTable>,
+    locked: bool,
 }
 impl fmt::Debug for DomainInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let pmap = PROPERTIES.read().unwrap();
         writeln!(f, "\t\t\tDomainInfo: {:?}", self.name)?;
-        for m in &self.property_members {
-            writeln!(f, "\t\t\t\t{:?}: {:?}", m, pmap.gid2name.get(&m))?;
+        match PROPERTIES.try_read() {
+            Ok(pmap) => {
+                for m in &self.property_members {
+                    writeln!(f, "\t\t\t\t{:?}: {:?}", m, pmap.gid2name.get(&m))?;
+                }
+            },
+            _ => {
+                writeln!(f, "\t\t\t\t<Lock inaccessible>")?;
+            },
         }
         write!(f, "")
     }
 }
 impl DomainInfo {
     pub fn instantiate(&self, gid2producer: &[fn() -> PBox]) -> DomainInstance {
+        if check_lock() && !self.locked() { panic!("not locked"); }
         let properties = self.property_members.iter().map(|id| {
             gid2producer[id.0]()
         }).collect();
@@ -123,6 +162,12 @@ impl DomainInfo {
             property_members: properties,
             tables: tables,
         }
+    }
+
+    pub fn locked(&self) -> bool { self.locked }
+
+    pub fn set_locked(&mut self, locked: bool) {
+        self.locked = locked
     }
 }
 
@@ -145,11 +190,11 @@ impl MaybeDomain {
 use Universe;
 impl Universe {
     pub fn get_domains(domains: &[DomainName]) -> Vec<MaybeDomain> {
-        let pmap = &*PROPERTIES.read().unwrap();
+        let mut pmap = &mut *PROPERTIES.write().unwrap();
         let mut ret = (0..pmap.domains.len()).map(|x| MaybeDomain::Unset(pmap.did2name[x])).collect::<Vec<MaybeDomain>>();
         for name in domains.iter() {
-            let info = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name));
-            ret[info.id.0] = MaybeDomain::Domain(info.instantiate(&pmap.gid2producer));
+            let did = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name)).id.0;
+            ret[did] = pmap.instantiate_domain(*name);
         }
         ret
     }
@@ -158,8 +203,7 @@ impl Universe {
         self.sync_domain_list();
         let id = domain.get_id().0;
         if self.domains[id].is_set() { return; }
-        let properties = PROPERTIES.read().unwrap();
-        self.domains[id] = MaybeDomain::Domain(properties.domains[&domain].instantiate(&properties.gid2producer));
+        self.domains[id] = PROPERTIES.write().unwrap().instantiate_domain(domain);
     }
 
     /// Make sure this Universe has a MaybeDomain for every globally registered DomainName.
@@ -239,6 +283,18 @@ pub struct GlobalProperties {
     pub gid2producer: Vec<fn() -> PBox>,
     pub domains: HashMap<DomainName, DomainInfo>,
     pub did2name: Vec<DomainName>,
+}
+impl GlobalProperties {
+    fn instantiate_domain(&mut self, domain: DomainName) -> MaybeDomain {
+        {
+            match self.domains.get_mut(&domain) {
+                None => panic!("Unregistered domain {}", domain),
+                Some(d) => d.set_locked(true),
+            }
+        }
+        let domain_info = &self.domains[&domain];
+        MaybeDomain::Domain(domain_info.instantiate(&self.gid2producer))
+    }
 }
 
 lazy_static! {

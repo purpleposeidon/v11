@@ -24,6 +24,7 @@ use v11::Universe;
 #[test]
 fn compiles_with_or_without_debug() {
     TEST.register();
+    TEST.set_locked(false); // gotta cheat for tests!
     yes_debug::register();
     no_debug::register();
     Universe::new(&[]);

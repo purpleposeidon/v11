@@ -262,14 +262,19 @@ impl GenericTable {
         let mut pmap: &mut GlobalProperties = &mut *PROPERTIES.write().unwrap();
         match pmap.domains.get_mut(&self.domain) {
             None => panic!("Table {:?} registered before its domain {:?}", self.name, self.domain),
-            Some(mut info) => match info.tables.entry(self.name) {
-                Entry::Vacant(entry) => { entry.insert(self); },
-                Entry::Occupied(entry) => {
-                    let entry = entry.get();
-                    if !self.equivalent(entry) {
-                        panic!("Tried to register {:?} on top of an existing table with different structure, {:?}", self, entry);
-                    }
-                },
+            Some(mut info) => {
+                if super::domain::check_lock() && info.locked() {
+                    panic!("Adding {}/{} to a locked domain\n", self.domain, self.name);
+                }
+                match info.tables.entry(self.name) {
+                    Entry::Vacant(entry) => { entry.insert(self); },
+                    Entry::Occupied(entry) => {
+                        let entry = entry.get();
+                        if !self.equivalent(entry) {
+                            panic!("Tried to register {:?} on top of an existing table with different structure, {:?}", self, entry);
+                        }
+                    },
+                }
             }
         }
     }
