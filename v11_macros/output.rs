@@ -334,7 +334,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
             impl<'u> Read<'u> {
                 /// Row-based encoding.
-                pub fn encode_rows<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
+                pub fn encode_rows<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
                     let rows = self.rows();
                     e.emit_u64(rows as u64)?;
                     for i in self.range() {
@@ -345,7 +345,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
 
                 /// Column-based encoding.
-                pub fn encode_columns<E: Encoder>(&mut self, e: &mut E) -> Result<(), E::Error> {
+                pub fn encode_columns<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
                     #(self.#COL_NAME.encode(e)?;)*
                     Ok(())
                 }
