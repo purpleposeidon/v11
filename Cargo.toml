@@ -6,6 +6,9 @@ authors = ["neptunepink <purpleposeidon@gmail.com>"]
 [workspace]
 members = ["./v11_test"]
 
+[lib]
+crate-type = ["dylib"]
+
 
 [dependencies]
 v11_macros = { path = "./v11_macros" }
