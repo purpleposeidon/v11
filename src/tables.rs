@@ -119,6 +119,7 @@ macro_rules! table {
         [$domain:ident/$name:ident]
         $($args:tt)*
     ) => {
+        #[allow(unused)]
         $(#[$meta])*
         mod $name {
             table!(mod $domain/$name $($args)*);
@@ -129,6 +130,7 @@ macro_rules! table {
         pub [$domain:ident/$name:ident]
         $($args:tt)*
     ) => {
+        #[allow(unused)]
         $(#[$meta])*
         pub mod $name {
             table!(mod $domain/$name $($args)*);
