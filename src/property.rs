@@ -197,7 +197,7 @@ impl<V> Prop<V> {
     fn get_global_index(&self) -> GlobalPropertyId { self.index.global_index }
 
     pub fn init(&mut self, producer: fn() -> PBox) {
-        let mut pmap: &mut GlobalProperties = &mut *PROPERTIES.write().unwrap();
+        let mut pmap: &mut GlobalProperties = &mut *V11_GLOBALS.write().unwrap();
         // We must acquire the global lock at the beginning of this function. If we wait, and a
         // property is being registered from multiple threads simultaneously, there will be duplicate
         // registrations. This must happen before the if below.

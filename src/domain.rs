@@ -23,7 +23,7 @@ impl fmt::Display for DomainName {
 impl DomainName {
     pub fn register(&self) {
         intern::check_name(self.0);
-        let mut properties = PROPERTIES.write().unwrap();
+        let mut properties = V11_GLOBALS.write().unwrap();
         let next_id = DomainId(properties.domains.len());
         {
             use std::collections::hash_map::Entry;
@@ -47,14 +47,14 @@ impl DomainName {
     }
 
     fn get_info<'a, 'b>(&'a self, slot: &'b mut Option<RwLockReadGuard<GlobalProperties>>) -> &'b DomainInfo {
-        let properties = PROPERTIES.read().unwrap();
+        let properties = V11_GLOBALS.read().unwrap();
         *slot = Some(properties);
         let properties = slot.as_ref().unwrap();
         properties.domains.get(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self))
     }
 
     fn get_info_mut<'a, 'b>(&'a self, slot: &'b mut Option<RwLockWriteGuard<GlobalProperties>>) -> &'b mut DomainInfo {
-        let properties = PROPERTIES.write().unwrap();
+        let properties = V11_GLOBALS.write().unwrap();
         *slot = Some(properties);
         let properties = slot.as_mut().unwrap();
         properties.domains.get_mut(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self))
@@ -136,7 +136,7 @@ pub struct DomainInfo {
 impl fmt::Debug for DomainInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "\t\t\tDomainInfo: {:?}", self.name)?;
-        match PROPERTIES.try_read() {
+        match V11_GLOBALS.try_read() {
             Ok(pmap) => {
                 for m in &self.property_members {
                     writeln!(f, "\t\t\t\t{:?}: {:?}", m, pmap.gid2name.get(&m))?;
@@ -190,7 +190,7 @@ impl MaybeDomain {
 use Universe;
 impl Universe {
     pub fn get_domains(domains: &[DomainName]) -> Vec<MaybeDomain> {
-        let mut pmap = &mut *PROPERTIES.write().unwrap();
+        let mut pmap = &mut *V11_GLOBALS.write().unwrap();
         let mut ret = (0..pmap.domains.len()).map(|x| MaybeDomain::Unset(pmap.did2name[x])).collect::<Vec<MaybeDomain>>();
         for name in domains.iter() {
             let did = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name)).id.0;
@@ -203,12 +203,12 @@ impl Universe {
         self.sync_domain_list();
         let id = domain.get_id().0;
         if self.domains[id].is_set() { return; }
-        self.domains[id] = PROPERTIES.write().unwrap().instantiate_domain(domain);
+        self.domains[id] = V11_GLOBALS.write().unwrap().instantiate_domain(domain);
     }
 
     /// Make sure this Universe has a MaybeDomain for every globally registered DomainName.
     fn sync_domain_list(&mut self) {
-        let properties = PROPERTIES.read().unwrap();
+        let properties = V11_GLOBALS.read().unwrap();
         let news = &properties.did2name[self.domains.len()..];
         self.domains.extend(news.iter().map(|d| MaybeDomain::Unset(*d)));
     }
@@ -219,7 +219,7 @@ impl Universe {
         // We only allow domains to be set at creation, so we don't need to look for new ones.
         // Trying to get a property at a new domain is an errorneous/exceptional case, so this is
         // fine.
-        let pmap = PROPERTIES.read().unwrap();
+        let pmap = V11_GLOBALS.read().unwrap();
         for prop in &mut self.domains {
             if let MaybeDomain::Domain(ref mut instance) = *prop {
                 instance.add_properties(&*pmap);
@@ -248,7 +248,7 @@ pub struct DomainInstance {
 }
 impl fmt::Debug for DomainInstance {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let pmap = PROPERTIES.read().unwrap();
+        let pmap = V11_GLOBALS.read().unwrap();
         writeln!(f, "id: {:?}, name: {:?}, property_members.len(): {:?}", self.id, self.name, self.property_members.len())?;
         writeln!(f, "properties: {:?}", pmap.domains[&self.name])?;
         write!(f, "tables:")?;
@@ -298,8 +298,8 @@ impl GlobalProperties {
 }
 
 lazy_static! {
-    // FIXME: Rename
-    pub static ref PROPERTIES: RwLock<GlobalProperties> = Default::default();
+    #[no_mangle]
+    pub static ref V11_GLOBALS: RwLock<GlobalProperties> = Default::default();
 }
 
 #[cfg(test)]

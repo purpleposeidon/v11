@@ -257,9 +257,9 @@ impl GenericTable {
     }
 
     pub fn register(self) {
-        use domain::{GlobalProperties, PROPERTIES};
+        use domain::{GlobalProperties, V11_GLOBALS};
         use std::collections::hash_map::Entry;
-        let mut pmap: &mut GlobalProperties = &mut *PROPERTIES.write().unwrap();
+        let mut pmap: &mut GlobalProperties = &mut *V11_GLOBALS.write().unwrap();
         match pmap.domains.get_mut(&self.domain) {
             None => panic!("Table {:?} registered before its domain {:?}", self.name, self.domain),
             Some(mut info) => {
