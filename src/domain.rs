@@ -5,7 +5,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use intern;
 use intern::PBox;
-use property::{GlobalPropertyId, PropertyName};
+use property::{GlobalPropertyId, PropertyName, DomainedPropertyId};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord)]
 /**
@@ -24,7 +24,7 @@ impl DomainName {
     pub fn register(&self) {
         intern::check_name(self.0);
         let mut properties = V11_GLOBALS.write().unwrap();
-        let next_id = DomainId(properties.domains.len());
+        let next_did = DomainId(properties.domains.len());
         {
             use std::collections::hash_map::Entry;
             let entry = properties.domains.entry(*self);
@@ -34,16 +34,17 @@ impl DomainName {
             }
             entry.or_insert_with(|| {
                 DomainInfo {
-                    id: next_id,
+                    id: next_did,
                     name: *self,
                     property_members: Vec::new(),
                     tables: HashMap::new(),
                     locked: false,
+                    name2did: HashMap::new(),
                 }
             });
         }
         properties.did2name.push(*self);
-        debug_assert_eq!(&properties.did2name[next_id.0], self);
+        debug_assert_eq!(&properties.did2name[next_did.0], self);
     }
 
     fn get_info<'a, 'b>(&'a self, slot: &'b mut Option<RwLockReadGuard<GlobalProperties>>) -> &'b DomainInfo {
@@ -131,6 +132,7 @@ pub struct DomainInfo {
     pub name: DomainName,
     pub property_members: Vec<GlobalPropertyId>,
     pub tables: HashMap<TableName, GenericTable>,
+    pub name2did: HashMap<PropertyName, DomainedPropertyId>,
     locked: bool,
 }
 impl fmt::Debug for DomainInfo {
@@ -269,7 +271,13 @@ impl DomainInstance {
     }
 
     pub fn get_generic_table(&self, name: TableName) -> &RwLock<GenericTable> {
-        self.tables.get(&name).unwrap_or_else(|| panic!("Table {:?} is not in domain {:?}", self.name, name))
+        self.tables.get(&name).unwrap_or_else(|| {
+            println!("Tables in this domain:");
+            for t in self.tables.keys() {
+                println!("{}", t);
+            }
+            panic!("Table {:?} is not in domain {:?}", name, self.name);
+        })
     }
 }
 
@@ -277,6 +285,7 @@ impl DomainInstance {
 #[derive(Debug)]
 // FIXME: Rename to...? Multiverse?
 pub struct GlobalProperties {
+    // PropertyName is stringly domained; no worry about collisions.
     pub name2gid: HashMap<PropertyName, GlobalPropertyId>,
     pub gid2name: HashMap<GlobalPropertyId, PropertyName>,
 

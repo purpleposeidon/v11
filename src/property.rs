@@ -159,6 +159,9 @@ macro_rules! property {
             // Could have a lock thing to make things actually-safe, but, well...
             // That's overhead. Just do things in proper life-cycles.
             unsafe fn get(&self) -> &Prop<Type> {
+                if VAL.index.domain_id == unset::DOMAIN_ID {
+                    VAL.sync_alias();
+                }
                 &VAL
             }
 
@@ -216,12 +219,17 @@ impl<V> Prop<V> {
         if ::domain::check_lock() && domain_info.locked() {
             panic!("Adding {:?} on a locked domain", self);
         }
-        let _next_gid = GlobalPropertyId(pmap.gid2producer.len());
-        let global_index = *pmap.name2gid.entry(self.name).or_insert_with(|| {
-            first_instance = true;
-            _next_gid
-        });
-        let domained_index = DomainedPropertyId(domain_info.property_members.len());
+        let global_index = {
+            let next_id = GlobalPropertyId(pmap.gid2producer.len());
+            *pmap.name2gid.entry(self.name).or_insert_with(|| {
+                first_instance = true;
+                next_id
+            })
+        };
+        let domained_index = {
+            let next_id = DomainedPropertyId(domain_info.property_members.len());
+            *domain_info.name2did.entry(self.name).or_insert(next_id)
+        };
         self.index = PropertyIndex {
             domain_id: domain_info.id,
             domained_index: domained_index,
@@ -235,6 +243,24 @@ impl<V> Prop<V> {
         }
         // FIXME: Shouldn't we panic if we're adding something to a domain that was already used to
         // make a universe?
+    }
+
+    #[cold]
+    pub fn sync_alias(&mut self) {
+        // 4: A twin PropRef was already registered, but we weren't. To keep things easy, we'll
+        //    just silently fix ourselves.
+        // We don't need any sanity checks here. If a twin is registered, then they're already
+        // sane. If not, then we panic.
+        let mut pmap: &mut GlobalProperties = &mut *V11_GLOBALS.write().unwrap();
+        let domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
+        let global_index = *pmap.name2gid.get(&self.name).unwrap_or_else(|| panic!("Property {:?} was never registered", self));
+        let domained_index = *domain_info.name2did.get(&self.name).expect("gid & did both registered" /* name2gid panic logically occludes/equals this */);
+        self.index = PropertyIndex {
+            domain_id: domain_info.id,
+            domained_index: domained_index,
+            global_index: global_index,
+            v: PhantomData,
+        };
     }
 
     fn check_name(&self) {
@@ -446,5 +472,43 @@ pub /* property! requires this */ mod test {
         let verse = test_universe();
         LATE.register();
         let _ = verse[LATE].read().unwrap();
+    }
+
+    mod alias {
+        /// Primary
+        pub mod foo {
+            domain! { pub ALIAS }
+            property! { pub static ALIAS/BLAH: i32 }
+        }
+        /// Implicitly registered secondary
+        pub mod bar {
+            domain! { pub ALIAS }
+            property! { pub static ALIAS/BLAH: i32 }
+        }
+        /// Explicitly registered secondary
+        pub mod baz {
+            domain! { pub ALIAS }
+            property! { pub static ALIAS/BLAH: i32 }
+        }
+
+        #[test]
+        fn test_aliased() {
+            use Universe;
+            foo::ALIAS.register();
+            foo::BLAH.register();
+            baz::ALIAS.register();
+            baz::BLAH.register();
+            #[allow(unused_variables)]
+            {
+                // All should be constructable
+                let verse = Universe::new(&[foo::ALIAS]);
+                let verse = Universe::new(&[bar::ALIAS]);
+                let verse = Universe::new(&[baz::ALIAS]);
+            }
+            let verse = Universe::new(&[foo::ALIAS]);
+            *verse[foo::BLAH].write().unwrap() = 10;
+            assert_eq!(*verse[baz::BLAH].read().unwrap(), 10);
+            assert_eq!(*verse[bar::BLAH].read().unwrap(), 10);
+        }
     }
 }
