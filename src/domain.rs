@@ -307,7 +307,6 @@ impl GlobalProperties {
 }
 
 lazy_static! {
-    #[no_mangle]
     pub static ref V11_GLOBALS: RwLock<GlobalProperties> = Default::default();
 }
 
