@@ -104,6 +104,7 @@ Marks the table as being something that is only modified once.
 This allows skipping some codegen.
 It also makes using certain other attributes an error.
 Static tables will want to to use `VecCol` columns rather than `SegCol` columns.
+(FIXME: Initialize the table with a function; then locking is unnecessary.)
 
 ## `Version(number);`
 Sets the version number of the table. This is a `usize`. Its default value is `1`.
