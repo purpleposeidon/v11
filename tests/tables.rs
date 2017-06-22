@@ -1,6 +1,15 @@
-use v11::{Universe, Action};
+#![allow(dead_code)]
 
-domain! { pub TEST }
+#[macro_use]
+extern crate v11;
+#[macro_use]
+extern crate v11_macros;
+
+extern crate rustc_serialize;
+
+
+domain! { TEST }
+use v11::{Universe, Action};
 
 table! {
     pub [TEST/new_table_test] {

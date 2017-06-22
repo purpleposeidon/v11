@@ -5,19 +5,9 @@ extern crate v11;
 #[macro_use]
 extern crate v11_macros;
 
-extern crate rustc_serialize;
 
 
 
-
-#[cfg(test)]
-pub mod addons;
-
-#[cfg(test)]
-pub mod tables;
-
-#[cfg(test)]
-pub mod domains;
 
 // FIXME: Test sorting.
 
@@ -29,6 +19,7 @@ table! {
     /// Can we document the table?
     pub [DOCTEST/documentation] {
         /// Can we document this column?
+        /// FIXME: The answer is no.
         documented_column: [bool; BoolCol],
         undocumented_column: [bool; BoolCol],
     }

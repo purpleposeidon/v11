@@ -1,5 +1,15 @@
+#![allow(dead_code)]
 
-use tables::TEST;
+#[macro_use]
+extern crate v11;
+#[macro_use]
+extern crate v11_macros;
+
+extern crate rustc_serialize;
+
+
+domain! { TEST }
+
 
 table! {
     [TEST/yes_debug] {
