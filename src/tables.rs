@@ -340,7 +340,7 @@ pub trait GetTableName {
     fn get_name() -> TableName;
 }
 
-#[derive(Copy, Clone)]
+// #[derive] nothing; stupid phantom data...
 pub struct GenericRowId<I: PrimInt, T: GetTableName> {
     #[doc(hidden)]
     pub i: I,
@@ -369,10 +369,36 @@ impl<I: PrimInt, T: GetTableName> Default for GenericRowId<I, T> {
         }
     }
 }
+impl<I: PrimInt, T: GetTableName> Clone for GenericRowId<I, T> {
+    fn clone(&self) -> Self {
+        Self::new(self.i)
+    }
+}
+impl<I: PrimInt, T: GetTableName> Copy for GenericRowId<I, T> { }
 
 impl<I: PrimInt + fmt::Display, T: GetTableName> fmt::Debug for GenericRowId<I, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}[{}]", T::get_name().0, self.i)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(RustcDecodable, RustcEncodable)]
+pub struct RowRange<R> {
+    pub start: R,
+    pub end: R,
+}
+impl<I: PrimInt, T: GetTableName> Iterator for RowRange<GenericRowId<I, T>> {
+    type Item = GenericRowId<I, T>;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.start >= self.end {
+            None
+        } else {
+            let ret = self.start;
+            self.start = self.start.next();
+            Some(ret)
+        }
     }
 }
 
