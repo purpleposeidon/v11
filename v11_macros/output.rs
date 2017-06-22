@@ -11,8 +11,19 @@ fn i<S: AsRef<str>>(s: S) -> Ident {
 }
 
 macro_rules! write_quote {
+    ([$table:expr, $out:expr] $($args:tt)*) => {
+        write_quote! {
+            [$table, $out, ""]
+            $($args:tt)*
+        }
+    };
     ([$table:expr, $out:expr, $section:expr] $($args:tt)*) => {
-        let buff = format!("\n// {}\n{}\n\n", $section, quote! { $($args)* });
+        let args = quote! { $($args)* };
+        let buff = if $section.is_empty() {
+            format!("{}\n", args)
+        } else {
+            format!("\n// {}\n{}\n\n", $section, args)
+        };
         let buff = buff.replace("#TABLE_NAME", &$table.name);
 
         $out.write(buff.as_bytes())?;
@@ -310,6 +321,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 #EVENT_CLEAR
             }
 
+            #[inline]
             pub fn set_row(&mut self, index: RowId, row: Row) {
                 #(self.#COL_NAME[index] = row.#COL_NAME2;)*
             }
@@ -480,213 +492,211 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
-    if table.track_changes {
+    if !table.track_changes {
+        // These are baaasically incompatible w/ change tracking.
+        // 1: The rug algorithm is already very complex.
+        // 2: A simpler algorithm would do more allocation.
+        // 3: Removing a single item generates O(n) updates; extremely messy.
+        // (We could have a 'bulk-shift' event...)
+        // (We could possibly expose these 'at your own risk', without actually doing the tracking,
+        // if `track_changes` is on.)
         write_quote! {
-            [table, out, "Index & Row event shim"]
-            type DisplacedIr = (RowId, Row);
-            fn ir_pair(idx: RowId, row: Row) -> DisplacedIr {
-                (idx, row)
-            }
-        }
-    } else {
-        write_quote! {
-            [table, out, "Index & Row event shim"]
-            type DisplacedIr = Row;
-            fn ir_pair(_: RowId, row: Row) -> DisplacedIr {
-                row
-            }
-        }
-    }
-    write_quote! {
-        [table, out, "Complicated mut algorithms"]
-
-        /**
-         * Ergonomics for calling `Write::visit` with a closure that does not add values.
-         * 
-         * `#TABLE_NAME.visit(|table, i| -> #TABLE_NAME::ClearVisit { … })`
-         * */
-        pub type ClearVisit = v11::Action<Row, v11::intern::VoidIter<Row>>;
-
-        impl<'u> Write<'u> {
-            /**
-             * Keep or discard rows according to the provided closure.
-             * If it returns `true`, then the row is kept.
-             * If it returns `false`, then the row is removed.
-             * */
-            pub fn filter<F>(&mut self, mut closure: F)
-                where F: FnMut(&mut Write, RowId) -> bool
-            {
-                self.visit(|wlock, rowid| -> ClearVisit {
-                    if closure(wlock, rowid) {
-                        v11::Action::Continue
-                    } else {
-                        v11::Action::Remove
-                    }
-                });
-            }
+            [table, out, "Complicated mut algorithms (non-tracking edition)"]
 
             /**
-             * Invokes the closure on every entry in the table. For each row, the closure can:
-             * *. remove that row
-             * *. modify that row
-             * *. do nothing to that row
-             * *. return an iterator to append an arbitrary number of rows
-             * It is to `Vec.retain`, but also allows insertion.
-             *
-             * This method can't insert rows into an empty table.
-             *
-             * If you want to remove & insert at the same time, you can do:
-             * ```
-             * #TABLE_NAME.set(row_id, iter.next().unwrap());
-             * return Action::Add(iter);
+             * Ergonomics for calling `Write::visit` with a closure that does not add values.
              * 
-             * In addition to whatever the backing `TCol`s allocate, this function also allocates a
-             * `Vec` whose size is the number of inserted rows.
-             * ```
+             * `#TABLE_NAME.visit(|table, i| -> #TABLE_NAME::ClearVisit { … })`
              * */
-            pub fn visit<IT, F>(&mut self, mut closure: F)
-                where IT: ::std::iter::Iterator<Item=Row>,
-                       F: FnMut(&mut Write, RowId) -> v11::Action<Row, IT>
-            {
-                // This algorithm is probably close to maximum efficiency?
-                // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
-                // for internal temporary usage.
+            pub type ClearVisit = v11::Action<Row, v11::intern::VoidIter<Row>>;
 
-                use std::collections::vec_deque::VecDeque;
-                // Temporary queue of rows that were displaced by inserts. In the middle of
-                // iteration, the length of this list is equal to the number of inserted rows.
-                // If this queue is not empty, then each visited row is pushed onto it,
-                // replaced with the popped front of the queue, and then that is what is
-                // actually visited. Should the end of the rowset be reached, this buffer is
-                // appended, and iteration continues.
-                let mut displaced_buffer: VecDeque<Row> = VecDeque::new();
-                // This is the read offset of the index, used when rows have been removed.
-                // It `rm_off > 0 && !displaced_buffer.is_empty()`, then rows from
-                // displaced_buffer need to be copied to the columns.
-                // It can be thought of as 'negative displacement_buffer size'.
-                let mut rm_off: usize = 0;
-                // Rows that have just been inserted must not be visited.
-                let mut skip = 0;
-
-                let mut index = 0usize;
-                fn flush_displaced(index: &mut usize,
-                                   rm_off: &mut usize,
-                                   all: &mut Write,
-                                   displaced_buffer: &mut VecDeque<Row>) {
-                    while *rm_off > 0 && !displaced_buffer.is_empty() {
-                        all.set_row(fab(*index), displaced_buffer.pop_front().unwrap());
-                        *index += 1;
-                        *rm_off -= 1;
-                    }
+            impl<'u> Write<'u> {
+                /**
+                 * Keep or discard rows according to the provided closure.
+                 * If it returns `true`, then the row is kept.
+                 * If it returns `false`, then the row is removed.
+                 * */
+                pub fn filter<F>(&mut self, mut closure: F)
+                    where F: FnMut(&mut Write, RowId) -> bool
+                {
+                    self.visit(|wlock, rowid| -> ClearVisit {
+                        if closure(wlock, rowid) {
+                            v11::Action::Continue
+                        } else {
+                            v11::Action::Remove
+                        }
+                    });
                 }
 
-                loop {
-                    let len = self.rows();
-                    if index + rm_off >= len {
-                        if displaced_buffer.is_empty() {
-                            if rm_off > 0 {
-                                #(self.#COL_NAME.data.truncate(len - rm_off);)*
-                                rm_off = 0;
-                            }
-                            break;
+                /**
+                 * Invokes the closure on every entry in the table. For each row, the closure can:
+                 * *. remove that row
+                 * *. modify that row
+                 * *. do nothing to that row
+                 * *. return an iterator to append an arbitrary number of rows
+                 * It is to `Vec.retain`, but also allows insertion.
+                 *
+                 * This method can't insert rows into an empty table.
+                 *
+                 * If you want to remove & insert at the same time, you can do:
+                 * ```
+                 * #TABLE_NAME.set(row_id, iter.next().unwrap());
+                 * return Action::Add(iter);
+                 * 
+                 * In addition to whatever the backing `TCol`s allocate, this function also allocates a
+                 * `Vec` whose size is the number of inserted rows.
+                 * ```
+                 * */
+                pub fn visit<IT, F>(&mut self, mut closure: F)
+                    where IT: ::std::iter::Iterator<Item=Row>,
+                           F: FnMut(&mut Write, RowId) -> v11::Action<Row, IT>
+                {
+                    // This is... complex.
+                    // It's a "rug pushing" algorithm; you push a free-standing rug, and it makes a
+                    // loop, and you can push the loop along until it hits the end & makes the rug
+                    // longer. But also parts of the rug can be removed, causing the loop to collapse
+                    // before reaching the end.
+                    
+                    // This algorithm is probably close to maximum efficiency?
+                    // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
+                    // for internal temporary usage.
+
+                    use std::collections::vec_deque::VecDeque;
+                    // Temporary queue of rows that were displaced by inserts. In the middle of
+                    // iteration, the length of this list is equal to the number of inserted rows.
+                    // If this queue is not empty, then each visited row is pushed onto it,
+                    // replaced with the popped front of the queue, and then that is what is
+                    // actually visited. Should the end of the rowset be reached, this buffer is
+                    // appended, and iteration continues.
+                    let mut displaced_buffer: VecDeque<Row> = VecDeque::new();
+                    // This is the read offset of the index, used when rows have been removed.
+                    // It `rm_off > 0 && !displaced_buffer.is_empty()`, then rows from
+                    // displaced_buffer need to be copied to the columns.
+                    // It can be thought of as 'negative displacement_buffer size'.
+                    let mut rm_off: usize = 0;
+                    // Rows that have just been inserted must not be visited.
+                    let mut skip = 0;
+
+                    let mut index = 0usize;
+                    fn flush_displaced(index: &mut usize,
+                                       rm_off: &mut usize,
+                                       all: &mut Write,
+                                       displaced_buffer: &mut VecDeque<Row>) {
+                        while *rm_off > 0 && !displaced_buffer.is_empty() {
+                            all.set_row(fab(*index), displaced_buffer.pop_front().unwrap());
+                            *index += 1;
+                            *rm_off -= 1;
                         }
-                        flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
-                        while let Some(row) = displaced_buffer.pop_front() {
-                            #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
-                            if skip > 0 {
-                                skip -= 1;
+                    }
+
+                    loop {
+                        let len = self.rows();
+                        if index + rm_off >= len {
+                            if displaced_buffer.is_empty() {
+                                if rm_off > 0 {
+                                    #(self.#COL_NAME.data.truncate(len - rm_off);)*
+                                    rm_off = 0;
+                                }
+                                break;
+                            }
+                            flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
+                            while let Some(row) = displaced_buffer.pop_front() {
+                                #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                                if skip > 0 {
+                                    skip -= 1;
+                                    index += 1;
+                                }
+                            }
+                            continue; // 'goto top_of_block'.
+                        }
+                        if let Some(replacement) = displaced_buffer.pop_front() {
+                            // Swap between '`here`' and the first displaced row.
+                            // No garbage is produced.
+                            displaced_buffer.push_back(self.get_row(fab(index)));
+                            self.set_row(fab(index), replacement);
+                            assert!(rm_off == 0);
+                        }
+                        if rm_off > 0 {
+                            // Move a row from the end of the garbage gap to the beginning.
+                            // The front of the garbage gap is no longer garbage, and the back is
+                            // now garbage.
+                            let tmprow = self.get_row(fab(index + rm_off));
+                            self.set_row(fab(index), tmprow);
+                        }
+                        // An invariant needs to be true at this point: self[index] is valid, not
+                        // garbage data. What could make it garbage?
+                        // This first loop, it's going to be fine.
+                        // If remove has been used, then there are worries.
+                        let action = if skip == 0 {
+                            closure(self, fab(index))
+                        } else {
+                            skip -= 1;
+                            v11::Action::Continue
+                        };
+                        match action {
+                            v11::Action::Break => {
+                                if rm_off == 0 && displaced_buffer.is_empty() {
+                                    // Don't need to do anything
+                                    break;
+                                } else if !displaced_buffer.is_empty() {
+                                    // simply stick 'em on the end
+                                    for row in displaced_buffer.iter() {
+                                        #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                                    }
+                                    displaced_buffer.clear();
+                                    // And we don't visit them.
+                                    break;
+                                } else if rm_off != 0 {
+                                    // Trim.
+                                    let start = index + 1;
+                                    #(self.#COL_NAME.data.remove_slice(start..start+rm_off);)*
+                                    rm_off = 0;
+                                    break;
+                                } else {
+                                    // FIXME: #{} needs to be a thing. This little thing isn't
+                                    // worth the hassle.
+                                    // https://github.com/dtolnay/quote/issues/10
+                                    // panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer);
+                                    panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer.len());
+                                }
+                            },
+                            v11::Action::Continue => { index += 1; },
+                            v11::Action::Remove => {
+                                match displaced_buffer.pop_front() {
+                                    None => { rm_off += 1; },
+                                    Some(row) => {
+                                        self.set_row(fab(index), row);
+                                        index += 1;
+                                    },
+                                }
+                            },
+                            v11::Action::Add(iter) => {
+                                {
+                                    // Must do a little dance; first item returned by the iterator
+                                    // goes to the front of the queue, which is unnatural.
+                                    displaced_buffer.reserve(iter.size_hint().0);
+                                    let mut added = 0;
+                                    for row in iter {
+                                        displaced_buffer.push_back(row);
+                                        added += 1;
+                                    }
+                                    skip += added;
+                                    for _ in 0..added {
+                                        let tmprow = displaced_buffer.pop_back().unwrap();
+                                        displaced_buffer.push_front(tmprow);
+                                    }
+                                }
+                                flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer);
                                 index += 1;
                             }
                         }
-                        continue;
                     }
-                    if let Some(replacement) = displaced_buffer.pop_front() {
-                        // Swap between '`here`' and the first displaced row.
-                        // No garbage is produced.
-                        displaced_buffer.push_back(self.get_row(fab(index)));
-                        self.set_row(fab(index), replacement);
-                        assert!(rm_off == 0);
-                    }
-                    if rm_off > 0 {
-                        // Move a row from the end of the garbage gap to the beginning.
-                        // The front of the garbage gap is no longer garbage, and the back is
-                        // now garbage.
-                        let tmprow = self.get_row(fab(index + rm_off));
-                        self.set_row(fab(index), tmprow);
-                    }
-                    // An invariant needs to be true at this point: self[index] is valid, not
-                    // garbage data. What could make it garbage?
-                    // This first loop, it's going to be fine.
-                    // If remove has been used, then there are worries.
-                    let action = if skip == 0 {
-                        closure(self, fab(index))
-                    } else {
-                        skip -= 1;
-                        v11::Action::Continue
-                    };
-                    match action {
-                        v11::Action::Break => {
-                            if rm_off == 0 && displaced_buffer.is_empty() {
-                                // Don't need to do anything
-                                break;
-                            } else if !displaced_buffer.is_empty() {
-                                // simply stick 'em on the end
-                                for row in displaced_buffer.iter() {
-                                    #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
-                                }
-                                displaced_buffer.clear();
-                                // And we don't visit them.
-                                break;
-                            } else if rm_off != 0 {
-                                // Trim.
-                                let start = index + 1;
-                                #(self.#COL_NAME.data.remove_slice(start..start+rm_off);)*
-                                rm_off = 0;
-                                break;
-                            } else {
-                                // FIXME: #{} needs to be a thing. This little thing isn't
-                                // worth the hassle.
-                                // https://github.com/dtolnay/quote/issues/10
-                                // panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer);
-                                panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer.len());
-                            }
-                        },
-                        v11::Action::Continue => { index += 1; },
-                        v11::Action::Remove => {
-                            match displaced_buffer.pop_front() {
-                                None => { rm_off += 1; },
-                                Some(row) => {
-                                    self.set_row(fab(index), row);
-                                    index += 1;
-                                },
-                            }
-                        },
-                        v11::Action::Add(iter) => {
-                            {
-                                // Must do a little dance; first item returned by the iterator
-                                // goes to the front of the queue, which is unnatural.
-                                displaced_buffer.reserve(iter.size_hint().0);
-                                let mut added = 0;
-                                for row in iter {
-                                    displaced_buffer.push_back(row);
-                                    added += 1;
-                                }
-                                skip += added;
-                                for _ in 0..added {
-                                    let tmprow = displaced_buffer.pop_back().unwrap();
-                                    displaced_buffer.push_front(tmprow);
-                                }
-                            }
-                            flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer);
-                            index += 1;
-                        }
-                    }
+                    assert!(displaced_buffer.is_empty());
+                    assert!(rm_off == 0);
                 }
-                assert!(displaced_buffer.is_empty());
-                assert!(rm_off == 0);
             }
-        }
-    };
+        };
+    }
 
     if table.generic_sort || !table.sort_by.is_empty() {
         let PUB = if table.generic_sort {
@@ -761,6 +771,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
     }
+    // FIXME: sorting change tracking
 
     if let Some(ref mod_code) = table.mod_code {
         writeln!(out, "// User code\n{}", mod_code)?;
