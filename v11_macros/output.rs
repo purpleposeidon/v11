@@ -19,10 +19,27 @@ macro_rules! write_quote {
     };
 }
 
+impl Table {
+    fn if_tracking(&self, q: Tokens) -> Tokens {
+        quote_if(self.track_changes, q)
+    }
+}
+
+fn quote_if(b: bool, q: Tokens) -> Tokens {
+    if b {
+        q
+    } else {
+        quote! {}
+    }
+}
+
 #[allow(non_snake_case)]
 pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     // Info
-    writeln!(out, "// Generated file. Table config:")?;
+    writeln!(out, "// Generated file. If you are debugging this output, put this in a module and uncomment these line:")?;
+    writeln!(out, "// use v11::Universe;")?;
+    writeln!(out, "// domain! {{ TABLE_DOMAIN }}\n\n")?;
+    writeln!(out, "// Table config:")?;
     for line in format!("{:#?}", table).split('\n') {
         writeln!(out, "//   {}", line)?;
     }
@@ -90,25 +107,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }
 
-    let DERIVE_ENCODING: Tokens = {
-        if table.save {
-            quote! { #[derive(RustcEncodable, RustcDecodable)] }
-        } else {
-            quote! {}
-        }
-    };
+    let DERIVE_ENCODING = quote_if(table.save, quote! { #[derive(RustcEncodable, RustcDecodable)] });
+    let DERIVE_DEBUG = quote_if(table.debug, quote! {
+        #[derive(Debug)]
+    });
 
-    let DERIVE_DEBUG = if table.debug {
-        quote! {
-            #[derive(Debug)]
-        }
-    } else {
-        quote! {}
-    };
-
-    let ROW_ID_TYPE = i(table.row_id);
+    let ROW_ID_TYPE = i(&table.row_id);
     write_quote! {
-        [table, out, "Indexes"]
+        [table, out, "Indexing"]
 
         /// This is the type used to index into `#TABLE_NAME`'s columns.
         /// It is typed specifically for this table.
@@ -155,11 +161,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
-    let NEED_FLUSH = if table.track_changes {
-        quote! {_track_changes: bool,}
-    } else {
-        quote! {}
-    };
+    let NEED_FLUSH = table.if_tracking(quote! {_needs_flush: bool,});
+    let NEED_FLUSH_INIT = table.if_tracking(quote! { _needs_flush: true, });
 
     write_quote! {
         [table, out, "Table locks"]
@@ -234,6 +237,63 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }
 
+    if table.track_changes {
+        write_quote! {
+            [table, out, "Change tracking"]
+
+            impl<'a> Drop for Write<'a> {
+                fn drop(&mut self) {
+                    if self._needs_flush {
+                        panic!("Changes to {} were not flushed", TABLE_NAME);
+                    }
+                }
+            }
+
+            use std::any::Any;
+
+            /// Trackers receive events from tables when `flush` is called.
+            pub type Tracker = fn(universe: &Universe, event: &[Event<RowId>]);
+
+            /// Add a tracker.
+            pub fn register_tracker(universe: &Universe, tracker: Tracker) {
+                let mut gt = get_generic_table(universe).write().unwrap();
+                gt.trackers.write().unwrap().push(Box::new(tracker) as PBox);
+            }
+
+            impl<'a> Write<'a> {
+                /// Allow the `Write` lock to be closed without flushing changes. Be careful!
+                /// The changes need to be flushed eventually!
+                pub fn noflush(&mut self) {
+                    self._needs_flush = false;
+                }
+
+                /// Propagate all changes made thus far to the Trackers.
+                pub fn flush(&mut self, universe: &Universe) {
+                    {
+                        let events = &self._events.data.data[..];
+                        for tracker in self._lock.trackers.read().unwrap().iter() {
+                            let tracker: &Any = &*tracker;
+                            match tracker.downcast_ref::<Tracker>() {
+                                Some(tracker) => tracker(universe, events),
+                                None => panic!("Bad tracker"),
+                            }
+                        }
+                    }
+                    self._events.clear();
+                    self._needs_flush = false;
+                }
+
+                fn event(&mut self, event: Event<RowId>) {
+                    self._events.push(event);
+                    self._needs_flush = true;
+                }
+            }
+        }
+    }
+
+    let EVENT_CLEAR = table.if_tracking(quote! { self.event(Event::ClearAll); });
+    let EVENT_PUSH = table.if_tracking(quote! { self.event(Event::Create(rowid)); });
+
     write_quote! {
         [table, out, "mut methods"]
 
@@ -247,6 +307,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             /** Removes every row from the table. */
             pub fn clear(&mut self) {
                 #(self.#COL_NAME.data.clear();)*
+                #EVENT_CLEAR
             }
 
             pub fn set_row(&mut self, index: RowId, row: Row) {
@@ -254,6 +315,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
 
             /** Populate the table with data from the provided iterator. */
+            #[inline]
             pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
                 self.reserve(data.size_hint().0);
                 for row in data {
@@ -263,58 +325,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             /// Appends a single Row to the end of the table.
             /// Returns its RowId.
+            #[inline]
             pub fn push(&mut self, row: Row) -> RowId {
-                self.push1(row);
-                fab(self.rows() - 1)
+                self.push1(row)
             }
 
-            fn push1(&mut self, row: Row) {
+            #[inline]
+            fn push1(&mut self, row: Row) -> RowId {
                 #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                let rowid = fab(self.rows() - 1);
+                #EVENT_PUSH
+                rowid
             }
         }
     };
-
-    if table.track_changes {
-        write_quote! {
-            [table, out, "Change tracking"]
-
-            impl<'a> Drop for Write<'a> {
-                fn drop(&mut self) {
-                    if self._needs_flush {
-                        panic!("Changes to {} were not flushed", TABLE_NAME);
-                    }
-                }
-            }
-
-            /// Trackers receive events from tables when `flush` is called.
-            pub trait Tracker: Clone + Sync + Send {
-                fn handle(&mut self, universe: &Universe, event: &[Event<RowId>]);
-            }
-
-            impl<'a> Write<'a> {
-                /// Allow the `Write` lock to be closed without flushing changes. Be careful!
-                /// The changes need to be flushed eventually!
-                pub fn noflush(&mut self) {
-                    self._needs_flush = false;
-                }
-
-                /// Propagate all changes made thus far to the Trackers.
-                fn flush(&mut self, universe: &Universe) {
-                    let gt = get_generic_table(universe).write().unwrap();
-                    for tracker in trackers {
-                        tracker.handle(universe, &self._events);
-                    }
-                    self._events.clear();
-                    self._needs_flush = false;
-                }
-            }
-
-            pub fn register_tracker<T: Tracker>(universe: &mut Universe, tracker: T) {
-                let gt = get_generic_table(universe).write().unwrap();
-                gt.trackers.push(Box::new(tracker));
-            }
-        }
-    }
 
     write_quote! {
         [table, out, "Lock & Load"]
@@ -355,6 +379,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             };)*
             Write {
                 _lock: _lock,
+                #NEED_FLUSH_INIT
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -455,6 +480,23 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
+    if table.track_changes {
+        write_quote! {
+            [table, out, "Index & Row event shim"]
+            type DisplacedIr = (RowId, Row);
+            fn ir_pair(idx: RowId, row: Row) -> DisplacedIr {
+                (idx, row)
+            }
+        }
+    } else {
+        write_quote! {
+            [table, out, "Index & Row event shim"]
+            type DisplacedIr = Row;
+            fn ir_pair(_: RowId, row: Row) -> DisplacedIr {
+                row
+            }
+        }
+    }
     write_quote! {
         [table, out, "Complicated mut algorithms"]
 

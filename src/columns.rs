@@ -66,7 +66,7 @@ impl<C: TCol, R: PrimInt, T: GetTableName> IndexMut<GenericRowId<R, T>> for ColW
 #[derive(Debug)]
 #[derive(RustcEncodable, RustcDecodable)]
 pub struct VecCol<E: Storable> {
-    data: Vec<E>,
+    pub data: Vec<E>,
 }
 impl<E: Storable> TCol for VecCol<E> {
     type Element = E;

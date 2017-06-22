@@ -38,8 +38,8 @@ define_proc_macros! {
             };
             ConstTokens {
                 _event_name: Ident::from_str("_events"),
-                _event_element: parser("RowId"),
-                _event_colty: parser("VecCol<RowId>"),
+                _event_element: parser("Event<RowId>"),
+                _event_colty: parser("VecCol<Event<RowId>>"),
             }
         };
         let mut parser = new_parser_from_source_str(&sess, "<table! macro>".to_owned(), macro_args);
@@ -58,7 +58,7 @@ define_proc_macros! {
         let mut ret = Vec::new();
         ::output::write_out(table, &mut ret).unwrap();
         let ret = String::from_utf8(ret).unwrap();
-        if false {
+        if false /* FIXME: Expose somehow */ {
             // formatting
             let formatted = {
                 use rustfmt::*;

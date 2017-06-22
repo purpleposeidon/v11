@@ -177,7 +177,7 @@ pub struct GenericTable {
     pub domain: DomainName,
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
-    pub trackers: Arc<Vec<PBox>>,
+    pub trackers: Arc<RwLock<Vec<PBox>>>,
 }
 impl GenericTable {
     pub fn new(domain: DomainName, name: TableName) -> GenericTable {

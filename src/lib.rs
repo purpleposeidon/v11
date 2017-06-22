@@ -158,15 +158,20 @@ pub enum Action<I, IT: Iterator<Item=I>> {
     Add(IT),
 }
 
+/// Events that occur on a table with change tracking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event<R> {
-    /// A row was added to the table. It might be a "push"-type situation, but it could also be a
-    /// "reclaim a previously deleted row"-type situation.
+    /// A row was added to the table. This could happen as the result of a new Row being pushed,
+    /// but it could also be due to a row in a sparse table being reclaimed.
     Create(R),
     /// A row was moved. This doesn't necessarily mean that `dst` was deleted!
-    /// `dst` should be considered as an "invalid/uninitialized" row.
-    /// *. `dst` might have already had its own `Move` event to somewhere earlier.
-    /// *. If `src` is *replacing* `dst`, then `dst` should have already had a `Delete` event.
+    /// Any foreign references to `src` should be changed to `dst`.
+    /// The old row at `dst` has been invalidated (by a `Delete` or another `Move`) by the time
+    /// this event has been reached. It would be strange to do any other semantic changes.
     Move { src: R, dst: R },
-    /// This row is no longer valid.
+    /// This row is no longer valid. To maintain validity, delete any foreign rows
+    /// referencing this row, or have them reference something else.
     Delete(R),
+    /// Every row was deleted.
+    ClearAll,
 }
