@@ -492,7 +492,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
-    if !table.track_changes {
+    if !table.no_complex_mut {
         // These are baaasically incompatible w/ change tracking.
         // 1: The rug algorithm is already very complex.
         // 2: A simpler algorithm would do more allocation.

@@ -22,6 +22,7 @@ pub struct Table {
     pub generic_sort: bool,
     pub sort_by: Vec<String>,
     pub static_data: bool,
+    pub no_complex_mut: bool,
 
     // module
     pub mod_code: Option<String>,
@@ -58,6 +59,10 @@ impl Table {
             self.generic_sort = true;
         }
         if self.track_changes {
+            if self.generic_sort || !self.sort_by.is_empty() {
+                return Some("Change tracking is incompatible with sorting.");
+            }
+            self.no_complex_mut = true;
             self.cols.push(Col {
                 attrs: None,
                 name: token._event_name.clone(),
