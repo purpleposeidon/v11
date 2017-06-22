@@ -2,6 +2,7 @@
 
 use std::any::Any;
 use std::sync::*;
+use std::fmt;
 
 
 pub use v11_macros::*;
@@ -73,18 +74,12 @@ This is useful when this table is going to have foreign keys pointing at it.
 ## `NoDebug;`
 `#[derive(Debug)]` is added to `Row` by default; this prevents that.
 
-## `TrackRm;`
-(FIXME: nyi)
-Keep track of which rows have been removed by `filter` and `visit`.
+## `Track;`
+Creates an event log of rows that were moved, deleted, and removed.
+Dependants of this table, `Tracker`s, are notified of these changes by calling `flush()`.
 
-## `ForeignCascade;`
-(FIXME: nyi)
-If a foreign key to a table that has `TrackRm` becomes invalidated by removing the refered to row,
-then that row (on this table) will be removed by calling (FIXME: some function).
-
-## `TrackModify;`
-(FIXME: nyi. Also tricky.)
-Keeps a sparse list of modified rows.
+To avoid the error of the event log being forgotten, the lock on a changed table will panic
+if a `flush()` should be called. This can be surpressed by calling `noflush()`.
 
 ## `GenericSort;`
 Adds a parameterized sort method.
@@ -178,11 +173,11 @@ impl Universe {
 type Prototyper = fn() -> PBox;
 
 /// A table held by `Universe`. Its information is used to populate concrete tables.
-#[derive(Debug)]
 pub struct GenericTable {
     pub domain: DomainName,
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
+    pub trackers: Arc<Vec<PBox>>,
 }
 impl GenericTable {
     pub fn new(domain: DomainName, name: TableName) -> GenericTable {
@@ -191,6 +186,7 @@ impl GenericTable {
             domain: domain,
             name: name,
             columns: Vec::new(),
+            trackers: Default::default(),
         }
     }
 
@@ -204,11 +200,11 @@ impl GenericTable {
             domain: self.domain,
             name: self.name,
             columns: self.columns.iter().map(GenericColumn::prototype).collect(),
+            trackers: Arc::clone(&self.trackers),
         }
     }
 
     pub fn add_column(mut self, name: &'static str, type_name: &'static str, prototyper: Prototyper) -> Self {
-        // Why is the 'static necessary??? Does it refer to the vtable or something?
         intern::check_name(name);
         for c in &self.columns {
             if c.name == name {
@@ -295,6 +291,11 @@ impl GenericTable {
             };
     }
 }
+impl fmt::Debug for GenericTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "GenericTable {}/{} {:?}", self.domain, self.name, self.columns)
+    }
+}
 
 pub struct GenericColumn {
     name: &'static str,
@@ -369,7 +370,6 @@ impl<I: PrimInt, T: GetTableName> Default for GenericRowId<I, T> {
     }
 }
 
-use std::fmt;
 impl<I: PrimInt + fmt::Display, T: GetTableName> fmt::Debug for GenericRowId<I, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}[{}]", T::get_name().0, self.i)

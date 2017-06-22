@@ -15,12 +15,10 @@ pub struct Table {
     pub debug: bool,
     pub version: usize,
     pub row_id: String,
-    pub track_modify: bool,
-    pub track_rm: bool,
     pub sync_rm: Option<String>,
     pub free_list: bool,
     pub save: bool,
-    pub cascade_deletions: Vec<String>,
+    pub track_changes: bool,
     pub generic_sort: bool,
     pub sort_by: Vec<String>,
     pub static_data: bool,
@@ -37,7 +35,7 @@ impl Table {
             .. Table::default()
         }
     }
-    pub fn validate(&mut self) -> Option<&'static str> {
+    pub(crate) fn validate(&mut self, token: &super::ConstTokens) -> Option<&'static str> {
         if self.domain.is_empty() {
             return Some("No domain");
         }
@@ -48,19 +46,24 @@ impl Table {
             return Some("No columns");
         }
         if self.static_data {
-            if {
-                self.track_modify
-                || self.track_rm
+            if self.track_changes
                 || self.sync_rm.is_some()
                 || self.free_list
-                || !self.cascade_deletions.is_empty()
-                || !self.sort_by.is_empty()
-                } {
+                || !self.track_changes
+                || !self.sort_by.is_empty() {
                 return Some("static tables shouldn't have modification features");
             }
         }
         if !self.sort_by.is_empty() {
             self.generic_sort = true;
+        }
+        if self.track_changes {
+            self.cols.push(Col {
+                attrs: None,
+                name: token._event_name.clone(),
+                element: token._event_element.clone(),
+                colty: token._event_colty.clone(),
+            });
         }
         None
     }

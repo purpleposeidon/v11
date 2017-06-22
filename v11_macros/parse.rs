@@ -1,5 +1,5 @@
 use syntex_syntax::parse::parser::Parser;
-use syntex_syntax::parse::token::{Token, DelimToken, BinOpToken, Lit, };
+use syntex_syntax::parse::token::{Token, DelimToken, BinOpToken, Lit};
 use syntex_syntax::parse::common::SeqSep;
 use syntex_syntax::parse::PResult;
 use syntex_syntax::tokenstream::TokenTree;
@@ -110,17 +110,8 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
                 table.row_id = pp::ty_to_string(&*parser.parse_ty()?);
             } else if name == "NoDebug" {
                 table.debug = false;
-            } else if name == "TrackRm" {
-                table.track_rm = true;
-            } else if name == "ForeignCascade" {
-                // adds a 'cascade_foreign_deletions' fn that removes foreign keys whose parent has been deleted
-                // a single vararg call
-                // FIXME: no more custom-named tables
-                let args = parse_arglist(parser)?;
-                table.cascade_deletions.extend(args);
-            } else if name == "TrackModify" {
-                // keep a sparse & transient list of modified/created/removed rows
-                table.track_modify = true;
+            } else if name == "Track" {
+                table.track_changes = true;
             } else if name == "GenericSort" {
                 // add a type-parameterized sort function
                 table.generic_sort = true;

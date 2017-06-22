@@ -158,3 +158,15 @@ pub enum Action<I, IT: Iterator<Item=I>> {
     Add(IT),
 }
 
+pub enum Event<R> {
+    /// A row was added to the table. It might be a "push"-type situation, but it could also be a
+    /// "reclaim a previously deleted row"-type situation.
+    Create(R),
+    /// A row was moved. This doesn't necessarily mean that `dst` was deleted!
+    /// `dst` should be considered as an "invalid/uninitialized" row.
+    /// *. `dst` might have already had its own `Move` event to somewhere earlier.
+    /// *. If `src` is *replacing* `dst`, then `dst` should have already had a `Delete` event.
+    Move { src: R, dst: R },
+    /// This row is no longer valid.
+    Delete(R),
+}

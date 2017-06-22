@@ -71,6 +71,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         use v11;
         use v11::intern::PBox;
+        #[allow(unused_imports)]
+        use v11::Event;
         use v11::tables::{GenericTable, GenericRowId, TableName, GetTableName};
         use v11::columns::{TCol, ColWrapper};
 
@@ -127,7 +129,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             t: ::std::marker::PhantomData,
         };
 
-        // FIXME: Can we change this to 'unsafe'? What uses this that isn't covered above?
         /// Creates an index into the `i`th row.
         pub fn at(i: #ROW_ID_TYPE) -> RowId { RowId::new(i) }
         fn fab(i: usize) -> RowId { at(i as #ROW_ID_TYPE) }
@@ -154,6 +155,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
+    let NEED_FLUSH = if table.track_changes {
+        quote! {_track_changes: bool,}
+    } else {
+        quote! {}
+    };
+
     write_quote! {
         [table, out, "Table locks"]
 
@@ -162,6 +169,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * */
         pub struct Write<'u> {
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
+            #NEED_FLUSH
             #(pub #COL_NAME: &'u mut #COL_TYPE,)*
         }
 
@@ -265,6 +273,48 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
     };
+
+    if table.track_changes {
+        write_quote! {
+            [table, out, "Change tracking"]
+
+            impl<'a> Drop for Write<'a> {
+                fn drop(&mut self) {
+                    if self._needs_flush {
+                        panic!("Changes to {} were not flushed", TABLE_NAME);
+                    }
+                }
+            }
+
+            /// Trackers receive events from tables when `flush` is called.
+            pub trait Tracker: Clone + Sync + Send {
+                fn handle(&mut self, universe: &Universe, event: &[Event<RowId>]);
+            }
+
+            impl<'a> Write<'a> {
+                /// Allow the `Write` lock to be closed without flushing changes. Be careful!
+                /// The changes need to be flushed eventually!
+                pub fn noflush(&mut self) {
+                    self._needs_flush = false;
+                }
+
+                /// Propagate all changes made thus far to the Trackers.
+                fn flush(&mut self, universe: &Universe) {
+                    let gt = get_generic_table(universe).write().unwrap();
+                    for tracker in trackers {
+                        tracker.handle(universe, &self._events);
+                    }
+                    self._events.clear();
+                    self._needs_flush = false;
+                }
+            }
+
+            pub fn register_tracker<T: Tracker>(universe: &mut Universe, tracker: T) {
+                let gt = get_generic_table(universe).write().unwrap();
+                gt.trackers.push(Box::new(tracker));
+            }
+        }
+    }
 
     write_quote! {
         [table, out, "Lock & Load"]

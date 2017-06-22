@@ -14,6 +14,14 @@ mod parse;
 mod table;
 mod output;
 
+use syntex_syntax::ast::{Ident, Ty};
+use syntex_syntax::ptr::P;
+
+pub(crate) struct ConstTokens {
+    _event_name: Ident,
+    _event_element: P<Ty>,
+    _event_colty: P<Ty>,
+}
 
 
 define_proc_macros! {
@@ -22,6 +30,18 @@ define_proc_macros! {
         use syntex_syntax::parse::{ParseSess, new_parser_from_source_str};
         let macro_args = macro_args.to_owned();
         let sess = ParseSess::new();
+        let const_tokens = {
+            let parser = |src: &str| {
+                let src = src.to_owned();
+                new_parser_from_source_str(&sess, "<table! const tokens>".to_owned(), src)
+                    .parse_ty().expect("const src parse")
+            };
+            ConstTokens {
+                _event_name: Ident::from_str("_events"),
+                _event_element: parser("RowId"),
+                _event_colty: parser("VecCol<RowId>"),
+            }
+        };
         let mut parser = new_parser_from_source_str(&sess, "<table! macro>".to_owned(), macro_args);
         let mut table = match ::parse::parse_table(&mut parser) {
             Err(msg) => {
@@ -30,7 +50,7 @@ define_proc_macros! {
             },
             Ok(t) => t,
         };
-        if let Some(err) = table.validate() {
+        if let Some(err) = table.validate(&const_tokens) {
             error(err);
             return String::new();
         }
