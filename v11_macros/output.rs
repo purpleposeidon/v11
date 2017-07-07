@@ -62,7 +62,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_NAME_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ident_to_string(x.name)).collect();
     let COL_ELEMENT_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ty_to_string(&*x.element)).collect();
     let COL_TYPE_STR: &Vec<_> = &table.cols.iter().map(|x| format!("ColWrapper<{}, RowId>", pp::ty_to_string(&*x.colty))).collect();
-    let COL_ATTR: Vec<_> = table.cols.iter().map(|x: &Col| {
+    let COL_ATTR: &Vec<_> = &table.cols.iter().map(|x: &Col| {
         let r = if let Some(a) = x.attrs.as_ref() {
             a.iter().map(pp::attr_to_string).map(|x| format!("{}\n", x)).collect()
         } else {
@@ -118,6 +118,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }
 
+    let DERIVE_CLONE = quote_if(table.clone, quote! {
+        #[derive(Clone)]
+    });
     let DERIVE_ENCODING = quote_if(table.save, quote! { #[derive(RustcEncodable, RustcDecodable)] });
     let DERIVE_DEBUG = quote_if(table.debug, quote! {
         #[derive(Debug)]
@@ -155,17 +158,30 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "The `Row` struct"]
 
         /**
-         * A structure holding a row's data. This is used to pass rows around through methods;
-         * the actual table is column-based, so eg `read.column[index]` is the standard method
-         * of accessing rows.
+         * A structure holding a copy of each column's data. This is used to pass entire rows around through methods;
+         * the actual table is column-based, so eg `read.column[index]` is the standard method of accessing rows.
          * */
-        #[derive(PartialEq, Copy, Clone)]
+        #[derive(PartialEq)]
+        #DERIVE_CLONE
         #DERIVE_ENCODING
         #DERIVE_DEBUG
         // FIXME: Do we need PartialEq?
         // FIXME: How about RowDerive()?
         pub struct Row {
             #(#COL_ATTR pub #COL_NAME: #COL_ELEMENT,)*
+        }
+
+        /// A row holding a reference to each 
+        #[derive(PartialEq)]
+        #DERIVE_DEBUG
+        pub struct RowRef<'a> {
+            #(#COL_ATTR pub #COL_NAME: &'a #COL_ELEMENT,)*
+        }
+
+        #[derive(PartialEq)]
+        #DERIVE_DEBUG
+        pub struct RowMut<'a> {
+            #(#COL_ATTR pub #COL_NAME: &'a mut #COL_ELEMENT,)*
         }
         impl GetTableName for Row {
             fn get_name() -> TableName { TABLE_NAME }
@@ -196,6 +212,26 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
+    let GET_ROW = quote_if(table.clone, quote! {
+        /** Retrieves a structure containing a copy of the value in each column. (R/W) */
+        pub fn get_row(&self, index: RowId) -> Row {
+            Row {
+                #(#COL_NAME: self.#COL_NAME2[index].clone(),)*
+            }
+        }
+    });
+
+    let DUMP_ROWS = quote_if(table.clone, quote! {
+        /** Allocates a Vec filled with every Row in the table. (R/W) */
+        pub fn dump(&self) -> Vec<Row> {
+            let mut ret = Vec::with_capacity(self.rows());
+            for i in self.range() {
+                ret.push(self.get_row(i));
+            }
+            ret
+        }
+    });
+
     let RW_FUNCTIONS = quote! {
         /** Returns the number of rows in the table. (R/W) */
         // And assumes that the columns are all the same length.
@@ -214,21 +250,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             index.to_usize() < self.rows()
         }
 
-        /** Retrieves a structure containing a copy of the value in each column. (R/W) */
-        pub fn get_row(&self, index: RowId) -> Row {
-            Row {
-                #(#COL_NAME: self.#COL_NAME2[index],)*
+        #GET_ROW
+
+        /** Retrieves a structure containing a reference to each value in each column. (R/W) */
+        pub fn get_row_ref(&self, index: RowId) -> RowRef {
+            RowRef {
+                #(#COL_NAME: &self.#COL_NAME2[index],)*
             }
         }
 
-        /** Allocates a Vec filled with every Row in the table. (R/W) */
-        pub fn dump(&self) -> Vec<Row> {
-            let mut ret = Vec::with_capacity(self.rows());
-            for i in self.range() {
-                ret.push(self.get_row(i));
-            }
-            ret
-        }
+        #DUMP_ROWS
 
         /** Release this lock. (R/W) */
         pub fn close(self) {} // Highly sophisticated! :D
@@ -309,6 +340,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "mut methods"]
 
         impl<'u> Write<'u> {
+            /** Retrieves a structure containing a mutable reference to each value in each column. */
+            pub fn get_row_mut(&mut self, index: RowId) -> RowMut {
+                RowMut {
+                    #(#COL_NAME: &mut self.#COL_NAME2[index],)*
+                }
+            }
+
             /** Prepare the table for insertion of a specific amount of data. `self.rows()` is
              * unchanged. */
             pub fn reserve(&mut self, additional: usize) {
@@ -420,17 +458,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
             impl<'u> Read<'u> {
-                /// Row-based encoding.
-                pub fn encode_rows<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
-                    let rows = self.rows();
-                    e.emit_u64(rows as u64)?;
-                    for i in self.range() {
-                        let row = self.get_row(i);
-                        row.encode(e)?;
-                    }
-                    Ok(())
-                }
-
                 /// Column-based encoding.
                 pub fn encode_columns<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
                     #(self.#COL_NAME.encode(e)?;)*
@@ -439,24 +466,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
 
             impl<'u> Write<'u> {
-                /// Row-based decoding. Clears the table before reading, and clears the table if
-                /// there is an error.
-                pub fn decode_rows<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
-                    self.clear();
-                    let rows = d.read_u64()? as usize;
-                    self.reserve(rows);
-                    for _ in 0..rows {
-                        let row = Row::decode(d);
-                        if let Ok(row) = row {
-                            #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
-                        } else {
-                            self.clear();
-                            return Err(d.error("failed to decode row"));
-                        }
-                    }
-                    Ok(())
-                }
-
                 /// Column-based decoding. Clears the table before reading, and clears the table if
                 /// there is an error.
                 pub fn decode_columns<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {

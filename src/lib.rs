@@ -40,8 +40,8 @@ pub mod joincore;
  * Types that implement this trait should also not implement `Drop`, although this is not yet
  * expressable, and is not presently required.
  * */
-pub trait Storable: Sync + Copy + Sized /* + !Drop */ {}
-impl<T> Storable for T where T: Sync + Copy + Sized /* + !Drop */ {}
+pub trait Storable: Sync + Sized /* + !Drop */ {}
+impl<T> Storable for T where T: Sync + Sized /* + !Drop */ {}
 
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
@@ -160,6 +160,7 @@ pub enum Action<I, IT: Iterator<Item=I>> {
 
 /// Events that occur on a table with change tracking.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(RustcDecodable, RustcEncodable)] // FIXME: This wouldn't be necessary with serde...
 pub enum Event<R> {
     /// A row was added to the table. This could happen as the result of a new Row being pushed,
     /// but it could also be due to a row in a sparse table being reclaimed.

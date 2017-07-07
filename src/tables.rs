@@ -74,6 +74,12 @@ This is useful when this table is going to have foreign keys pointing at it.
 ## `NoDebug;`
 `#[derive(Debug)]` is added to `Row` by default; this prevents that.
 
+## `NoCopy;`
+Don't derive Copy on `Row` (but DO derive Clone).
+
+## `NoClone;`
+Derive neither Clone nor Copy on `Row`.
+
 ## `Track;`
 Creates an event log of rows that were moved, deleted, and removed.
 Dependants of this table, `Tracker`s, are notified of these changes by calling `flush()`.

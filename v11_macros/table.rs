@@ -13,6 +13,8 @@ pub struct Table {
 
     // Modifiers
     pub debug: bool,
+    pub copy: bool,
+    pub clone: bool,
     pub version: usize,
     pub row_id: String,
     pub sync_rm: Option<String>,
@@ -31,6 +33,8 @@ impl Table {
     pub fn new() -> Self {
         Table {
             debug: true,
+            copy: true,
+            clone: true,
             row_id: "usize".to_owned(),
             version: 1,
             .. Table::default()
@@ -45,6 +49,9 @@ impl Table {
         }
         if self.cols.is_empty() {
             return Some("No columns");
+        }
+        if self.copy && self.no_complex_mut {
+            self.no_complex_mut = true;
         }
         if self.static_data {
             if self.track_changes
@@ -69,6 +76,9 @@ impl Table {
                 element: token._event_element.clone(),
                 colty: token._event_colty.clone(),
             });
+        }
+        if self.copy && !self.clone {
+            return Some("deriving copy, but not clone");
         }
         None
     }

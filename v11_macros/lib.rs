@@ -58,7 +58,8 @@ define_proc_macros! {
         let mut ret = Vec::new();
         ::output::write_out(table, &mut ret).unwrap();
         let ret = String::from_utf8(ret).unwrap();
-        if false /* FIXME: Expose somehow */ {
+        let dump = ::std::env::var("V11_MACRO_DUMP").is_ok();
+        if dump {
             // formatting
             let formatted = {
                 use rustfmt::*;
