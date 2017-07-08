@@ -243,6 +243,22 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             self.#COL0.len()
         }
 
+        /// Gets the last `RowId`.
+        pub fn last(&self) -> Option<RowId> {
+            let r = self.rows();
+            if r == 0 {
+                None
+            } else {
+                Some(fab(r - 1))
+            }
+        }
+
+        /// Returns the RowId of the next row that would be inserted.
+        pub fn next_pushed(&self) -> RowId {
+            // FIXME: And if we've got a freelist?
+            fab(self.rows())
+        }
+
         /** Returns an iterator over each row in the table. (R/W) */
         pub fn range(&self) -> v11::RowIdIterator<#ROW_ID_TYPE, Row> {
             v11::RowIdIterator::new(0, self.rows() as #ROW_ID_TYPE)
@@ -385,6 +401,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             #[inline]
             fn push1(&mut self, row: Row) -> RowId {
+                // FIXME: Check freelist, and use next_pushed()
                 #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
                 let rowid = fab(self.rows() - 1);
                 #EVENT_PUSH
