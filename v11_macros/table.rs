@@ -50,7 +50,7 @@ impl Table {
         if self.cols.is_empty() {
             return Some("No columns");
         }
-        if self.copy && self.no_complex_mut {
+        if !self.copy {
             self.no_complex_mut = true;
         }
         if self.static_data {

@@ -76,6 +76,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_ELEMENT: &Vec<_> = &str2i(COL_ELEMENT_STR);
     let COL_TYPE: &Vec<_> = &str2i(COL_TYPE_STR);
     let COL0 = &COL_NAME[0];
+    //let COL_COUNT: usize = table.cols.len();
 
     let COL_FORMAT: &Vec<String> = &table.cols.iter().map(|x| {
         // table.column: [element; column]
@@ -122,6 +123,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[derive(Clone)]
     });
     let DERIVE_ENCODING = quote_if(table.save, quote! { #[derive(RustcEncodable, RustcDecodable)] });
+    let DERIVE_ENCODING_W = quote_if(table.save, quote! { #[derive(RustcEncodable)] });
     let DERIVE_DEBUG = quote_if(table.debug, quote! {
         #[derive(Debug)]
     });
@@ -174,6 +176,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         /// A row holding a reference to each 
         #[derive(PartialEq)]
         #DERIVE_DEBUG
+        #DERIVE_ENCODING_W
         pub struct RowRef<'a> {
             #(#COL_ATTR pub #COL_NAME: &'a #COL_ELEMENT,)*
         }
@@ -457,34 +460,92 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             [table, out, "Save"]
 
             use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
+
+
             impl<'u> Read<'u> {
+                /// Row-based encoding.
+                pub fn encode_rows<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
+                    use rustc_serialize::Encoder;
+                    e.emit_seq(self.rows(), |e| {
+                        for i in self.range() {
+                            let row = self.get_row_ref(i);
+                            e.emit_seq_elt(i.to_usize(), |e| {
+                                row.encode(e)
+                            })?;
+                        }
+                        Ok(())
+                    })
+                }
+
+                /* -- This is kind of not possible to do due to funky bits in ColWrapper & BoolVec
+                 * that shouldn't be serialized. Serde'd make it possible?
                 /// Column-based encoding.
                 pub fn encode_columns<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
-                    #(self.#COL_NAME.encode(e)?;)*
-                    Ok(())
+                    use rustc_serialize::Encoder;
+                    e.emit_struct(TABLE_NAME, 1 + #COL_COUNT, |e| {
+                        let expect_rows = self.rows();
+                        e.emit_struct_field("_expect_rows", 0, |e| expect_rows.encode(e))?;
+                        let mut col = 1;
+                        #({
+                            e.emit_struct_field(#COL_NAME, col, |e| {
+
+                            })?;
+                            col += 1;
+                        })*
+                    });
+                    #[derive(RustcEncodable)]
+                    struct Saver<'a> {
+                        _expect_rows: usize,
+                        #(#COL_NAME: &'a #COL_TYPE_RAW,)*
+                    }
+                    let saver = Saver {
+                        _expect_rows: self.rows(),
+                        #(#COL_NAME: &self.#COL_NAME2.data,)*
+                    };
+                    saver.encode(e)
                 }
+                */
             }
 
             impl<'u> Write<'u> {
+                /// Row-based decoding. Clears the table before reading, and clears the table if
+                /// there is an error.
+                pub fn decode_rows<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
+                    use rustc_serialize::Decoder;
+                    self.clear();
+                    let caught = d.read_seq(|e, count| {
+                        self.reserve(count);
+                        for i in 0..count {
+                            let row = e.read_seq_elt(i, Row::decode)?;
+                            self.push(row);
+                        }
+                        Ok(())
+                    });
+                    if caught.is_err() {
+                        self.clear();
+                    }
+                    caught
+                }
+                /*
                 /// Column-based decoding. Clears the table before reading, and clears the table if
                 /// there is an error.
                 pub fn decode_columns<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
                     self.clear();
-                    let decode = (|| {
-                        #({
-                            type T = #COL_TYPE;
-                            T::decode(d)?;
-                        })*
-                        Ok(())
-                    })();
-                    if decode.is_err() {
-                        self.clear();
+                    #[derive(RustcDecodable)]
+                    struct Saver {
+                        _expect_rows: usize,
+                        #(#COL_NAME: #COL_TYPE_RAW,)*
                     }
-                    if self.inconsistent_columns() {
-                        self.clear();
+                    let saver = Saver::decode(d)?;
+
+                    if self.rows() != saver._expect_rows {
+                        println!("have {}, expect {}", self.rows(), saver._expect_rows);
+                        Err(d.error("mismatched row count"))
+                    } else if self.inconsistent_columns() {
                         Err(d.error("inconsistent column heights"))
                     } else {
-                        decode
+                        #(self.#COL_NAME.data = saver.#COL_NAME2;)*
+                        Ok(())
                     }
                 }
 
@@ -496,7 +557,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         }
                     })*
                     false
-                }
+                }*/
             }
         };
     }
