@@ -394,6 +394,21 @@ pub struct RowRange<R> {
     pub start: R,
     pub end: R,
 }
+impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
+    pub fn offset(&self, n: I) -> Option<GenericRowId<I, T>> {
+        let at = self.start.to_raw().checked_add(&n);
+        let at = if let Some(at) = at {
+            at
+        } else {
+            return None;
+        };
+        if at > self.end.to_raw() {
+            None
+        } else {
+            Some(GenericRowId::new(at))
+        }
+    }
+}
 impl<I: PrimInt, T: GetTableName> Iterator for RowRange<GenericRowId<I, T>> {
     type Item = GenericRowId<I, T>;
     #[inline]
