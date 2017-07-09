@@ -160,7 +160,7 @@ impl Universe {
         if let Some(&MaybeDomain::Domain(ref domain)) = self.domains.get(domain_id.0) {
             return domain.get_generic_table(name);
         }
-        panic!("Request for table {} in unknown domain", name);
+        panic!("Request for table {} in unknown domain #{}", name, domain_id.0);
     }
 
     pub fn table_names(&self) -> Vec<TableName> {
@@ -407,6 +407,10 @@ impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
         } else {
             Some(GenericRowId::new(at))
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.end.to_usize() - self.start.to_usize()
     }
 }
 impl<I: PrimInt, T: GetTableName> Iterator for RowRange<GenericRowId<I, T>> {
