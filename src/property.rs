@@ -324,18 +324,20 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
             Some(&MaybeDomain::Domain(ref e)) => e,
         };
         let domained_index = prop.get_index_within_domain().0;
-        let l: Option<&RwLock<V>> = match domain_instance.property_members.get(domained_index) {
+        let v = match domain_instance.property_members.get(domained_index) {
             None => if prop.get_domain_id() == unset::DOMAIN_ID {
                 panic!("The property {} was never initialized.", prop);
             } else {
                 panic!("The property {} was added to the domain AFTER this Universe was created.", prop);
             },
-            Some(v) => {
-                ::intern::desync_box(v).downcast_ref()
-            },
+            Some(v) => v,
         };
+        let v = ::intern::desync_box(v);
+        let l: Option<&RwLock<V>> = v.downcast_ref();
         match l {
-            None => panic!("The type of property {} does not match the type of what the Universe has.", prop),
+            None => {
+                panic!("The type of property {} does not match the type of what the Universe has.", prop);
+            },
             // FIXME: Say what the type is?
             Some(ret) => ret
         }
