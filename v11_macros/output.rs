@@ -102,7 +102,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use v11::intern::PBox;
         #[allow(unused_imports)]
         use v11::Event;
-        use v11::tables::{GenericTable, GenericRowId, TableName, GetTableName};
+        use v11::tables::{GenericTable, GenericRowId, TableName, GetTableName, RowRange};
         use v11::columns::{TCol, ColWrapper};
 
         #[allow(unused_imports)]
@@ -406,6 +406,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 let rowid = fab(self.rows() - 1);
                 #EVENT_PUSH
                 rowid
+            }
+
+            /// Push an 'array' of values. Contiguity is guaranteed.
+            pub fn push_array<I>(&mut self, i: I) -> RowRange<RowId>
+            where I: ExactSizeIterator<Item=Row>
+            {
+                // This implementation doesn't need ExactSizeIterator, but future configurations
+                // (FreeList) will require it.
+                let start = self.next_pushed();
+                self.push_all(i);
+                let end = self.last().unwrap_or(start);
+                RowRange {
+                    start: start,
+                    end: end,
+                }
             }
         }
     };
