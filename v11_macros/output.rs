@@ -215,6 +215,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
 
+    write_quote! {
+        [table, out, "Context helpers"]
+
+        impl<'u> Write<'u> {
+            #[doc(hidden)] #[inline] pub fn lock(universe: &'u v11::Universe) -> Self { write(universe) }
+            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("mut ", #TABLE_NAME_STR) }
+        }
+
+        impl<'u> Read<'u> {
+            #[doc(hidden)] #[inline] pub fn lock(universe: &'u v11::Universe) -> Self { read(universe) }
+            #[doc(hdiden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
+        }
+    }
+
     let GET_ROW = quote_if(table.clone, quote! {
         /** Retrieves a structure containing a copy of the value in each column. (R/W) */
         pub fn get_row(&self, index: RowId) -> Row {
