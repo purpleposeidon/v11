@@ -3,8 +3,6 @@ extern crate v11;
 #[macro_use]
 extern crate v11_macros;
 
-use v11::Universe;
-
 
 domain! { pub TESTS }
 
@@ -27,13 +25,13 @@ table! {
 }
 
 context! {
+    mod cheese_mod;
     pub struct CheeseCtx {
-        cheeses: cheeses::Read,
         stinkiness: stenches::Write,
     }
 }
-
 context! {
+    mod full_mod;
     pub struct FullCtx {
         cheeses: cheeses::Read,
         stinkiness: stenches::Write,
@@ -42,10 +40,12 @@ context! {
 }
 
 context! {
+    mod reduced_mod;
     pub struct ReducedCtx {
         cheeses: cheeses::Read,
     }
 }
+use v11::Universe;
 
 fn new_verse() -> Universe {
     TESTS.register();
@@ -68,6 +68,6 @@ fn main() {
     });
     let reduced = ReducedCtx::from(universe, full);
     for row in reduced.cheeses.range() {
-        panic!("Well that's odd.");
+        panic!("Well that's odd. {:?}", row);
     }
 }
