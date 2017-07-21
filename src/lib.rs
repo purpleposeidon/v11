@@ -7,6 +7,8 @@
 //! dependencies, and so can compile faster.
 // I'm almost certain that's how that works.
 //! 
+//! Note that this crate, strictly speaking, lies about safety. This is no problem so long as
+//! the registration of properties, tables, and domains is cleanly separated from their usage.
 
 #[allow(unused_imports)]
 #[macro_use]
