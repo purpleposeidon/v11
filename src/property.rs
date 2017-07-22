@@ -76,6 +76,7 @@ pub trait ToPropRef<V: Sync>: Sync {
 // FIXME: Better documentation.
 #[macro_export]
 macro_rules! property {
+    // Default-initialized properties
     (
         $(#[$ATTR:meta])*
         static $DOMAIN:ident/$NAME:ident: $TYPE:ty
@@ -94,6 +95,8 @@ macro_rules! property {
             pub static $DOMAIN/$NAME: $TYPE = Default::default();
         }
     };
+
+    // expression-initialized properties
     (
         $(#[$ATTR:meta])*
         static $DOMAIN:ident/$NAME:ident: $TYPE:ty = $INIT:expr;
@@ -103,6 +106,7 @@ macro_rules! property {
 
         #[doc(hidden)]
         #[allow(non_snake_case)]
+        #[allow(dead_code)]
         mod $NAME {
             property!(@mod $DOMAIN/$NAME: $TYPE = $INIT;);
         }
@@ -116,7 +120,8 @@ macro_rules! property {
 
         #[doc(hidden)]
         #[allow(non_snake_case)]
-        mod $NAME {
+        #[allow(dead_code)]
+        pub mod $NAME {
             property!(@mod $DOMAIN/$NAME: $TYPE = $INIT;);
         }
     };
@@ -125,12 +130,54 @@ macro_rules! property {
         #[allow(unused_imports)]
         use super::*;
 
-        type Type = $TYPE;
+        pub type Type = $TYPE;
 
         use $crate::intern::PBox;
         use $crate::property::{unset, PropertyName, Prop, ToPropRef, PropertyIndex};
         use $crate::domain::DomainName;
-        use std::sync::RwLock;
+        use $crate::Universe;
+        use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+        use std::ops::{Deref, DerefMut};
+
+        #[must_use]
+        pub struct Read<'a>(RwLockReadGuard<'a, Type>);
+        impl<'a> Read<'a> {
+            pub fn lock(universe: &'a Universe) -> Self {
+                Read(universe[&PropRef].read().unwrap())
+            }
+
+            pub fn lock_name() -> &'static str {
+                concat!("ref ", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE))
+            }
+        }
+        impl<'a> Deref for Read<'a> {
+            type Target = Type;
+            fn deref(&self) -> &Type {
+                self.0.deref()
+            }
+        }
+
+        #[must_use]
+        pub struct Write<'a>(RwLockWriteGuard<'a, Type>);
+        impl<'a> Write<'a> {
+            pub fn lock(universe: &'a Universe) -> Self {
+                Write(universe[&PropRef].write().unwrap())
+            }
+            pub fn lock_name() -> &'static str {
+                concat!("mut ", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE))
+            }
+        }
+        impl<'a> Deref for Write<'a> {
+            type Target = Type;
+            fn deref(&self) -> &Type {
+                self.0.deref()
+            }
+        }
+        impl<'a> DerefMut for Write<'a> {
+            fn deref_mut(&mut self) -> &mut Type {
+                self.0.deref_mut()
+            }
+        }
 
         pub fn producer() -> PBox {
             let val: Type = $INIT;

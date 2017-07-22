@@ -3,6 +3,8 @@ extern crate v11;
 #[macro_use]
 extern crate v11_macros;
 
+use v11::Universe;
+
 
 domain! { pub TESTS }
 
@@ -45,13 +47,24 @@ context! {
         cheeses: cheeses::Read,
     }
 }
-use v11::Universe;
+
+property! { pub static TESTS/SUMPROP: usize = 10; }
+
+context! {
+    mod with_props;
+    pub struct WithPropsCtx {
+        sumprop: SUMPROP::Write,
+        cheeses: cheeses::Read,
+    }
+}
+
 
 fn new_verse() -> Universe {
     TESTS.register();
     cheeses::register();
     stenches::register();
     wines::register();
+    SUMPROP.register();
     Universe::new(&[TESTS])
 }
 
@@ -70,4 +83,8 @@ fn main() {
     for row in reduced.cheeses.range() {
         panic!("Well that's odd. {:?}", row);
     }
+
+    let mut wprops = WithPropsCtx::from(universe, reduced);
+    *wprops.sumprop += 10;
+    assert_eq!(*wprops.sumprop, 20);
 }
