@@ -383,7 +383,7 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
         let l: Option<&RwLock<V>> = v.downcast_ref();
         match l {
             None => {
-                panic!("The type of property {} does not match the type of what the Universe has.", prop);
+                panic!("Downcast of property {} failed.", prop);
             },
             // FIXME: Say what the type is?
             Some(ret) => ret
