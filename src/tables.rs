@@ -425,6 +425,11 @@ impl<I: PrimInt, T: GetTableName> Iterator for RowRange<GenericRowId<I, T>> {
             Some(ret)
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let s = self.end.to_usize() - self.start.to_usize();
+        (s, Some(s))
+    }
 }
 
 #[test]
