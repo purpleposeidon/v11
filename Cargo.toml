@@ -12,7 +12,6 @@ v11_macros = { path = "./v11_macros" }
 procedural-masquerade = "0.1.2"
 rustc-serialize = "*"
 itertools = "0.4.16"
-joinkit = "0.2.0"
 # bit-vec = "0.4.3"
 bit-vec = { git = "https://github.com/purpleposeidon/bit-vec" }
 num-traits = "*"
