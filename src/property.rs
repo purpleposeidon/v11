@@ -139,6 +139,14 @@ macro_rules! property {
         use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
         use std::ops::{Deref, DerefMut};
 
+        pub fn read(universe: &Universe) -> RwLockReadGuard<Type> {
+            universe[&PropRef].read().unwrap()
+        }
+
+        pub fn write(universe: &Universe) -> RwLockWriteGuard<Type> {
+            universe[&PropRef].write().unwrap()
+        }
+
         #[must_use]
         pub struct Read<'a>(RwLockReadGuard<'a, Type>);
         impl<'a> Read<'a> {
