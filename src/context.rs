@@ -21,6 +21,10 @@ pub trait ReleaseFields {
 /// using `NewContext::from(universe, oldContext)`. Any unused locks will be dropped, and any new
 /// locks will be acquired.
 /// 
+/// The locks are duck-typed: any type shaped like
+/// `impl<'a> DuckLock<'a> { fn lock(&'a Universe) -> Self }`
+/// can be used.
+///
 /// # Example
 /// ```no_compile
 /// context! {
