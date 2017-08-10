@@ -163,26 +163,26 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * A structure holding a copy of each column's data. This is used to pass entire rows around through methods;
          * the actual table is column-based, so eg `read.column[index]` is the standard method of accessing rows.
          * */
-        #[derive(PartialEq)]
         #DERIVE_CLONE
         #DERIVE_ENCODING
         #DERIVE_DEBUG
-        // FIXME: Do we need PartialEq?
         // FIXME: How about RowDerive()?
         pub struct Row {
             #(#COL_ATTR pub #COL_NAME: #COL_ELEMENT,)*
         }
 
         /// A row holding a reference to each 
-        #[derive(PartialEq)]
         #DERIVE_DEBUG
         #DERIVE_ENCODING_W
+        // FIXME: How about RowDerive()?
+        // FIXME: Maybe this should be asked for instead?
         pub struct RowRef<'a> {
             #(#COL_ATTR pub #COL_NAME: &'a #COL_ELEMENT,)*
         }
 
-        #[derive(PartialEq)]
         #DERIVE_DEBUG
+        // FIXME: How about RowDerive()?
+        // FIXME: Maybe this should be asked for instead?
         pub struct RowMut<'a> {
             #(#COL_ATTR pub #COL_NAME: &'a mut #COL_ELEMENT,)*
         }
@@ -756,10 +756,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                     break;
                                 } else if !displaced_buffer.is_empty() {
                                     // simply stick 'em on the end
-                                    for row in displaced_buffer.iter() {
+                                    while let Some(row) = displaced_buffer.pop_front() {
                                         #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
                                     }
-                                    displaced_buffer.clear();
                                     // And we don't visit them.
                                     break;
                                 } else if rm_off != 0 {

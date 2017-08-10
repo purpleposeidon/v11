@@ -74,6 +74,9 @@ This is useful when this table is going to have foreign keys pointing at it.
 ## `NoDebug;`
 `#[derive(Debug)]` is added to `Row` by default; this prevents that.
 
+## `NoComplexMut;`
+Don't provide the mut functions `filter` and `visit`.
+
 ## `NoCopy;`
 Don't derive Copy on `Row` (but DO derive Clone).
 

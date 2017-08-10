@@ -73,7 +73,6 @@ define_proc_macros! {
                 let out = filemap.pop().unwrap();
                 out.1.to_string()
             };
-            println!("==== formatted ==== ");
             println!("{}", formatted);
             formatted
         } else {

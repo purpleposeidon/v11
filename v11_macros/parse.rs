@@ -110,6 +110,8 @@ pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticB
                 table.row_id = pp::ty_to_string(&*parser.parse_ty()?);
             } else if name == "NoDebug" {
                 table.debug = false;
+            } else if name == "NoComplexMut" {
+                table.no_complex_mut = true;
             } else if name == "NoCopy" {
                 table.copy = false;
                 table.no_complex_mut = true;
