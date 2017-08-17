@@ -56,7 +56,7 @@ fn test() {
         let mut saveme = saveme::write(universe);
         let j = json::Json::from_str(&j).unwrap();
         let mut inp = json::Decoder::new(j);
-        saveme.decode_rows(&mut inp);
+        saveme.decode_rows(&mut inp).unwrap();
         for blah in saveme.range() {
             println!("{:?}", saveme.get_row(blah));
         }

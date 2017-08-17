@@ -494,7 +494,7 @@ pub /* property! requires this */ mod test {
     }
 
     #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-    enum BestColors {
+    pub enum BestColors {
         #[allow(dead_code)]
         Purple,
         Pink,

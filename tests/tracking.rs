@@ -9,7 +9,7 @@ extern crate rustc_serialize;
 
 
 domain! { TEST }
-use v11::{Universe, Action};
+use v11::Universe;
 
 
 
