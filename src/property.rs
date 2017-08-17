@@ -255,7 +255,8 @@ impl<V> Prop<V> {
     fn get_global_index(&self) -> GlobalPropertyId { self.index.global_index }
 
     pub fn init(&mut self, producer: fn() -> PBox) {
-        let mut pmap: &mut GlobalProperties = &mut *V11_GLOBALS.write().unwrap();
+        let globals = clone_globals();
+        let mut pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
         // We must acquire the global lock at the beginning of this function. If we wait, and a
         // property is being registered from multiple threads simultaneously, there will be duplicate
         // registrations. This must happen before the if below.
@@ -306,7 +307,8 @@ impl<V> Prop<V> {
         //    just silently fix ourselves.
         // We don't need any sanity checks here. If a twin is registered, then they're already
         // sane. If not, then we panic.
-        let mut pmap: &mut GlobalProperties = &mut *V11_GLOBALS.write().unwrap();
+        let globals = clone_globals();
+        let mut pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
         let domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
         let global_index = *pmap.name2gid.get(&self.name).unwrap_or_else(|| panic!("Property {:?} was never registered", self));
         let domained_index = *domain_info.name2did.get(&self.name).expect("gid & did both registered" /* name2gid panic logically occludes/equals this */);

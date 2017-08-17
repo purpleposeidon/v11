@@ -1,7 +1,7 @@
 #![macro_use]
 use std::fmt;
 use std::collections::HashMap;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{RwLock, Arc};
 
 use intern;
 use intern::PBox;
@@ -23,7 +23,8 @@ impl fmt::Display for DomainName {
 impl DomainName {
     pub fn register(&self) {
         intern::check_name(self.0);
-        let mut properties = V11_GLOBALS.write().unwrap();
+        let globals = clone_globals();
+        let mut properties = globals.write().unwrap();
         let next_did = DomainId(properties.domains.len());
         {
             use std::collections::hash_map::Entry;
@@ -47,33 +48,30 @@ impl DomainName {
         debug_assert_eq!(&properties.did2name[next_did.0], self);
     }
 
-    fn get_info<'a, 'b>(&'a self, slot: &'b mut Option<RwLockReadGuard<GlobalProperties>>) -> &'b DomainInfo {
-        let properties = V11_GLOBALS.read().unwrap();
-        *slot = Some(properties);
-        let properties = slot.as_ref().unwrap();
-        properties.domains.get(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self))
+    fn map_info<R, F: Fn(&DomainInfo) -> R>(&self, f: F) -> R {
+        let globals = clone_globals();
+        let properties = globals.read().unwrap();
+        let info = properties.domains.get(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self));
+        f(info)
     }
 
-    fn get_info_mut<'a, 'b>(&'a self, slot: &'b mut Option<RwLockWriteGuard<GlobalProperties>>) -> &'b mut DomainInfo {
-        let properties = V11_GLOBALS.write().unwrap();
-        *slot = Some(properties);
-        let properties = slot.as_mut().unwrap();
-        properties.domains.get_mut(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self))
+    fn map_info_mut<R, F: Fn(&mut DomainInfo) -> R>(&self, f: F) -> R {
+        let globals = clone_globals();
+        let mut properties = globals.write().unwrap();
+        let info = properties.domains.get_mut(self).unwrap_or_else(|| panic!("{:?} is not a registered domain", self));
+        f(info)
     }
 
     pub fn get_id(&self) -> DomainId {
-        let lock = &mut None;
-        self.get_info(lock).id
+        self.map_info(|info| info.id)
     }
 
     pub fn locked(&self) -> bool {
-        let lock = &mut None;
-        self.get_info(lock).locked()
+        self.map_info(|info| info.locked())
     }
 
     pub fn set_locked(&self, is_locked: bool) {
-        let lock = &mut None;
-        self.get_info_mut(lock).set_locked(is_locked);
+        self.map_info_mut(|info| info.set_locked(is_locked))
     }
 }
 
@@ -138,7 +136,8 @@ pub struct DomainInfo {
 impl fmt::Debug for DomainInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "\t\t\tDomainInfo: {:?}", self.name)?;
-        match V11_GLOBALS.try_read() {
+        let globals = clone_globals();
+        match globals.try_read() {
             Ok(pmap) => {
                 for m in &self.property_members {
                     writeln!(f, "\t\t\t\t{:?}: {:?}", m, pmap.gid2name.get(&m))?;
@@ -192,10 +191,13 @@ impl MaybeDomain {
 use Universe;
 impl Universe {
     pub fn get_domains(domains: &[DomainName]) -> Vec<MaybeDomain> {
-        let mut pmap = &mut *V11_GLOBALS.write().unwrap();
+        let globals = clone_globals();
+        let mut pmap = &mut *globals.write().unwrap();
         let mut ret = (0..pmap.domains.len()).map(|x| MaybeDomain::Unset(pmap.did2name[x])).collect::<Vec<MaybeDomain>>();
         for name in domains.iter() {
-            let did = pmap.domains.get(name).unwrap_or_else(|| panic!("Unregistered domain {}", name)).id.0;
+            let did = pmap.domains.get(name).unwrap_or_else(|| {
+                panic!("Unregistered domain {}", name)
+            }).id.0;
             ret[did] = pmap.instantiate_domain(*name);
         }
         ret
@@ -205,12 +207,14 @@ impl Universe {
         self.sync_domain_list();
         let id = domain.get_id().0;
         if self.domains[id].is_set() { return; }
-        self.domains[id] = V11_GLOBALS.write().unwrap().instantiate_domain(domain);
+        let globals = clone_globals();
+        self.domains[id] = globals.write().unwrap().instantiate_domain(domain);
     }
 
     /// Make sure this Universe has a MaybeDomain for every globally registered DomainName.
     fn sync_domain_list(&mut self) {
-        let properties = V11_GLOBALS.read().unwrap();
+        let globals = clone_globals();
+        let properties = globals.read().unwrap();
         let news = &properties.did2name[self.domains.len()..];
         self.domains.extend(news.iter().map(|d| MaybeDomain::Unset(*d)));
     }
@@ -221,7 +225,8 @@ impl Universe {
         // We only allow domains to be set at creation, so we don't need to look for new ones.
         // Trying to get a property at a new domain is an errorneous/exceptional case, so this is
         // fine.
-        let pmap = V11_GLOBALS.read().unwrap();
+        let globals = clone_globals();
+        let pmap = globals.read().unwrap();
         for prop in &mut self.domains {
             if let MaybeDomain::Domain(ref mut instance) = *prop {
                 instance.add_properties(&*pmap);
@@ -250,7 +255,8 @@ pub struct DomainInstance {
 }
 impl fmt::Debug for DomainInstance {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let pmap = V11_GLOBALS.read().unwrap();
+        let globals = clone_globals();
+        let pmap = globals.read().unwrap();
         writeln!(f, "id: {:?}, name: {:?}, property_members.len(): {:?}", self.id, self.name, self.property_members.len())?;
         writeln!(f, "properties: {:?}", pmap.domains[&self.name])?;
         write!(f, "tables:")?;
@@ -304,11 +310,48 @@ impl GlobalProperties {
         let domain_info = &self.domains[&domain];
         MaybeDomain::Domain(domain_info.instantiate(&self.gid2producer))
     }
+
+    fn is_empty(&self) -> bool {
+        self.domains.is_empty() && self.gid2producer.is_empty()
+    }
+
+    fn id(&self) -> usize {
+        self as *const Self as usize
+    }
 }
 
+pub type GlobalsLock = Arc<RwLock<GlobalProperties>>;
+
 lazy_static! {
-    pub static ref V11_GLOBALS: RwLock<GlobalProperties> = Default::default();
+    /// Stupidly complicated. It is difficult to guarantee that dynamic libraries do or do not link
+    /// this global. So `main` should call `clone_globals` and pass it into each dynamic library, which
+    /// will then need to call `sync_globals`.
+    ///
+    /// RwLock: We need to be able to modify the Arc.
+    /// Arc: We want to share with other modules.
+    /// Inner lock: actual thing that is mutated
+    pub static ref V11_GLOBALS: RwLock<GlobalsLock> = Default::default();
 }
+
+pub fn clone_globals() -> GlobalsLock {
+    V11_GLOBALS.read().unwrap().clone()
+}
+
+pub fn sync_globals(globals: GlobalsLock) {
+    let mut old = V11_GLOBALS.write().unwrap();
+    {
+        let old = old.read().unwrap();
+        if old.id() == globals.read().unwrap().id() {
+            // Duplicate call, calling on self, or libraries linked.
+            return;
+        }
+        if !old.is_empty() {
+            panic!("sync_globals overriding globals that have already been set")
+        }
+    }
+    *old = globals;
+}
+
 
 #[cfg(test)]
 mod tests {
