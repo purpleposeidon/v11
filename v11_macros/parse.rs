@@ -41,7 +41,7 @@ macro_rules! err {
  * }
  *
  * */
-pub fn parse_table<'a>(mut parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuilder<'a>> {
+pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuilder<'a>> {
     let commas = SeqSep {
         sep: Some(Token::Comma),
         trailing_sep_allowed: true,
