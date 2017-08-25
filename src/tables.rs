@@ -11,25 +11,39 @@ pub use v11_macros::*;
 define_invoke_proc_macro!(__v11_invoke_table);
 
 /**
-This macro + build script generates a column-based data table.
-It is implemented using the procedural-masquerade hack.
+This macro generates a column-based data table.
+(It is currently implemented using the procedural-masquerade hack.)
 
-The simplified syntax for this macro is:
+The syntax for this macro is:
 
 ```ignored
 table! {
-    [DOMAIN/name_of_table] {
+    pub [DOMAIN/name_of_table] {
         column_name_1: [Element1; ColumnType1],
         column_name_2: [Element2; ColumnType2],
         column_name_3: [Element3; ColumnType3],
         // ...
     }
+    // optonal table attribute section
+    impl {
+        table_attributes;
+        of_which_there_are(ManyVarieties);
+    }
 }
 ```
-where ColumnTypeN is a `TCol`, and ElementN is `<ColumnTypeN as TCol>::Element`, for example `[u8; SegCol<u8>]`
-or `[bool; BoolCol]`.
+where each ColumnType is a `TCol`, and Element is `<ColumnType as TCol>::Element`.
+
+For example:
 
 
+* `[u8; SegCol<u8>]`
+* `[bool; BoolCol]`
+
+
+(Note that `VecCol`, `SegCol`, and `BoolCol` are already `use`d by the macro for your convenience.)
+
+`DOMAIN`s are declared using the `domain!` macro.
+The leading `pub` may be elided to make the generated module private.
 
 Table and column names must be valid Rust identifiers that also match the regex
 `[A-Za-z][A-Za-z_0-9]*`.
@@ -37,34 +51,14 @@ Table and column names must be valid Rust identifiers that also match the regex
 Column elements must implement `Storable`.
 Column types must implement `TCol`.
 
-# Advanced Usage
+The `impl` section is optional.
 
-The full syntax for this macro is:
+# Using the generated table
+(FIXME: Link to `cargo doc` of a sample project. In the meantime, uh, check out `tests/tables.rs` I guess.)
 
-```ignored
-table! {
-    pub [DOMAIN/name_of_table] {
-        column_name: [element_type; ColumnType<element_type>],
-    }
-    impl {
-        table_attributes;
-        of_which_there_are(ManyVarieties);
-    }
-    mod {
-        // user code that gets copied to the end of the table.rs
-        // Perhaps we could have something like...
-        impl<'u> Read<'u> {
-            fn read_me(self) {}
-        }
-    }
-}
-```
-
-The `impl` and `mod` sections are both optional, but must be given in that order.
-The leading `pub` may be elided to make the module private.
 
 # Table Attributes
-These are options that affect the code generation of tables (and are why we can't just use `macro_rules!`).
+These are options that affect the code generation of tables. (And are why we can't just use `macro_rules!`!)
 Notice that each attribute is terminated by a `;`.
 
 ## `RowId = some_primitive;`
@@ -89,26 +83,29 @@ Dependants of this table, `Tracker`s, are notified of these changes by calling `
 
 To avoid the error of the event log being forgotten, the lock on a changed table will panic
 if a `flush()` should be called. This can be surpressed by calling `noflush()`.
+(FIXME: unfinished; need #[foreign])
 
 ## `GenericSort;`
 Adds a parameterized sort method.
 
 ## `SortBy(SomeColumnName);`
 Add a method to sort the table by that column.
+(FIXME: #[sortable] on the column?)
 
 ## `FreeList;`
 (FIXME: nyi. Also tricky.)
-Allow marking rows as dead, and pushing new rows will pick a dead row.
+Allow marking rows as dead, and pushing new rows will re-use a dead row.
 
 ## `Save;`
 Add methods for encoding or decoding the table by row (or column), using rustc.
+(FIXME: Maybe it should be default? Also, serde.)
 
 ## `Static;`
 Marks the table as being something that is only modified once.
 This allows skipping some codegen.
 It also makes using certain other attributes an error.
 Static tables will want to to use `VecCol` columns rather than `SegCol` columns.
-(FIXME: Initialize the table with a function; then locking is unnecessary.)
+(FIXME: Initialize the table with a function; then locking is unnecessary. [But, yikes on implementing that])
 
 ## `Version(number);`
 Sets the version number of the table. This is a `usize`. Its default value is `1`.
@@ -144,7 +141,7 @@ macro_rules! table {
     (mod $domain:ident/$name:ident $($args:tt)*) => {
         #[allow(unused_imports)]
         use super::*;
-        use super::$domain as TABLE_DOMAIN;
+        use super::$domain as TABLE_DOMAIN; // FIXME: These are annoying when doing the debug-dump thing.
 
         __v11_invoke_table! {
             __v11_internal_table!($domain/$name $($args)*)
@@ -303,14 +300,14 @@ impl GenericTable {
 }
 impl fmt::Debug for GenericTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "GenericTable {}/{} {:?}", self.domain, self.name, self.columns)
+        write!(f, "GenericTable [{}/{}] {:?}", self.domain, self.name, self.columns)
     }
 }
 
 pub struct GenericColumn {
     name: &'static str,
     stored_type_name: &'static str,
-    // FIXME: PBox here is lame.
+    // "FIXME: PBox here is lame." -- What? No it isn't.
     data: PBox,
     prototyper: Prototyper,
 }

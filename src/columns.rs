@@ -115,6 +115,9 @@ impl TCol for BoolCol {
     }
 
     fn col_index_mut(&mut self, index: usize) -> &mut bool {
+        // Return a reference to a buffer.
+        // What happens if we get the &mut, change, & then drop? Well, all the other functions call
+        // either flush() [if mut] or check ref_id [if ref].
         self.flush();
         self.ref_id = Some(index);
         self.ref_val = self.data[index];

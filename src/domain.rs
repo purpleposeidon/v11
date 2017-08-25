@@ -1,3 +1,9 @@
+//! Each property name is in the form "domain/property_name".
+//! A domain is a simple namespacing scheme;
+//! universes can pick and choose which domains they contain.
+//! Before being added to a universe, the domain must be registered using `DOMAIN.register()`.
+//! Domains are created using the `domain!` macro.
+
 #![macro_use]
 use std::fmt;
 use std::collections::HashMap;
@@ -8,11 +14,6 @@ use intern::PBox;
 use property::{GlobalPropertyId, PropertyName, DomainedPropertyId};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord)]
-/**
- * Each property name is in the form "domain/property_name".
- * This struct represents the `domain` part of the property name, and is also used to reference
- * that domain by calling `domain_name.register()`.
- * */
 pub struct DomainName(pub &'static str);
 impl fmt::Display for DomainName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -81,7 +82,7 @@ pub fn check_lock() -> bool {
 }
 
 /**
- * Declares a domain. This is equivalent to a namespace, but only has one level.
+ * Declares a domain. This is similar to a single-level namespace.
  * 
  * Domains are used in `property!`s and `table!`s.
  * 

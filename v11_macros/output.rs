@@ -333,6 +333,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             pub fn register_tracker(universe: &Universe, tracker: Tracker) {
                 let mut gt = get_generic_table(universe).write().unwrap();
                 gt.trackers.write().unwrap().push(Box::new(tracker) as PBox);
+                // FIXME: Why the PBox?
             }
 
             impl<'a> Write<'a> {
@@ -457,7 +458,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(let #COL_NAME = {
                 let got = _lock.get_column::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
-                    transmute(got)
+                    transmute(got) // ...YIKES!
+                    // So, the struct returned has a _lock with lifetime 'u,
+                    // and it has its columns with lifetimes that are also 'u.
+                    // This is a lie! The column's lifetimes are that of _lock, which is of
+                    // course shorter than 'u. So if we can drop _lock, there'll be trouble:
+                    // forbidden aliasing is obtainable. (See tests/lock_column_lifetime_lies.rs)
+                    // However! _lock isn't actually droppable from user code because it's private,
+                    // so it's all good.
                 }
             };)*
             Read {
@@ -473,7 +481,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(let #COL_NAME = {
                 let got = _lock.get_column_mut::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
-                    transmute(got)
+                    transmute(got) // See comment about transmute in `read()`.
                 }
             };)*
             Write {
