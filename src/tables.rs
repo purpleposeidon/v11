@@ -413,6 +413,10 @@ impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
     pub fn len(&self) -> usize {
         self.end.to_usize() - self.start.to_usize()
     }
+
+    pub fn contains(&self, o: GenericRowId<I, T>) -> bool {
+        self.start <= o && o < self.end
+    }
 }
 impl<I: PrimInt, T: GetTableName> Iterator for RowRange<GenericRowId<I, T>> {
     type Item = GenericRowId<I, T>;
