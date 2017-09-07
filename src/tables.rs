@@ -396,6 +396,7 @@ pub struct RowRange<R> {
     pub end: R,
 }
 impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
+    /// Return the `n`th row after the start, if it is within the range.
     pub fn offset(&self, n: I) -> Option<GenericRowId<I, T>> {
         let at = self.start.to_raw().checked_add(&n);
         let at = if let Some(at) = at {
@@ -410,12 +411,23 @@ impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
         }
     }
 
+    /// Return how many rows are in this range.
     pub fn len(&self) -> usize {
         self.end.to_usize() - self.start.to_usize()
     }
 
+    /// Return `true` if the given row is within this range.
     pub fn contains(&self, o: GenericRowId<I, T>) -> bool {
         self.start <= o && o < self.end
+    }
+
+    /// If the given row is within this RowRange, return its offset from the beginning.
+    pub fn inner_index(&self, o: GenericRowId<I, T>) -> Option<I> {
+        if self.contains(o) {
+            Some(o.to_raw() - self.start.to_raw())
+        } else {
+            None
+        }
     }
 }
 impl<I: PrimInt, T: GetTableName> Iterator for RowRange<GenericRowId<I, T>> {
