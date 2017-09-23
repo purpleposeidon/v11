@@ -6,6 +6,7 @@ extern crate v11;
 extern crate v11_macros;
 
 extern crate rustc_serialize;
+extern crate rand;
 
 
 domain! { TEST }
@@ -505,4 +506,31 @@ fn lifetimes_are_sane() {
     };
     a.join().unwrap();
     b.join().unwrap();
+}
+
+#[test]
+fn table_locks_are_unsound() {
+    loop {
+        let universe = &make_universe();
+        let first = {
+            new_table_test::write(universe).push(new_table_test::Row {
+                random_number: 42,
+            })
+        };
+        let rng: bool = ::rand::random();
+        let okay = 10;
+        let ohno = if rng {
+            &new_table_test::read(universe).random_number[first]
+        } else {
+            println!("bad luck");
+            &okay
+        };
+        if *ohno == 10 {
+            continue;
+        }
+        {
+            new_table_test::write(universe).random_number[first] = 0xBAD;
+        }
+        panic!("Didn't hang, value is: {}", *ohno);
+    }
 }
