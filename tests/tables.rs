@@ -71,6 +71,7 @@ fn make_universe() -> Universe {
     static REGISTER: Once = ONCE_INIT;
     REGISTER.call_once(|| {
         TEST.register();
+        new_table_test::register();
         easy::register();
         cheese::register();
         test_foreign::register();
@@ -466,4 +467,42 @@ table! {
     impl {
         Save;
     }
+}
+
+#[test]
+fn lifetimes_are_sane() {
+    use std::sync::Arc;
+    let universe = Arc::new(make_universe());
+    let universe = &universe;
+    let first = {
+        new_table_test::write(universe).push(new_table_test::Row {
+            random_number: 42,
+        })
+    };
+    use std::thread::spawn;
+    fn sleep(ms: u64) {
+        let d = ::std::time::Duration::from_millis(ms * 10);
+        ::std::thread::sleep(d);
+    }
+    let a = {
+        let universe = universe.clone();
+        spawn(move || {
+            let universe = &*universe;
+            let ohno = {
+                &new_table_test::read(universe).random_number[first]
+            };
+            sleep(2);
+            assert_eq!(*ohno, 42);
+        })
+    };
+    let b = {
+        let universe = universe.clone();
+        spawn(move || {
+            let universe = &*universe;
+            sleep(1);
+            new_table_test::write(universe).random_number[first] = 0xBAD;
+        })
+    };
+    a.join().unwrap();
+    b.join().unwrap();
 }
