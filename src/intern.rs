@@ -41,3 +41,35 @@ pub fn desync_box_mut<'a>(v: &'a mut PBox) -> &'a mut Any {
     v.deref_mut()
 }
 
+/// Limits the lifetime of a reference.
+pub struct RefA<'a, T: 'a>(&'a T);
+/// Limits the lifetime of a mutable reference.
+pub struct MutA<'a, T: 'a>(&'a mut T);
+impl<'a, T: 'a> RefA<'a, T> {
+    pub fn new(t: &'a T) -> Self {
+        RefA(t)
+    }
+}
+impl<'a, T: 'a> MutA<'a, T> {
+    pub fn new(t: &'a mut T) -> Self {
+        MutA(t)
+    }
+}
+use std::ops::{Deref, DerefMut};
+impl<'a, T: 'a> Deref for RefA<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0
+    }
+}
+impl<'a, T: 'a> Deref for MutA<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0
+    }
+}
+impl<'a, T: 'a> DerefMut for MutA<'a, T>  {
+    fn deref_mut(&mut self) -> &mut T {
+        self.0
+    }
+}

@@ -1,14 +1,13 @@
-//! A column-based in-memory database for [Data-Oriented
-//! Programming](http://www.dataorienteddesign.com/dodmain/).
-//! The tables and columns are dynamically described, but user-code interacts with them using
-//! static dispatch. This requires the use of a macro to create a statically dispatched view of the
-//! table, which does cause duplication of code & schema. However, this allows a large program to
-//! dynamically load/hotswap libraries, and the crate for each library can have minimal
-//! dependencies, and so can compile faster.
-// I'm almost certain that's how that works.
+//! A column-based in-memory database for [Data-Oriented Design][dod].
 //! 
-//! Note that this crate, strictly speaking, lies about safety. This is no problem so long as
+//! # Safety
+//! This crate *lies about safety*.
+//! The intention is that nothing goes wrong, so long as 
+//! 
+//! This is no problem so long as
 //! the registration of properties, tables, and domains is cleanly separated from their usage.
+//! 
+//! [dod]: (http://www.dataorienteddesign.com/dodmain/)
 
 #[allow(unused_imports)]
 #[macro_use]
@@ -65,6 +64,7 @@ pub struct Universe {
     pub domains: Vec<MaybeDomain>,
 }
 impl Universe {
+    // FIXME: Mark this unsafe.
     pub fn new(domains: &[DomainName]) -> Universe {
         Universe {
             domains: Self::get_domains(domains),
@@ -74,8 +74,8 @@ impl Universe {
     pub fn guard(self) -> GuardedUniverse { Arc::new(RwLock::new(self)) }
 
     /**
-     * Returns a string describing all the tables in the Universe. (But does not include their
-     * contents.)
+     * Returns a string describing all the tables in the Universe.
+     * (This does not include their contents.)
      * */
     pub fn info(&self) -> String {
         let mut out = "".to_owned();

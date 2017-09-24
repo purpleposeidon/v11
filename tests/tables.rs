@@ -6,7 +6,6 @@ extern crate v11;
 extern crate v11_macros;
 
 extern crate rustc_serialize;
-extern crate rand;
 
 
 domain! { TEST }
@@ -508,8 +507,10 @@ fn lifetimes_are_sane() {
     b.join().unwrap();
 }
 
+// FIXME: Get a compile-fail test thingie going
+/*
 #[test]
-fn table_locks_are_unsound() {
+fn table_locks_are_semisound() {
     loop {
         let universe = &make_universe();
         let first = {
@@ -517,6 +518,7 @@ fn table_locks_are_unsound() {
                 random_number: 42,
             })
         };
+        extern crate rand;
         let rng: bool = ::rand::random();
         let okay = 10;
         let ohno = if rng {
@@ -533,4 +535,20 @@ fn table_locks_are_unsound() {
         }
         panic!("Didn't hang, value is: {}", *ohno);
     }
+}
+*/
+
+
+// FIXME: Make this test fail to compile
+#[test]
+fn table_columns_are_unswappable() {
+    let u1 = &make_universe();
+    let u2 = &make_universe();
+    let mut t1 = new_table_test::write(u1);
+    let mut t2 = new_table_test::write(u2);
+    use std::mem;
+    mem::swap(&mut t1.random_number, &mut t2.random_number);
+    mem::drop(t2);
+    println!("whelp...");
+    mem::drop(t1);
 }

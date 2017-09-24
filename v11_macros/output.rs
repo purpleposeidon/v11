@@ -100,6 +100,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         use v11;
         use v11::intern::PBox;
+        use v11::intern::{RefA, MutA};
         #[allow(unused_imports)]
         use v11::Event;
         use v11::tables::{GenericTable, GenericRowId, TableName, GetTableName, RowRange};
@@ -203,15 +204,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub struct Write<'u> {
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
             #NEED_FLUSH
-            #(pub #COL_NAME: &'u mut #COL_TYPE,)*
+            #(pub #COL_NAME: MutA<'u, #COL_TYPE>,)*
         }
-
         /**
          * The table, locked for reading.
          * */
         pub struct Read<'u> {
             _lock: ::std::sync::RwLockReadGuard<'u, GenericTable>,
-            #(pub #COL_NAME: &'u #COL_TYPE,)*
+            #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
         }
     };
 
@@ -367,6 +367,29 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }
 
+    if table.track_changes {
+        write_quote! {
+            [table, out, "Extra drops (Drop for Write implemented above)"]
+            /// Prevent moving out to improve `RefA` safety.
+            impl<'u> Drop for Read<'u> {
+                fn drop(&mut self) {}
+            }
+        }
+    } else {
+        write_quote! {
+            [table, out, "Extra drops"]
+            /// Prevent moving out to improve `RefA` safety.
+            impl<'u> Drop for Read<'u> {
+                fn drop(&mut self) {}
+            }
+
+            /// Prevent moving out to improve `MutA` safety.
+            impl<'u> Drop for Write<'u> {
+                fn drop(&mut self) {}
+            }
+        }
+    }
+
     let EVENT_CLEAR = table.if_tracking(quote! { self.event(Event::ClearAll); });
     let EVENT_PUSH = table.if_tracking(quote! { self.event(Event::Create(rowid)); });
 
@@ -458,15 +481,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(let #COL_NAME = {
                 let got = _lock.get_column::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
-                    transmute(got) // ...YIKES!
+                    RefA::new(transmute(got)) // ...YIKES!
                     // So, the struct returned has a _lock with lifetime 'u,
-                    // and it has its columns with lifetimes that are also 'u.
-                    // This is a lie! The column's lifetimes are that of _lock, which is of
-                    // course shorter than 'u. So if we can drop _lock, there'll be trouble:
-                    // forbidden aliasing is obtainable. (See tests/lock_column_lifetime_lies.rs)
-                    // However! _lock isn't actually droppable from user code because it's private,
-                    // so it's all good.
+                    // but we need the columns to have a lifetime of the lock.
+                    // Using RefA (or MutA) limits the column's lifetime to that of the struct.
+                    //
+                    // So if a column outlives _lock, there'll be trouble. How can this happen, and
+                    // how is this prevented?
+                    // 1. _lock is dropped: _lock is private.
+                    // 2. column moved out of Read: Read implements Drop, preventing this.
+                    // 3. column is swapped out of Read: this is a safety hole, but you're
+                    //    REALLY working for trouble if you do this...
                 }
+                // If mem::swap becomes a problem, we could switch to OwningRef<Rc<RWLGuard>, &column>.
+                // This does require heap allocation tho...
             };)*
             Read {
                 _lock: _lock,
@@ -481,7 +509,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(let #COL_NAME = {
                 let got = _lock.get_column_mut::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
-                    transmute(got) // See comment about transmute in `read()`.
+                    MutA::new(transmute(got))
+                    // See comment about transmute in `read()`.
                 }
             };)*
             Write {
