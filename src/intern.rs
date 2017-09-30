@@ -73,3 +73,31 @@ impl<'a, T: 'a> DerefMut for MutA<'a, T>  {
         self.0
     }
 }
+
+/// Conversions for the results of `lock.(try_)?{read,write}`.
+pub mod wrangle_lock {
+    use std::sync::{LockResult, TryLockResult, TryLockError, PoisonError};
+
+    pub fn map_result<G, F, R>(result: LockResult<G>, f: F) -> LockResult<R>
+    where
+        F: FnOnce(G) -> R
+    {
+        match result {
+            Ok(t) => Ok(f(t)),
+            Err(poison) => Err(PoisonError::new(f(poison.into_inner()))),
+        }
+    }
+
+    pub fn map_try_result<G, F, R>(result: TryLockResult<G>, f: F) -> TryLockResult<R>
+    where
+        F: FnOnce(G) -> R
+    {
+        match result {
+            Ok(t) => Ok(f(t)),
+            Err(e) => Err(match e {
+                TryLockError::Poisoned(poison) => TryLockError::Poisoned(PoisonError::new(f(poison.into_inner()))),
+                TryLockError::WouldBlock => TryLockError::WouldBlock,
+            }),
+        }
+    }
+}

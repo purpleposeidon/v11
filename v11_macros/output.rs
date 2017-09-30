@@ -467,17 +467,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "Lock & Load"]
 
         use std::mem::transmute;
-        use std::sync::RwLock;
+        use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
 
         fn get_generic_table(universe: &v11::Universe) -> &RwLock<GenericTable> {
             let domain_id = TABLE_DOMAIN.get_id();
             universe.get_generic_table(domain_id, TABLE_NAME)
         }
 
-        /// Locks the table for reading.
-        pub fn read(universe: &v11::Universe) -> Read {
-            let table = get_generic_table(universe);
-            let _lock = table.read().unwrap();
+        fn convert_read_guard(_lock: RwLockReadGuard<GenericTable>) -> Read {
             #(let #COL_NAME = {
                 let got = _lock.get_column::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
@@ -502,15 +499,32 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
 
-        /// Locks the table for writing.
-        pub fn write(universe: &v11::Universe) -> Write {
-            let table = get_generic_table(universe);
-            let mut _lock = table.write().unwrap();
+        /// Locks the table for reading.
+        // We're too cool to call unwrap() all over the place.
+        pub fn read(universe: &v11::Universe) -> Read {
+            read_result(universe).unwrap()
+        }
+
+        /// This is equivalent to `RwLock::read`.
+        pub fn read_result<'u>(universe: &'u v11::Universe) -> LockResult<Read<'u>> {
+            let table = get_generic_table(universe).read();
+            ::v11::intern::wrangle_lock::map_result(table, convert_read_guard)
+        }
+
+        pub fn try_read<'u>(universe: &'u v11::Universe) -> TryLockResult<Read<'u>> {
+            let table = get_generic_table(universe).try_read();
+            ::v11::intern::wrangle_lock::map_try_result(table, convert_read_guard)
+        }
+
+
+
+
+        fn convert_write_guard(mut _lock: RwLockWriteGuard<GenericTable>) -> Write {
             #(let #COL_NAME = {
                 let got = _lock.get_column_mut::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
                     MutA::new(transmute(got))
-                    // See comment about transmute in `read()`.
+                    // See comment about transmute in `convert_read_guard()`.
                 }
             };)*
             Write {
@@ -518,6 +532,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 #NEED_FLUSH_INIT
                 #( #COL_NAME3: #COL_NAME4, )*
             }
+        }
+
+        /// Locks the table for writing.
+        pub fn write<'u>(universe: &'u v11::Universe) -> Write<'u> {
+            write_result(universe).unwrap()
+        }
+        
+        pub fn write_result<'u>(universe: &'u v11::Universe) -> LockResult<Write<'u>> {
+            let table = get_generic_table(universe).write();
+            ::v11::intern::wrangle_lock::map_result(table, convert_write_guard)
+        }
+
+        pub fn try_write<'u>(universe: &'u v11::Universe) -> TryLockResult<Write<'u>> {
+            let table = get_generic_table(universe).try_write();
+            ::v11::intern::wrangle_lock::map_try_result(table, convert_write_guard)
         }
 
         /// Register the table onto its domain.
