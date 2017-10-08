@@ -62,7 +62,7 @@ impl<C: TCol, R: PrimInt, T: GetTableName> IndexMut<GenericRowId<R, T>> for ColW
 
 /// Stores data contiguously using the standard rust `Vec`.
 /// This column type is ideal for tables that are 'static': written once, and then modified.
-/// Indexing is slightly more efficient than a SegCol.
+/// Indexing is slightly more efficient than a `SegCol`.
 #[derive(Debug)]
 #[derive(RustcEncodable, RustcDecodable)]
 pub struct VecCol<E: Storable> {

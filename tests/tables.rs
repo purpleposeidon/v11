@@ -245,7 +245,7 @@ fn remove_one() {
     let mut first = true;
     println!("Start");
     dump(&mut easy);
-    assert!(easy.rows() == 2);
+    assert_eq!(easy.rows(), 2);
     easy.visit(|_, _| -> easy::ClearVisit {
         if first {
             first = false;
@@ -256,7 +256,7 @@ fn remove_one() {
     });
     println!("");
     dump(&mut easy);
-    assert!(easy.rows() == 1);
+    assert_eq!(easy.rows(), 1);
 }
 
 table! {
@@ -485,7 +485,7 @@ fn lifetimes_are_sane() {
         ::std::thread::sleep(d);
     }
     let a = {
-        let universe = universe.clone();
+        let universe = Arc::clone(universe);
         spawn(move || {
             let universe = &*universe;
             let ohno = {
@@ -496,7 +496,7 @@ fn lifetimes_are_sane() {
         })
     };
     let b = {
-        let universe = universe.clone();
+        let universe = Arc::clone(universe);
         spawn(move || {
             let universe = &*universe;
             sleep(1);

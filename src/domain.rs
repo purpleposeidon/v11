@@ -182,9 +182,9 @@ pub enum MaybeDomain {
 }
 impl MaybeDomain {
     fn is_set(&self) -> bool {
-        match self {
-            &MaybeDomain::Unset(_) => false,
-            &MaybeDomain::Domain(_) => true,
+        match *self {
+            MaybeDomain::Unset(_) => false,
+            MaybeDomain::Domain(_) => true,
         }
     }
 }
@@ -193,7 +193,7 @@ use Universe;
 impl Universe {
     pub fn get_domains(domains: &[DomainName]) -> Vec<MaybeDomain> {
         let globals = clone_globals();
-        let mut pmap = &mut *globals.write().unwrap();
+        let pmap = &mut *globals.write().unwrap();
         let mut ret = (0..pmap.domains.len()).map(|x| MaybeDomain::Unset(pmap.did2name[x])).collect::<Vec<MaybeDomain>>();
         for name in domains.iter() {
             let did = pmap.domains.get(name).unwrap_or_else(|| {

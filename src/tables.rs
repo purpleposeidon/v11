@@ -31,7 +31,7 @@ table! {
     }
 }
 ```
-where each ColumnType is a `TCol`, and Element is `<ColumnType as TCol>::Element`.
+where each `ColumnType` is a `TCol`, and Element is `<ColumnType as TCol>::Element`.
 
 For example:
 
@@ -265,10 +265,10 @@ impl GenericTable {
         use domain::{GlobalProperties, clone_globals};
         use std::collections::hash_map::Entry;
         let globals = clone_globals();
-        let mut pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
+        let pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
         match pmap.domains.get_mut(&self.domain) {
             None => panic!("Table {:?} registered before its domain {:?}", self.name, self.domain),
-            Some(mut info) => {
+            Some(info) => {
                 if super::domain::check_lock() && info.locked() {
                     panic!("Adding {}/{} to a locked domain\n", self.domain, self.name);
                 }

@@ -796,7 +796,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             // No garbage is produced.
                             displaced_buffer.push_back(self.get_row(fab(index)));
                             self.set_row(fab(index), replacement);
-                            assert!(rm_off == 0);
+                            assert_eq!(rm_off, 0);
                         }
                         if rm_off > 0 {
                             // Move a row from the end of the garbage gap to the beginning.
@@ -873,7 +873,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         }
                     }
                     assert!(displaced_buffer.is_empty());
-                    assert!(rm_off == 0);
+                    assert_eq!(rm_off, 0);
                 }
             }
         };
@@ -912,7 +912,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         let mut tmp = Vec::with_capacity(len);
                         let mut col = &mut self.#COL_NAME;
                         {
-                            for i in indices.iter() {
+                            for i in &indices {
                                 tmp.push(col[at(*i)]);
                                 // This can have us jumping around a lot, making the cache sad.
                             }
@@ -925,7 +925,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }
 
-    for sort_key in table.sort_by.iter() {
+    for sort_key in &table.sort_by {
         let SORT_BY_COL = i(format!("sort_by_{}", sort_key));
         let SORTED_BY_COL = i(format!("sorted_by_{}", sort_key));
         let SORT_KEY = i(sort_key);

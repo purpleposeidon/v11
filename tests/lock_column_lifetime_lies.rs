@@ -21,7 +21,7 @@ fn main() {
     println!("{}", lock.val);
     *lock.val += 10;
     println!("{}", lock.val);
-    let mut evil = lock.val;
+    let evil = lock.val;
     mem::drop(lock._lock);
     *evil /= 13;
     println!("{}", *evil);

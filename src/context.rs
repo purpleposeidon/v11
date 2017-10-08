@@ -73,16 +73,17 @@ macro_rules! context {
                 $({
                     let mut field = self.$i;
                     let (swap_to, size) = field_for($i::Lock::lock_name());
-                    if swap_to != null_mut() {
+                    if swap_to.is_null() {
+                        mem::drop(field);
+                    } else {
                         let expect_size = mem::size_of::<$i::Lock>();
                         if size != expect_size {
                             panic!("sizes of {} did not match! {} vs {}", $i::Lock::lock_name(), size, expect_size);
                         }
                         // swap_to points at invalid memory
-                        mem::swap(&mut field, mem::transmute(swap_to));
+                        let swap_to = &mut *(swap_to as *mut $i::Lock);
+                        mem::swap(&mut field, swap_to);
                         mem::forget(field);
-                    } else {
-                        mem::drop(field);
                     }
                 })*
                 // Ring'll implement Drop, which would be a problem

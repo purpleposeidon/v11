@@ -256,7 +256,7 @@ impl<V> Prop<V> {
 
     pub fn init(&mut self, producer: fn() -> PBox) {
         let globals = clone_globals();
-        let mut pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
+        let pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
         // We must acquire the global lock at the beginning of this function. If we wait, and a
         // property is being registered from multiple threads simultaneously, there will be duplicate
         // registrations. This must happen before the if below.
@@ -271,7 +271,7 @@ impl<V> Prop<V> {
         }
         self.check_name();
         let mut first_instance = false;
-        let mut domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
+        let domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
         if ::domain::check_lock() && domain_info.locked() {
             panic!("Adding {:?} on a locked domain", self);
         }
@@ -308,7 +308,7 @@ impl<V> Prop<V> {
         // We don't need any sanity checks here. If a twin is registered, then they're already
         // sane. If not, then we panic.
         let globals = clone_globals();
-        let mut pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
+        let pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
         let domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
         let global_index = *pmap.name2gid.get(&self.name).unwrap_or_else(|| panic!("Property {:?} was never registered", self));
         let domained_index = *domain_info.name2did.get(&self.name).expect("gid & did both registered" /* name2gid panic logically occludes/equals this */);
@@ -371,21 +371,21 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
         let domain = self.domains.get(prop.get_domain_id().0);
         let domain_instance: &DomainInstance = match domain {
             None if prop.get_domain_id() == unset::DOMAIN_ID => {
-                panic!("The property {:?} was not registered.", prop);
+                panic!("The property {:?} was not registered.", prop)
             },
             Some(&MaybeDomain::Unset(_))
             | None /* Must be some new fangled domain this Universe doesn't care about */
             => {
-                panic!("The property {} is not in this Unvierse's domain.", prop);
+                panic!("The property {} is not in this Unvierse's domain.", prop)
             },
             Some(&MaybeDomain::Domain(ref e)) => e,
         };
         let domained_index = prop.get_index_within_domain().0;
         let v = match domain_instance.property_members.get(domained_index) {
             None => if prop.get_domain_id() == unset::DOMAIN_ID {
-                panic!("The property {} was never initialized.", prop);
+                panic!("The property {} was never initialized.", prop)
             } else {
-                panic!("The property {} was added to the domain AFTER this Universe was created.", prop);
+                panic!("The property {} was added to the domain AFTER this Universe was created.", prop)
             },
             Some(v) => v,
         };
@@ -393,7 +393,7 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
         let l: Option<&RwLock<V>> = v.downcast_ref();
         match l {
             None => {
-                panic!("Downcast of property {} failed.", prop);
+                panic!("Downcast of property {} failed.", prop)
             },
             // FIXME: Say what the type is?
             Some(ret) => ret
