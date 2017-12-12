@@ -36,9 +36,11 @@ pub trait ReleaseFields {
 /// }
 /// ```
 // This macro is Wildy Exciting.
+// FIXME: This could be a custom #[derive]
 #[macro_export]
 macro_rules! context {
     (mod $nonce:ident; pub struct $name:ident {
+        // FIXME: Change to (pub $i: $lock)
         $($i:ident: $lock:path,)*
     }) => {
         #[doc(hidden)]

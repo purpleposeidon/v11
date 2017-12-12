@@ -376,7 +376,7 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
             Some(&MaybeDomain::Unset(_))
             | None /* Must be some new fangled domain this Universe doesn't care about */
             => {
-                panic!("The property {} is not in this Unvierse's domain.", prop)
+                panic!("The property {} is not in this Universe's domain.", prop)
             },
             Some(&MaybeDomain::Domain(ref e)) => e,
         };

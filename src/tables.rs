@@ -389,11 +389,17 @@ impl<I: PrimInt + fmt::Display, T: GetTableName> fmt::Debug for GenericRowId<I, 
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[derive(RustcDecodable, RustcEncodable)]
 pub struct RowRange<R> {
     pub start: R,
     pub end: R,
+}
+use std::ops::Range;
+impl<R> Into<Range<R>> for RowRange<R> {
+    fn into(self) -> Range<R> {
+        self.start..self.end
+    }
 }
 impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
     /// Return the `n`th row after the start, if it is within the range.
