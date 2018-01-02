@@ -401,6 +401,14 @@ impl<R> Into<Range<R>> for RowRange<R> {
         self.start..self.end
     }
 }
+impl<R> From<Range<R>> for RowRange<R> {
+    fn from(range: Range<R>) -> RowRange<R> {
+        RowRange {
+            start: range.start,
+            end: range.end,
+        }
+    }
+}
 impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
     /// Return the `n`th row after the start, if it is within the range.
     pub fn offset(&self, n: I) -> Option<GenericRowId<I, T>> {

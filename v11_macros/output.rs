@@ -333,7 +333,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             pub fn register_tracker(universe: &Universe, tracker: Tracker) {
                 let mut gt = get_generic_table(universe).write().unwrap();
                 gt.trackers.write().unwrap().push(Box::new(tracker) as PBox);
-                // FIXME: Why the PBox?
+                // FIXME: Box the Vec, not the Trackers.
             }
 
             impl<'a> Write<'a> {
