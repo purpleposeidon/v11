@@ -47,8 +47,7 @@ fn quote_if(b: bool, q: Tokens) -> Tokens {
 #[allow(non_snake_case)]
 pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     // Info
-    writeln!(out, "// Generated file. If you are debugging this output, put this in a module and uncomment these line:")?;
-    writeln!(out, "// use v11::Universe;")?;
+    writeln!(out, "// Generated file. If you are debugging this output, put this in a module and uncomment this line:")?;
     writeln!(out, "// domain! {{ TABLE_DOMAIN }}\n\n")?;
     writeln!(out, "// Table config:")?;
     for line in format!("{:#?}", table).split('\n') {
@@ -99,6 +98,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "Header"]
 
         use v11;
+        use v11::Universe;
         use v11::intern::PBox;
         use v11::intern::{RefA, MutA};
         #[allow(unused_imports)]
