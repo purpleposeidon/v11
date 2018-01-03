@@ -218,6 +218,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     write_quote! {
         [table, out, "Context helpers"]
 
+        // Hidden because `$table::read()` is shorter than `$table::Read::lock()`.
         impl<'u> Write<'u> {
             #[doc(hidden)] #[inline] pub fn lock(universe: &'u v11::Universe) -> Self { write(universe) }
             #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("mut ", #TABLE_NAME_STR) }
