@@ -1,7 +1,10 @@
 /// This is a 'speedbump type' wrapping an iterator over sorted items.
 ///
 /// # Usage
+///
 /// ```
+/// # use v11::tables::AssertSorted;
+///
 /// fn print_sorted<IT: Iterator<Item=isize>, I: Into<AssertSorted<IT>>>(iter: I) {
 ///     for item in iter.into() {
 ///         println!("{}", item);
