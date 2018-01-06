@@ -80,7 +80,7 @@ fn main() {
         stinkiness: 238.0,
     });
     let reduced = ReducedCtx::from(universe, full);
-    for row in reduced.cheeses.range() {
+    for row in reduced.cheeses.iter() {
         panic!("Well that's odd. {:?}", row);
     }
 

@@ -130,12 +130,12 @@ fn walk_table() {
         }
     }
     let cheese = cheese::read(&universe);
-    for i in cheese.range() {
+    for i in cheese.iter() {
         println!("{:?}", cheese.get_row(i));
     }
 }
 fn dump(easy: &mut easy::Write) {
-    for i in easy.range() {
+    for i in easy.iter() {
         println!("{:?}", easy.get_row(i));
     }
 }
@@ -180,7 +180,7 @@ fn visit_break_immediate() {
 #[test]
 fn visit_add() {
     fn dump(easy: &mut easy::Write) {
-        for i in easy.range() {
+        for i in easy.iter() {
             println!("{:?}", easy.get_row(i));
         }
     }
@@ -245,7 +245,7 @@ fn remove_one() {
     let mut first = true;
     println!("Start");
     dump(&mut easy);
-    assert_eq!(easy.rows(), 2);
+    assert_eq!(easy.len(), 2);
     easy.visit(|_, _| -> easy::ClearVisit {
         if first {
             first = false;
@@ -256,7 +256,7 @@ fn remove_one() {
     });
     println!("");
     dump(&mut easy);
-    assert_eq!(easy.rows(), 1);
+    assert_eq!(easy.len(), 1);
 }
 
 table! {
@@ -280,15 +280,15 @@ fn sort() {
             println!("{}", i);
             sortie.push(sortie::Row { i: i });
         }
-        sortie.rows()
+        sortie.len()
     };
     let mut sortie = sortie::write(&universe);
     sortie.sort_by_i();
     println!("Sorted:");
-    for i in sortie.range() {
+    for i in sortie.iter() {
         println!("{}", sortie.i[i]);
     }
-    assert_eq!(orig_len, sortie.rows());
+    assert_eq!(orig_len, sortie.len());
 }
 
 
@@ -312,15 +312,15 @@ fn bsort() {
         bsortie.push(bsortie::Row { i: true });
         bsortie.push(bsortie::Row { i: false });
         bsortie.push(bsortie::Row { i: true });
-        bsortie.rows()
+        bsortie.len()
     };
     let mut bsortie = bsortie::write(&universe);
     bsortie.sort_by_i();
     println!("Sorted:");
-    for i in bsortie.range() {
+    for i in bsortie.iter() {
         println!("{:?}", bsortie.get_row(i));
     }
-    assert_eq!(orig_len, bsortie.rows());
+    assert_eq!(orig_len, bsortie.len());
     assert_eq!(bsortie.dump().iter().map(|r| { r.i }).collect::<Vec<_>>(), &[false, false, false, true, true]);
 }
 
@@ -345,27 +345,27 @@ fn bool_col() {
         bits.push(bits::Row { a: false, b: false });
         bits.push(bits::Row { a: true, b: true });
         bits.push(bits::Row { a: false, b: false });
-        println!("{}", bits.rows());
+        println!("{}", bits.len());
     }
     {
         {
             let mut bits = bits::write(&universe);
             bits.sort_by_a();
-            println!("{}", bits.rows());
+            println!("{}", bits.len());
         }
         {
             let mut bits = bits::write(&universe);
             bits.sort_by_b();
-            println!("{}", bits.rows());
+            println!("{}", bits.len());
         }
         let mut bits = bits::write(&universe);
         bits.sort_by_a();
         println!("");
         println!("");
-        for i in bits.range() {
+        for i in bits.iter() {
             println!("{:?}", i);
         }
-        for i in bits.range() {
+        for i in bits.iter() {
             println!("{:?}", i);
             println!("{:?}", bits.get_row(i));
         }

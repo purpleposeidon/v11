@@ -34,6 +34,7 @@ pub mod columns;
 
 pub mod joincore;
 pub mod context;
+mod assert_sorted;
 
 
 /**

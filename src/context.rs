@@ -20,9 +20,10 @@ pub trait ReleaseFields {
 /// whole lock contexts to other functions. It is possible to 'transfer' one context into another
 /// using `NewContext::from(universe, oldContext)`. Any unused locks will be dropped, and any new
 /// locks will be acquired.
-/// 
-/// The locks are duck-typed: any type with a function
-/// `fn lock<'a>(&'a Universe) -> Self where Self: 'a`
+///
+/// The locks are duck-typed: any type with functions
+/// `fn lock<'a>(&'a Universe) -> Self where Self: 'a` and
+/// `fn name() -> &'static str`
 /// can be used.
 ///
 /// # Example
@@ -36,7 +37,6 @@ pub trait ReleaseFields {
 /// }
 /// ```
 // This macro is Wildy Exciting.
-// FIXME: This could be a custom #[derive]
 #[macro_export]
 macro_rules! context {
     (mod $nonce:ident; pub struct $name:ident {
@@ -45,6 +45,10 @@ macro_rules! context {
     }) => {
         #[doc(hidden)]
         mod $nonce {
+            // The nonce is annoying, but we would have to switch over to procedural macros to
+            // ditch it, but that seems like too much work.
+            // We could provide a default nonce, but then if you call the macro twice, you'd get
+            // an error. I think that's an uglier situation to be in.
             pub use std::mem;
             pub use std::ptr::null_mut;
 
@@ -88,7 +92,7 @@ macro_rules! context {
                         mem::forget(field);
                     }
                 })*
-                // Ring'll implement Drop, which would be a problem
+                // $name'll implement Drop, which would be a problem
                 // if we didn't move all the fields out.
             }
         }
@@ -102,12 +106,14 @@ macro_rules! context {
                 // `old`'s. Since the macro doesn't actually know what fields `old` has, we need to
                 // track which of our own fields we've initialized.
                 // (FIXME: LLVM w/ --release should make this 0-cost; does it?)
+                // FIXME: What if there's a panic?
                 $(
                     let mut $i: (bool, $i::Lock<'a>);
                 )*
                 unsafe {
                     $(
                         $i = (false, mem::zeroed());
+                        // FIXME: Why not just Option?
                     )*
                     old.release_fields(|name| {
                         $(if name == $i::Lock::lock_name() {

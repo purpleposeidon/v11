@@ -23,6 +23,7 @@ pub struct Table {
     pub track_changes: bool,
     pub generic_sort: bool,
     pub sort_by: Vec<String>,
+    pub merge: Option<String>,
     pub static_data: bool,
     pub no_complex_mut: bool,
 

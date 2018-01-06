@@ -515,3 +515,5 @@ impl<I: PrimInt + Decodable, T: GetTableName> Decodable for GenericRowId<I, T> {
         Ok(Self::new(try!(I::decode(d))))
     }
 }
+
+pub use ::assert_sorted::AssertSorted;

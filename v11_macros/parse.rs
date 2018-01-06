@@ -21,16 +21,16 @@ macro_rules! err {
  * table! {
  *     #[some_attribute]
  *     pub domain_name/table_name {
+ *         observing: SegCol<::watchers::MyTable::RowId>,
  *         position: VecCol<MyCoordinate>,
  *         color: SegCol<RgbHexColor>,
  *         is_active: BoolCol,
- *         observing: SegCol<::watchers::MyTable::RowId>,
  *     }
  *
  *     impl {
  *         something_or_other;
  *     }
- *     
+ *
  *     mod {
  *         use my_prelude::*;
  *
@@ -42,11 +42,8 @@ macro_rules! err {
  *
  * */
 pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuilder<'a>> {
-    let commas = SeqSep {
-        sep: Some(Token::Comma),
-        trailing_sep_allowed: true,
-    };
-    let mut table: Table = Table::new();
+    let commas = SeqSep::trailing_allowed(Token::Comma);
+    let mut table = Table::new();
 
     // [#[attr]] [pub] table_name { ... }
     table.attrs = parser.parse_outer_attributes()?;
@@ -61,7 +58,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
         let mut parser = Parser::new(parser.sess, vec![structure_block], None, true);
         parser.expect(&Token::OpenDelim(DelimToken::Brace))?;
         parser.parse_seq_to_end(&Token::CloseDelim(DelimToken::Brace), commas, |parser| {
-            // column_name: [ElementType; ColumnType<ElementType>],
+            // #[attrs] column_name: [ElementType; ColumnType<ElementType>],
             let attrs = parser.parse_outer_attributes().ok();
             let name = parser.parse_ident()?;
             parser.expect(&Token::Colon)?;
@@ -71,10 +68,10 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             let colty = parser.parse_ty()?;
             parser.expect(&Token::CloseDelim(DelimToken::Bracket))?;
             Ok(Col {
-                attrs: attrs,
-                name: name,
-                element: element,
-                colty: colty,
+                attrs,
+                name,
+                element,
+                colty,
             })
         })?
     };
@@ -91,7 +88,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             |x| Ok(pp::ident_to_string(Parser::parse_ident(x)?)),
         )
     }
-    
+
     // [impl { ... }]
     // Configure modifiers
     if parser.eat_keyword(keyword::Impl) {
@@ -129,6 +126,10 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 // multiple individual calls
                 let args = parse_arglist(parser)?;
                 table.sort_by.extend(args);
+            } else if name == "Merge" {
+                let mut args = parse_arglist(parser)?;
+                assert_eq!(args.len(), 1);
+                table.merge = Some(args.pop().unwrap());
             } else if name == "FreeList" {
                 // add a list of unused RowIds
                 table.free_list = true;

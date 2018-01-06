@@ -76,7 +76,7 @@ fn ranged() {
         }
     }
 
-    for row in a.range() {
+    for row in a.iter() {
         println!("{:?}: {:?}", row, a.range[row]);
         for erow in a.range[row] {
             println!("\t{}", e.bits[erow]);

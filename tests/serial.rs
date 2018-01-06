@@ -40,7 +40,7 @@ fn test() {
             foo: 2,
             bar: true,
         });
-        for blah in saveme.range() {
+        for blah in saveme.iter() {
             println!("{:?}", saveme.get_row(blah));
         }
     }
@@ -57,7 +57,7 @@ fn test() {
         let j = json::Json::from_str(&j).unwrap();
         let mut inp = json::Decoder::new(j);
         saveme.decode_rows(&mut inp).unwrap();
-        for blah in saveme.range() {
+        for blah in saveme.iter() {
             println!("{:?}", saveme.get_row(blah));
         }
     }
