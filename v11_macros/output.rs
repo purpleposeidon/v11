@@ -406,8 +406,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             // Not really 'safe', but it's private.
             #[inline]
             fn push_end(&mut self, row: Row) -> RowId {
-                #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
                 let rowid = self.next_pushed();
+                #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
                 #EVENT_PUSH
                 rowid
             }
