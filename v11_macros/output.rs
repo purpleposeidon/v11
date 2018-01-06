@@ -1023,9 +1023,5 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }
     // FIXME: sorting change tracking
 
-    if let Some(ref mod_code) = table.mod_code {
-        writeln!(out, "// User code\n{}", mod_code)?;
-    }
-
     Ok(())
 }

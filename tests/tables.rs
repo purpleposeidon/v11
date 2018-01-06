@@ -18,11 +18,6 @@ table! {
     impl {
         RowId = u8;
     }
-    mod {
-        fn hello() {
-            println!("Hey!");
-        }
-    }
 }
 
 table! {
@@ -50,17 +45,11 @@ table! {
         holes: [u16; VecCol<u16>],
         kind: [CheeseKind; VecCol<CheeseKind>],
     }
-    mod {
-        use super::CheeseKind;
-    }
 }
 
 table! {
     [TEST/test_foreign] {
         id: [EasyRowId; VecCol<EasyRowId>],
-    }
-    mod {
-        use super::EasyRowId;
     }
 }
 

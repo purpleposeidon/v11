@@ -26,9 +26,6 @@ pub struct Table {
     pub merge: Option<String>,
     pub static_data: bool,
     pub no_complex_mut: bool,
-
-    // module
-    pub mod_code: Option<String>,
 }
 impl Table {
     pub fn new() -> Self {

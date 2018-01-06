@@ -2,7 +2,6 @@ use syntex_syntax::parse::parser::Parser;
 use syntex_syntax::parse::token::{Token, DelimToken, BinOpToken, Lit};
 use syntex_syntax::parse::common::SeqSep;
 use syntex_syntax::parse::PResult;
-use syntex_syntax::tokenstream::TokenTree;
 use syntex_syntax::symbol::keywords as keyword;
 use syntex_syntax::diagnostics::plugin::DiagnosticBuilder;
 use syntex_syntax::print::pprust as pp;
@@ -29,14 +28,6 @@ macro_rules! err {
  *
  *     impl {
  *         something_or_other;
- *     }
- *
- *     mod {
- *         use my_prelude::*;
- *
- *         impl Read<'a> {
- *             fn pretty_print(&self) { }
- *         }
  *     }
  * }
  *
@@ -161,29 +152,9 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
         }
     }
 
-    // [mod { ... }]
-    table.mod_code = if !parser.eat_keyword(keyword::Mod) {
-        None
-    } else {
-        let got = match parser.parse_token_tree()? {
-            TokenTree::Delimited(_, d) => pp::tts_to_string(&d.tts[..]),
-            what @ _ => {
-                err!(parser, "Expected module code, got: {:?}", what);
-            },
-        };
-        Some(got)
-    };
-
-
     // What tokens remain?
     for t in parser.tts.iter() {
-        if let &(TokenTree::Delimited(_, ref d), _) = t {
-            for t in d.tts.iter() {
-                warn(&format!("{:?}", t));
-            }
-        } else {
-            warn(&format!("{:?}", t));
-        }
+        err!(parser, "Unexpected tokens at end of `table!`: {:?}", t);
     }
     Ok(table)
 }
