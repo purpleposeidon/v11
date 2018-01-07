@@ -11,9 +11,9 @@ use super::table::{Table, Col};
 use super::{warn, error};
 
 macro_rules! err {
-    ($parser:expr, $($args:tt),*) => {
+    ($parser:expr, $($args:tt),*) => {{
         return Err($parser.sess.span_diagnostic.struct_span_err($parser.span, &format!($($args),*)));
-    }
+    }}
 }
 
 /*
@@ -42,6 +42,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
     table.domain = parser.parse_ident()?.to_string();
     parser.expect(&Token::BinOp(BinOpToken::Slash))?;
     table.name = parser.parse_ident()?.to_string();
+    table.is_pub = parser.eat_keyword(keyword::Pub);
     let structure_block = parser.parse_token_tree()?;
 
     // Load structure
@@ -50,7 +51,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
         parser.expect(&Token::OpenDelim(DelimToken::Brace))?;
         parser.parse_seq_to_end(&Token::CloseDelim(DelimToken::Brace), commas, |parser| {
             // #[attrs] column_name: [ElementType; ColumnType<ElementType>],
-            let attrs = parser.parse_outer_attributes().ok();
+            let attrs = parser.parse_outer_attributes()?;
             let name = parser.parse_ident()?;
             parser.expect(&Token::Colon)?;
             parser.expect(&Token::OpenDelim(DelimToken::Bracket))?;

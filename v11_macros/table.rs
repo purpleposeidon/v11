@@ -69,7 +69,7 @@ impl Table {
             }
             self.no_complex_mut = true;
             self.cols.push(Col {
-                attrs: None,
+                attrs: vec![],
                 name: token._event_name.clone(),
                 element: token._event_element.clone(),
                 colty: token._event_colty.clone(),
@@ -84,7 +84,7 @@ impl Table {
 
 #[derive(Debug)]
 pub struct Col {
-    pub attrs: Option<Vec<Attribute>>,
+    pub attrs: Vec<Attribute>,
     pub name: Ident,
     pub element: P<Ty>,
     pub colty: P<Ty>,
