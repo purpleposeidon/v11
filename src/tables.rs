@@ -328,13 +328,6 @@ impl GenericColumn {
 }
 
 
-// indexing
-
-
-
-use std::marker::PhantomData;
-use num_traits::PrimInt;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TableName(pub &'static str);
 impl fmt::Display for TableName {
@@ -344,176 +337,14 @@ impl fmt::Display for TableName {
 }
 
 pub trait GetTableName {
+    type Idx: ::num_traits::PrimInt + fmt::Display + fmt::Debug + ::std::hash::Hash + Copy;
     fn get_name() -> TableName;
 }
 
-// #[derive] nothing; stupid phantom data...
-pub struct GenericRowId<I: PrimInt, T: GetTableName> {
-    #[doc(hidden)]
-    pub i: I,
-    #[doc(hidden)]
-    pub t: PhantomData<T>,
-}
-impl<I: PrimInt, T: GetTableName> GenericRowId<I, T> {
-    pub fn new(i: I) -> Self {
-        GenericRowId {
-            i: i,
-            t: PhantomData,
-        }
-    }
-
-    pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
-    pub fn to_raw(&self) -> I { self.i }
-    pub fn next(&self) -> Self {
-        Self::new(self.i + I::one())
-    }
-}
-impl<I: PrimInt, T: GetTableName> Default for GenericRowId<I, T> {
-    fn default() -> Self {
-        GenericRowId {
-            i: I::max_value() /* UNDEFINED_INDEX */,
-            t: PhantomData,
-        }
-    }
-}
-impl<I: PrimInt, T: GetTableName> Clone for GenericRowId<I, T> {
-    fn clone(&self) -> Self {
-        Self::new(self.i)
-    }
-}
-impl<I: PrimInt, T: GetTableName> Copy for GenericRowId<I, T> { }
-
-impl<I: PrimInt + fmt::Display, T: GetTableName> fmt::Debug for GenericRowId<I, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}[{}]", T::get_name().0, self.i)
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[derive(RustcDecodable, RustcEncodable)]
-pub struct RowRange<R> {
-    pub start: R,
-    pub end: R,
-}
-use std::ops::Range;
-impl<R> Into<Range<R>> for RowRange<R> {
-    fn into(self) -> Range<R> {
-        self.start..self.end
-    }
-}
-impl<R> From<Range<R>> for RowRange<R> {
-    fn from(range: Range<R>) -> RowRange<R> {
-        RowRange {
-            start: range.start,
-            end: range.end,
-        }
-    }
-}
-impl<I: PrimInt, T: GetTableName> RowRange<GenericRowId<I, T>> {
-    /// Return the `n`th row after the start, if it is within the range.
-    pub fn offset(&self, n: I) -> Option<GenericRowId<I, T>> {
-        let at = self.start.to_raw().checked_add(&n);
-        let at = if let Some(at) = at {
-            at
-        } else {
-            return None;
-        };
-        if at > self.end.to_raw() {
-            None
-        } else {
-            Some(GenericRowId::new(at))
-        }
-    }
-
-    /// Return how many rows are in this range.
-    pub fn len(&self) -> usize {
-        self.end.to_usize() - self.start.to_usize()
-    }
-
-    /// Return `true` if the given row is within this range.
-    pub fn contains(&self, o: GenericRowId<I, T>) -> bool {
-        self.start <= o && o < self.end
-    }
-
-    /// If the given row is within this RowRange, return its offset from the beginning.
-    pub fn inner_index(&self, o: GenericRowId<I, T>) -> Option<I> {
-        if self.contains(o) {
-            Some(o.to_raw() - self.start.to_raw())
-        } else {
-            None
-        }
-    }
-}
-impl<I: PrimInt, T: GetTableName> Iterator for RowRange<GenericRowId<I, T>> {
-    type Item = GenericRowId<I, T>;
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.start >= self.end {
-            None
-        } else {
-            let ret = self.start;
-            self.start = self.start.next();
-            Some(ret)
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let s = self.end.to_usize() - self.start.to_usize();
-        (s, Some(s))
-    }
-}
-
-#[test]
-fn test_formatting() {
-    struct TestName;
-    impl GetTableName for TestName {
-        fn get_name() -> TableName { TableName("test_table") }
-    }
-    let gen: GenericRowId<usize, TestName> = GenericRowId {
-        i: 23,
-        t: ::std::marker::PhantomData,
-    };
-    assert_eq!("test_table[23]", format!("{:?}", gen));
-}
-
-
-use std::cmp::{Eq, PartialEq, PartialOrd, Ord};
-impl<I: PrimInt, T: GetTableName> PartialEq for GenericRowId<I, T> {
-    fn eq(&self, other: &GenericRowId<I, T>) -> bool {
-        self.i == other.i
-    }
-}
-impl<I: PrimInt, T: GetTableName> Eq for GenericRowId<I, T> {}
-impl<I: PrimInt, T: GetTableName> PartialOrd for GenericRowId<I, T> {
-    fn partial_cmp(&self, other: &GenericRowId<I, T>) -> Option<::std::cmp::Ordering> {
-        self.i.partial_cmp(&other.i)
-    }
-}
-impl<I: PrimInt, T: GetTableName> Ord for GenericRowId<I, T> {
-    fn cmp(&self, other: &GenericRowId<I, T>) -> ::std::cmp::Ordering {
-        self.i.cmp(&other.i)
-    }
-}
-
-// Things get displeasingly manual due to the PhantomData.
-use std::hash::{Hash, Hasher};
-impl<I: PrimInt + Hash, T: GetTableName> Hash for GenericRowId<I, T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
-        self.i.hash(state);
-    }
-}
-
-use rustc_serialize::{Encoder, Encodable, Decoder, Decodable};
-impl<I: PrimInt + Encodable, T: GetTableName> Encodable for GenericRowId<I, T> {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        self.i.encode(s)
-    }
-}
-
-impl<I: PrimInt + Decodable, T: GetTableName> Decodable for GenericRowId<I, T> {
-    fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
-        Ok(Self::new(try!(I::decode(d))))
-    }
+pub trait LockedTable: Sized {
+    type Row: GetTableName;
+    fn len(&self) -> usize;
 }
 
 pub use ::assert_sorted::AssertSorted;
+pub use ::index::*;

@@ -55,6 +55,7 @@ define_proc_macros! {
             return String::new();
         }
 
+        // FIXME: Write to target/$target/v11_dump/$table_name.rs, output `include!(that-path)`
         let dump = ::std::env::var("V11_MACRO_DUMP").ok();
         let dump = (dump == Some(table.name.to_owned())) || dump == Some("*".to_owned());
         let mut ret = Vec::new();

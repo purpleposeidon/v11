@@ -9,15 +9,14 @@ extern crate rustc_serialize;
 
 
 domain! { TEST }
-use v11::Universe;
 
 
 table! {
-    pub [TEST/track] {
-        number: [i32; VecCol<i32>],
+    [TEST/hello_there] {
+        foo: [i32; SegCol<i32>],
     }
     impl {
-        Track;
+        // FIXME: This should crash.
+        // ...
     }
 }
-

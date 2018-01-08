@@ -17,13 +17,12 @@ extern crate v11_macros;
 extern crate procedural_masquerade;
 extern crate rustc_serialize;
 extern crate itertools;
-extern crate bit_vec;
+extern crate bit_vec_mut as bit_vec;
 extern crate num_traits;
 #[macro_use]
 extern crate lazy_static;
 
 use std::sync::*;
-use std::marker::PhantomData;
 
 
 pub mod domain;
@@ -31,6 +30,7 @@ pub mod tables;
 pub mod property;
 pub mod intern;
 pub mod columns;
+pub mod index;
 
 pub mod joincore;
 pub mod context;
@@ -51,7 +51,6 @@ pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
 pub use domain::DomainName;
 use domain::MaybeDomain;
-use tables::{GetTableName, GenericRowId};
 
 /**
  * A context object whose reference should be passed around everywhere.
@@ -105,78 +104,3 @@ impl fmt::Debug for Universe {
     }
 }
 
-
-
-use num_traits::int::PrimInt;
-
-#[derive(Debug)]
-pub struct RowIdIterator<I: PrimInt, T> {
-    i: I,
-    end: I,
-    rt: PhantomData<T>,
-}
-impl<I: PrimInt, T> RowIdIterator<I, T> {
-    pub fn new(start: I, end: I) -> Self {
-        RowIdIterator {
-            i: start,
-            end:  end,
-            rt: PhantomData,
-        }
-    }
-}
-impl<I: PrimInt + ::num_traits::ToPrimitive, T: GetTableName> Iterator for RowIdIterator<I, T> {
-    type Item = GenericRowId<I, T>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.i >= self.end { return None; }
-        let ret = GenericRowId::new(self.i);
-        self.i = self.i + I::one();
-        Some(ret)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let u = (self.i - self.end).to_usize().unwrap();
-        (u, Some(u))
-    }
-}
-
-
-
-
-
-
-
-/**
- * Return value for advanced iterators. Used for `$table::Write.visit()`
- * */
-pub enum Action<I, IT: Iterator<Item=I>> {
-    /// Nothing more needs to be iterated over.
-    Break,
-    /// Calls the closure with the next row, unless there is no more data.
-    Continue,
-    /// Remove the row that was just passed in.
-    Remove,
-    /// Add an arbitrary number of rows, after the provided row, using a move iterator.
-    /// The rows inserted in this manner will not be walked by the closure.
-    /// If you want to do a Remove and Add at the same time, move the first item in the iterator
-    /// into the passed in row.
-    Add(IT),
-}
-
-/// Events that occur on a table with change tracking.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[derive(RustcDecodable, RustcEncodable)] // FIXME: This wouldn't be necessary with serde...
-pub enum Event<R> {
-    /// A row was added to the table. This could happen as the result of a new Row being pushed,
-    /// but it could also be due to a row in a sparse table being reclaimed.
-    Create(R),
-    /// A row was moved. This doesn't necessarily mean that `dst` was deleted!
-    /// Any foreign references to `src` should be changed to `dst`.
-    /// The old row at `dst` has been invalidated (by a `Delete` or another `Move`) by the time
-    /// this event has been reached. It would be strange to do any other semantic changes.
-    Move { src: R, dst: R },
-    /// This row is no longer valid. To maintain validity, delete any foreign rows
-    /// referencing this row, or have them reference something else.
-    Delete(R),
-    /// Every row was deleted.
-    ClearAll,
-}

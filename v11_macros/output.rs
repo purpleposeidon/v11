@@ -46,6 +46,40 @@ fn quote_if(b: bool, q: Tokens) -> Tokens {
 
 #[allow(non_snake_case)]
 pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
+    /// Writes out one or zero of the branches.
+    macro_rules! out {
+        () => {
+            { }
+        };
+        ($cond:expr => ($label:expr) $q:tt; $($rest:tt)*) => {
+            if $cond {
+                out!(@quote $label; $q);
+            } else out!($($rest)*);
+        };
+        (let $pat:pat = $expr:expr => ($label:expr) $q:tt; $($rest:tt)*) => {
+            if let $pat = $expr {
+                out!(@quote $label; $q);
+            } else out!($($rest)*);
+        };
+        (($label:expr) $q:tt; $($rest:tt)*) => {
+            if true {
+                out!(@quote $label; $q);
+            } else out!($($rest)*);
+        };
+        (@quote $label:expr; $q:tt) => {
+            let args = quote! { $q };
+            let buff = if $label.is_empty() {
+                format!("{}\n", args)
+            } else {
+                format!("\n// {}\n{}\n\n", $label, args)
+            };
+            // Fix docs.
+            let buff = buff.replace("#TABLE_NAME", &table.name);
+
+            out.write(buff.as_bytes())?;
+        }
+    }
+
     // Info
     writeln!(out, "// Generated file. If you are debugging this output, put this in a module and uncomment this line:")?;
     writeln!(out, "// domain! {{ TABLE_DOMAIN }}\n\n")?;
@@ -60,7 +94,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     use ::table::Col;
     let COL_NAME_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ident_to_string(x.name)).collect();
     let COL_ELEMENT_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ty_to_string(&*x.element)).collect();
-    let COL_TYPE_STR: &Vec<_> = &table.cols.iter().map(|x| format!("ColWrapper<{}, RowId>", pp::ty_to_string(&*x.colty))).collect();
+    let COL_TYPE_STR: &Vec<_> = &table.cols.iter().map(|x| format!("Col<{}, Row>", pp::ty_to_string(&*x.colty))).collect();
     let COL_ATTR: &Vec<Ident> = &table.cols.iter().map(|x: &Col| -> String {
         x.attrs.iter().map(pp::attr_to_string).map(|x| format!("{}\n", x)).collect()
     }).map(i).collect();
@@ -93,17 +127,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "Header"],
 
         use v11;
-        use v11::Universe;
-        use v11::intern::PBox;
-        use v11::intern::{RefA, MutA};
-        #[allow(unused_imports)]
-        use v11::Event;
-        use v11::tables::{GenericTable, GenericRowId, TableName, GetTableName, RowRange};
-        use v11::columns::{TCol, ColWrapper};
+        use self::v11::Universe;
+        use self::v11::intern::{self, PBox, RefA, MutA};
+        use self::v11::tables::{self, GenericTable, GenericRowId, TableName, GetTableName, RowRange};
+        use self::v11::columns::{TCol, Col};
+        use self::v11::index::{CheckedIter, Checkable};
 
-        #[allow(unused_imports)]
-        use v11::columns::{VecCol, BoolCol, SegCol};
         // Having them automatically imported is a reasonable convenience.
+        #[allow(unused_imports)]
+        use self::v11::columns::{VecCol, BoolCol, SegCol};
 
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         // TABLE_DOMAIN = super::#TABLE_DOMAIN
@@ -130,7 +162,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// This is the type used to index into `#TABLE_NAME`'s columns.
         /// It is typed specifically for this table.
-        pub type RowId = GenericRowId<#ROW_ID_TYPE, Row>;
+        pub type RowId = GenericRowId<Row>;
         /// The internal index type, which specifies the maximum number of rows. It is controlled
         /// by `impl { RawType = u32 }`.
         pub type RawType = #ROW_ID_TYPE;
@@ -167,6 +199,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(#COL_ATTR pub #COL_NAME: #COL_ELEMENT,)*
         }
         impl GetTableName for Row {
+            type Idx = RawType;
             fn get_name() -> TableName { TABLE_NAME }
         }
 
@@ -189,6 +222,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         [table, out, "Table locks"],
 
         /**
+         * The table, locked for reading.
+         * */
+        pub struct Read<'u> {
+            _lock: ::std::sync::RwLockReadGuard<'u, GenericTable>,
+            #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
+        }
+        /**
          * The table, locked for writing.
          * */
         pub struct Write<'u> {
@@ -196,12 +236,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #NEED_FLUSH
             #(pub #COL_NAME: MutA<'u, #COL_TYPE>,)*
         }
-        /**
-         * The table, locked for reading.
-         * */
-        pub struct Read<'u> {
-            _lock: ::std::sync::RwLockReadGuard<'u, GenericTable>,
-            #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
+
+        impl<'u> tables::LockedTable for Read<'u> {
+            type Row = Row;
+            fn len(&self) -> usize { self.len() }
+        }
+        impl<'u> tables::LockedTable for Write<'u> {
+            type Row = Row;
+            fn len(&self) -> usize { self.len() }
         }
     };
 
@@ -210,19 +252,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         // Hidden because `$table::read()` is shorter than `$table::Read::lock()`.
         impl<'u> Write<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u v11::Universe) -> Self { write(universe) }
+            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { write(universe) }
             #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("mut ", #TABLE_NAME_STR) }
         }
 
         impl<'u> Read<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u v11::Universe) -> Self { read(universe) }
+            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { read(universe) }
             #[doc(hdiden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
         }
     }
 
     let GET_ROW = quote_if(table.clone, quote! {
         /** Retrieves a structure containing a clone of the value in each column. (R/W) */
-        pub fn get_row(&self, index: RowId) -> Row {
+        pub fn get_row<R: Checkable<Row=Row>>(&self, index: R) -> Row {
+            let index = index.check(self);
             Row {
                 #(#COL_NAME: self.#COL_NAME2[index].clone(),)*
             }
@@ -245,7 +288,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         // And assumes that the columns are all the same length.
         // But there shouldn't be any way to break that invariant.
         pub fn len(&self) -> usize {
-            self.#COL0.len()
+            self.#COL0.data().len()
         }
 
         /// Gets the last `RowId`.
@@ -258,9 +301,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
 
+        pub fn row_range(&self) -> RowRange<RowId> {
+            (fab(0)..fab(self.len())).into()
+        }
+
         /** Returns an iterator over each row in the table. (R/W) */
-        pub fn iter(&self) -> v11::RowIdIterator<#ROW_ID_TYPE, Row> {
-            v11::RowIdIterator::new(0, self.len() as #ROW_ID_TYPE)
+        pub fn iter(&self) -> CheckedIter<Self> {
+            CheckedIter::from(self, self.row_range())
         }
 
         /** Returns true if `i` is a valid RowId. */
@@ -311,7 +358,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             /// Trackers receive events from tables when `flush` is called.
             /// The function can't lock the table.
-            pub type Tracker = Box<FnMut(&Universe, &[Event<RowId>]) + Send + Sync>;
+            /// `event.0` is the row's original location; `event.1` is `Some(new_location)`, or
+            /// `None` if the row was deleted.
+            pub type Tracker = Box<FnMut(&Universe, &[(RowId, Option<RowId>)]) + Send + Sync>;
 
             /// Add a tracker.
             pub fn register_tracker(universe: &Universe, tracker: Tracker) {
@@ -330,11 +379,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// Propagate all changes made thus far to the Trackers.
                 pub fn flush(&mut self, universe: &Universe) {
                     {
-                        let events = &self._events.data.data[..];
+                        let events = &self._events.data().data[..];
                         let gt = get_generic_table(universe).write().unwrap();
                         let mut trackers = gt.trackers.write().unwrap();
                         for tracker in trackers.iter_mut() {
-                            let tracker: &mut Tracker = ::v11::intern::desync_box_mut(tracker).downcast_mut()
+                            let tracker: &mut Tracker = intern::desync_box_mut(tracker).downcast_mut()
                                 .expect("Tracker downcast failed");
                             tracker(universe, events);
                         }
@@ -383,12 +432,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             /** Prepare the table for insertion of a specific amount of data. `self.len()` is
              * unchanged. */
             pub fn reserve(&mut self, additional: usize) {
-                #(self.#COL_NAME.data.reserve(additional);)*
+                #(self.#COL_NAME.data_mut().reserve(additional);)*
             }
 
             /** Removes every row from the table. */
             pub fn clear(&mut self) {
-                #(self.#COL_NAME.data.clear();)*
+                #(self.#COL_NAME.data_mut().clear();)*
                 #EVENT_CLEAR
             }
 
@@ -402,7 +451,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #[inline]
             fn push_end(&mut self, row: Row) -> RowId {
                 let rowid = self.next_pushed();
-                #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                #(self.#COL_NAME.data_mut().push(row.#COL_NAME2);)*
                 #EVENT_PUSH
                 rowid
             }
@@ -533,7 +582,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use std::mem::transmute;
         use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
 
-        fn get_generic_table(universe: &v11::Universe) -> &RwLock<GenericTable> {
+        fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
             let domain_id = TABLE_DOMAIN.get_id();
             universe.get_generic_table(domain_id, TABLE_NAME)
         }
@@ -565,19 +614,19 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// Locks the table for reading.
         // We're too cool to be callling unwrap() all over the place.
-        pub fn read(universe: &v11::Universe) -> Read {
+        pub fn read(universe: &Universe) -> Read {
             read_result(universe).unwrap()
         }
 
         /// This is equivalent to `RwLock::read`.
-        pub fn read_result<'u>(universe: &'u v11::Universe) -> LockResult<Read<'u>> {
+        pub fn read_result<'u>(universe: &'u Universe) -> LockResult<Read<'u>> {
             let table = get_generic_table(universe).read();
-            ::v11::intern::wrangle_lock::map_result(table, convert_read_guard)
+            intern::wrangle_lock::map_result(table, convert_read_guard)
         }
 
-        pub fn try_read<'u>(universe: &'u v11::Universe) -> TryLockResult<Read<'u>> {
+        pub fn try_read<'u>(universe: &'u Universe) -> TryLockResult<Read<'u>> {
             let table = get_generic_table(universe).try_read();
-            ::v11::intern::wrangle_lock::map_try_result(table, convert_read_guard)
+            intern::wrangle_lock::map_try_result(table, convert_read_guard)
         }
 
 
@@ -599,18 +648,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         /// Locks the table for writing.
-        pub fn write<'u>(universe: &'u v11::Universe) -> Write<'u> {
+        pub fn write<'u>(universe: &'u Universe) -> Write<'u> {
             write_result(universe).unwrap()
         }
 
-        pub fn write_result<'u>(universe: &'u v11::Universe) -> LockResult<Write<'u>> {
+        pub fn write_result<'u>(universe: &'u Universe) -> LockResult<Write<'u>> {
             let table = get_generic_table(universe).write();
-            ::v11::intern::wrangle_lock::map_result(table, convert_write_guard)
+            intern::wrangle_lock::map_result(table, convert_write_guard)
         }
 
-        pub fn try_write<'u>(universe: &'u v11::Universe) -> TryLockResult<Write<'u>> {
+        pub fn try_write<'u>(universe: &'u Universe) -> TryLockResult<Write<'u>> {
             let table = get_generic_table(universe).try_write();
-            ::v11::intern::wrangle_lock::map_try_result(table, convert_write_guard)
+            intern::wrangle_lock::map_try_result(table, convert_write_guard)
         }
 
         /// Register the table onto its domain.
@@ -653,7 +702,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     })
                 }
 
-                /* -- This is kind of not possible to do due to funky bits in ColWrapper & BoolVec
+                /* -- This is kind of not possible to do due to funky bits in Col & BoolVec
                  * that shouldn't be serialized. Serde'd make it possible?
                 /// Column-based encoding.
                 pub fn encode_columns<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
@@ -738,7 +787,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
-    if !table.no_complex_mut {
+    /*if !table.no_complex_mut {
         // These are baaasically incompatible w/ change tracking.
         // 1: The rug algorithm is already very complex.
         // 2: A simpler algorithm would do more allocation.
@@ -754,7 +803,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
              * 
              * `#TABLE_NAME.visit(|table, i| -> #TABLE_NAME::ClearVisit { … })`
              * */
-            pub type ClearVisit = v11::Action<Row, v11::intern::VoidIter<Row>>;
+            pub type ClearVisit = v11::Action<Row, intern::VoidIter<Row>>;
 
             impl<'u> Write<'u> {
                 /**
@@ -840,14 +889,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         if index + rm_off >= len {
                             if displaced_buffer.is_empty() {
                                 if rm_off > 0 {
-                                    #(self.#COL_NAME.data.truncate(len - rm_off);)*
+                                    #(self.#COL_NAME.data_mut().truncate(len - rm_off);)*
                                     rm_off = 0;
                                 }
                                 break;
                             }
                             flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
                             while let Some(row) = displaced_buffer.pop_front() {
-                                #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                                #(self.#COL_NAME.data_mut().push(row.#COL_NAME2);)*
                                 if skip > 0 {
                                     skip -= 1;
                                     index += 1;
@@ -887,14 +936,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                 } else if !displaced_buffer.is_empty() {
                                     // simply stick 'em on the end
                                     while let Some(row) = displaced_buffer.pop_front() {
-                                        #(self.#COL_NAME.data.push(row.#COL_NAME2);)*
+                                        #(self.#COL_NAME.data_mut().push(row.#COL_NAME2);)*
                                     }
                                     // And we don't visit them.
                                     break;
                                 } else if rm_off != 0 {
                                     // Trim.
                                     let start = index + 1;
-                                    #(self.#COL_NAME.data.remove_slice(start..start+rm_off);)*
+                                    #(self.#COL_NAME.data_mut().remove_slice(start..start+rm_off);)*
                                     rm_off = 0;
                                     break;
                                 } else {
@@ -941,7 +990,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
         };
-    }
+    }*/
 
     if table.generic_sort || !table.sort_by.is_empty() {
         let PUB = if table.generic_sort {
@@ -981,8 +1030,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                 // This can have us jumping around a lot, making the cache sad.
                             }
                         }
-                        col.data.clear();
-                        col.data.append(&mut tmp);
+                        col.data_mut().clear();
+                        col.data_mut().append(&mut tmp);
                     })*
                 }
             }
