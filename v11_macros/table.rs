@@ -1,33 +1,71 @@
 use syntex_syntax::ast::{Ident, Ty, Attribute};
 use syntex_syntax::ptr::P;
 
+#[derive(Debug, Copy, Clone)]
+pub enum TableKind {
+    Append,
+    Public,
+    Bag,
+}
+
 #[derive(Debug)]
 #[derive(Default)] // Don't actually use this, it's just to keep new() easy.
 pub struct Table {
     // Header
-    pub attrs: Vec<Attribute>,
+    pub module_attrs: Vec<Attribute>,
     pub is_pub: bool,
     pub domain: String,
     pub name: String,
+    pub kind: Option<TableKind>,
     pub cols: Vec<Col>,
 
     // Modifiers
+    pub row_id: String,
     pub debug: bool,
     pub copy: bool,
     pub clone: bool,
     pub version: usize,
-    pub row_id: String,
-    pub sync_rm: Option<String>,
-    pub free_list: bool,
     pub save: bool,
-    pub track_changes: bool,
-    pub generic_sort: bool,
-    pub sort_by: Vec<String>,
-    pub merge: Option<String>,
-    pub static_data: bool,
-    pub no_complex_mut: bool,
+
+    // Guarantees
+    pub immutable: bool,
+    pub sorted: bool,
+    pub consistent: bool,
+    pub secret: bool,
 }
 impl Table {
+    pub(crate) fn set_kind(&mut self, kind: TableKind) {
+        if self.kind.is_some() { panic!("table kind already set"); }
+        self.kind = Some(kind);
+        match kind {
+            TableKind::Append => { },
+            TableKind::Public => {
+                self.consistent = true;
+                self.secret = false;
+            },
+            TableKind::Bag => {
+                self.secret = true;
+                panic!("Bags are NYI");
+            },
+        }
+        for col in &self.cols {
+            if col.indexed { panic!("Indexes are NYI"); }
+        }
+    }
+    fn validate_guarantees(&self) {
+        if self.immutable {
+            assert!(!self.sorted);
+            assert!(!self.secret);
+        }
+        if self.sorted {
+            assert!(!self.immutable);
+            assert!(!self.consistent);
+        }
+        if self.consistent {
+            assert!(!self.sorted);
+            assert!(!self.secret);
+        }
+    }
     pub fn new() -> Self {
         Table {
             debug: true,
@@ -38,7 +76,8 @@ impl Table {
             .. Table::default()
         }
     }
-    pub(crate) fn validate(&mut self, token: &super::ConstTokens) -> Option<&'static str> {
+    pub(crate) fn validate(&mut self) -> Option<&'static str> {
+        self.validate_guarantees();
         if self.domain.is_empty() {
             return Some("No domain");
         }
@@ -47,33 +86,6 @@ impl Table {
         }
         if self.cols.is_empty() {
             return Some("No columns");
-        }
-        if !self.copy {
-            self.no_complex_mut = true;
-        }
-        if self.static_data {
-            if self.track_changes
-                || self.sync_rm.is_some()
-                || self.free_list
-                || !self.track_changes
-                || !self.sort_by.is_empty() {
-                return Some("static tables shouldn't have modification features");
-            }
-        }
-        if !self.sort_by.is_empty() {
-            self.generic_sort = true;
-        }
-        if self.track_changes {
-            if self.generic_sort || !self.sort_by.is_empty() {
-                return Some("Change tracking is incompatible with sorting.");
-            }
-            self.no_complex_mut = true;
-            self.cols.push(Col {
-                attrs: vec![],
-                name: token._event_name.clone(),
-                element: token._event_element.clone(),
-                colty: token._event_colty.clone(),
-            });
         }
         if self.copy && !self.clone {
             return Some("deriving copy, but not clone");
@@ -88,4 +100,6 @@ pub struct Col {
     pub name: Ident,
     pub element: P<Ty>,
     pub colty: P<Ty>,
+    pub indexed: bool,
+    // just use BTreeMap for now; might want HashMap later tho
 }

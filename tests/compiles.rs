@@ -12,11 +12,9 @@ domain! { TEST }
 
 
 table! {
-    [TEST/hello_there] {
+    #[kind = "public"]
+    #[rowid = "u32"]
+    TEST::hello_there {
         foo: [i32; SegCol<i32>],
-    }
-    impl {
-        // FIXME: This should crash.
-        // ...
     }
 }

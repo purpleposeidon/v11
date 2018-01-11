@@ -116,35 +116,9 @@ Equivalent to `Version` and `Static`.
 **/
 #[macro_export]
 macro_rules! table {
-    (
-        $(#[$meta:meta])*
-        [$domain:ident/$name:ident]
-        $($args:tt)*
-    ) => {
-        #[allow(unused)]
-        $(#[$meta])*
-        mod $name {
-            table!(mod $domain/$name $($args)*);
-        }
-    };
-    (
-        $(#[$meta:meta])*
-        pub [$domain:ident/$name:ident]
-        $($args:tt)*
-    ) => {
-        #[allow(unused)]
-        $(#[$meta])*
-        pub mod $name {
-            table!(mod $domain/$name $($args)*);
-        }
-    };
-    (mod $domain:ident/$name:ident $($args:tt)*) => {
-        #[allow(unused_imports)]
-        use super::*;
-        use super::$domain as TABLE_DOMAIN; // FIXME: These are annoying when doing the debug-dump thing.
-
+    ($($args:tt)*) => {
         __v11_invoke_table! {
-            __v11_internal_table!($domain/$name $($args)*)
+            __v11_internal_table!($($args)*)
         }
     };
 }
@@ -178,12 +152,21 @@ impl Universe {
 
 type Prototyper = fn() -> PBox;
 
+use std::collections::BTreeMap;
+use tracking::Tracker;
+
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 pub struct GenericTable {
     pub domain: DomainName,
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
-    pub trackers: Arc<RwLock<Vec<PBox>>>,
+    // All the other fields don't need locks, but this one does because it can out-last.
+    pub trackers: Arc<RwLock<Vec<Box<Tracker + Send + Sync>>>>,
+    pub delete: Vec<usize>,
+    pub add: Vec<usize>,
+    pub free: BTreeMap<usize, ()>,
+    pub cleared: bool,
+    pub need_flush: bool,
 }
 impl GenericTable {
     pub fn new(domain: DomainName, name: TableName) -> GenericTable {
@@ -193,6 +176,12 @@ impl GenericTable {
             name: name,
             columns: Vec::new(),
             trackers: Default::default(),
+
+            delete: Vec::new(),
+            add: Vec::new(),
+            free: BTreeMap::new(),
+            cleared: false,
+            need_flush: false,
         }
     }
 
@@ -207,6 +196,12 @@ impl GenericTable {
             name: self.name,
             columns: self.columns.iter().map(GenericColumn::prototype).collect(),
             trackers: Arc::clone(&self.trackers),
+
+            delete: Vec::new(),
+            add: Vec::new(),
+            free: BTreeMap::new(),
+            cleared: false,
+            need_flush: false,
         }
     }
 

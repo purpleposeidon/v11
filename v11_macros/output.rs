@@ -10,38 +10,8 @@ fn i<S: AsRef<str>>(s: S) -> Ident {
     Ident::new(s.as_ref())
 }
 
-macro_rules! write_quote {
-    ([$table:expr, $out:expr], $($args:tt)*) => {
-        write_quote! {
-            [$table, $out, ""]
-            $($args:tt)*
-        }
-    };
-    ([$table:expr, $out:expr, $section:expr], $($args:tt)*) => {
-        let args = quote! { $($args)* };
-        let buff = if $section.is_empty() {
-            format!("{}\n", args)
-        } else {
-            format!("\n// {}\n{}\n\n", $section, args)
-        };
-        let buff = buff.replace("#TABLE_NAME", &$table.name);
-
-        $out.write(buff.as_bytes())?;
-    };
-}
-
-impl Table {
-    fn if_tracking(&self, q: Tokens) -> Tokens {
-        quote_if(self.track_changes, q)
-    }
-}
-
 fn quote_if(b: bool, q: Tokens) -> Tokens {
-    if b {
-        q
-    } else {
-        quote! {}
-    }
+    if b { q } else { quote! {} }
 }
 
 #[allow(non_snake_case)]
@@ -51,23 +21,31 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         () => {
             { }
         };
-        ($cond:expr => ($label:expr) $q:tt; $($rest:tt)*) => {
+        ($cond:expr => [$label:expr] { $($q:tt)* }; $($rest:tt)*) => {
             if $cond {
-                out!(@quote $label; $q);
-            } else out!($($rest)*);
+                out!(@quote $label; $($q)*);
+            } else {
+                out!($($rest)*);
+            }
         };
-        (let $pat:pat = $expr:expr => ($label:expr) $q:tt; $($rest:tt)*) => {
+        (let $pat:pat = $expr:expr => [$label:expr] { $($q:tt)* }; $($rest:tt)*) => {
             if let $pat = $expr {
-                out!(@quote $label; $q);
-            } else out!($($rest)*);
+                out!(@quote $label; $($q)*);
+            } else {
+                out!($($rest)*);
+            }
         };
-        (($label:expr) $q:tt; $($rest:tt)*) => {
-            if true {
-                out!(@quote $label; $q);
-            } else out!($($rest)*);
+        ({ $($q:tt)* }) => {
+            out!(@quote ""; $($q)*);
         };
-        (@quote $label:expr; $q:tt) => {
-            let args = quote! { $q };
+        ([$label:expr] { $($q:tt)* }) => {
+            out!(@quote $label; $($q)*);
+        };
+        ([$label:expr] { $($q:tt)* };) => {
+            out!(@quote $label; $($q)*);
+        };
+        (@quote $label:expr; $($q:tt)*) => {
+            let args = quote! { $($q)* };
             let buff = if $label.is_empty() {
                 format!("{}\n", args)
             } else {
@@ -81,8 +59,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }
 
     // Info
-    writeln!(out, "// Generated file. If you are debugging this output, put this in a module and uncomment this line:")?;
-    writeln!(out, "// domain! {{ TABLE_DOMAIN }}\n\n")?;
+    writeln!(out, "{}mod {} {{", if table.is_pub { "pub " } else { "" }, table.name)?;
     writeln!(out, "// Table config:")?;
     for line in format!("{:#?}", table).split('\n') {
         writeln!(out, "//   {}", line)?;
@@ -123,48 +100,45 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     let TABLE_NAME_STR = table.name.clone();
     let TABLE_VERSION = table.version;
-    write_quote! {
-        [table, out, "Header"],
+    let TABLE_DOMAIN = i(table.domain.clone());
+    out! { ["Imports & header data"] {
+        #[allow(unused_imports)]
+        use super::*;
 
         use v11;
-        use self::v11::Universe;
-        use self::v11::intern::{self, PBox, RefA, MutA};
-        use self::v11::tables::{self, GenericTable, GenericRowId, TableName, GetTableName, RowRange};
-        use self::v11::columns::{TCol, Col};
-        use self::v11::index::{CheckedIter, Checkable};
+        use self::v11::{Universe, DomainName};
+        use self::v11::intern::{self, PBox};
+        use self::v11::tables::*;
+        use self::v11::columns::*;
+        use self::v11::index::CheckedIter;
 
         // Having them automatically imported is a reasonable convenience.
         #[allow(unused_imports)]
-        use self::v11::columns::{VecCol, BoolCol, SegCol};
+        use self::v11::storage::*;
 
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
-        // TABLE_DOMAIN = super::#TABLE_DOMAIN
+        pub const TABLE_DOMAIN: DomainName = super::#TABLE_DOMAIN;
         pub const VERSION: usize = #TABLE_VERSION;
 
         #[allow(non_upper_case_globals)]
         mod column_format {
             #(pub const #COL_NAME: &'static str = #COL_FORMAT;)*
         }
-    }
+    }}
 
     let DERIVE_CLONE = quote_if(table.clone, quote! {
         #[derive(Clone)]
     });
     let DERIVE_ENCODING = quote_if(table.save, quote! { #[derive(RustcEncodable, RustcDecodable)] });
     let DERIVE_ENCODING_W = quote_if(table.save, quote! { #[derive(RustcEncodable)] });
-    let DERIVE_DEBUG = quote_if(table.debug, quote! {
-        #[derive(Debug)]
-    });
+    let DERIVE_DEBUG = quote_if(table.debug, quote! { #[derive(Debug)] });
 
     let ROW_ID_TYPE = i(&table.row_id);
-    write_quote! {
-        [table, out, "Indexing"],
-
+    out! { ["Indexing"] {
         /// This is the type used to index into `#TABLE_NAME`'s columns.
         /// It is typed specifically for this table.
         pub type RowId = GenericRowId<Row>;
-        /// The internal index type, which specifies the maximum number of rows. It is controlled
-        /// by `impl { RawType = u32 }`.
+        /// The internal index type, which also limits the maximum number of rows.
         pub type RawType = #ROW_ID_TYPE;
 
         /// An undefined index value to be used for default values.
@@ -181,12 +155,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// Creates an index into the `i`th row.
         pub fn at(i: #ROW_ID_TYPE) -> RowId { RowId::new(i) }
-        fn fab(i: usize) -> RowId { at(i as #ROW_ID_TYPE) }
-    };
+    }}
 
-    write_quote! {
-        [table, out, "The `Row` struct"],
-
+    out! { ["The `Row` struct"] {
         /**
          * A structure holding a copy of each column's data. This is used to pass entire rows around through methods;
          * the actual table is column-based, so eg `read.column[index]` is the standard method of accessing rows.
@@ -194,6 +165,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #DERIVE_CLONE
         #DERIVE_ENCODING
         #DERIVE_DEBUG
+        // Presumably too fat for Copy.
         // FIXME: How about RowDerive()?
         pub struct Row {
             #(#COL_ATTR pub #COL_NAME: #COL_ELEMENT,)*
@@ -213,14 +185,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         // `struct RowMut` would require keeping the primary key a ref.
-    };
+    }};
 
-    let NEED_FLUSH = table.if_tracking(quote! {_needs_flush: bool,});
-    let NEED_FLUSH_INIT = table.if_tracking(quote! { _needs_flush: true, });
+    let COL_MUT: &Vec<_> = &table.cols.iter()
+        .map(|x| if x.indexed { "EditA" } else { "MutA" })
+        .map(i)
+        .collect();
 
-    write_quote! {
-        [table, out, "Table locks"],
-
+    out! { ["Table locks"] {
         /**
          * The table, locked for reading.
          * */
@@ -233,38 +205,25 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * */
         pub struct Write<'u> {
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
-            #NEED_FLUSH
-            #(pub #COL_NAME: MutA<'u, #COL_TYPE>,)*
+            #(pub #COL_NAME: #COL_MUT<'u, #COL_TYPE>,)*
         }
 
-        impl<'u> tables::LockedTable for Read<'u> {
+        impl<'u> LockedTable for Read<'u> {
             type Row = Row;
             fn len(&self) -> usize { self.len() }
         }
-        impl<'u> tables::LockedTable for Write<'u> {
+        impl<'u> LockedTable for Write<'u> {
             type Row = Row;
             fn len(&self) -> usize { self.len() }
         }
-    };
+    }};
 
-    write_quote! {
-        [table, out, "`context!` duck-type implementation"],
-
-        // Hidden because `$table::read()` is shorter than `$table::Read::lock()`.
-        impl<'u> Write<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { write(universe) }
-            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("mut ", #TABLE_NAME_STR) }
-        }
-
-        impl<'u> Read<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { read(universe) }
-            #[doc(hdiden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
-        }
-    }
 
     let GET_ROW = quote_if(table.clone, quote! {
+        use self::v11::index::Checkable;
         /** Retrieves a structure containing a clone of the value in each column. (R/W) */
         pub fn get_row<R: Checkable<Row=Row>>(&self, index: R) -> Row {
+            // FIXME: get_row + FreeList == ??
             let index = index.check(self);
             Row {
                 #(#COL_NAME: self.#COL_NAME2[index].clone(),)*
@@ -272,7 +231,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     });
 
-    let DUMP_ROWS = quote_if(table.clone, quote! {
+    let DUMP_ROWS = quote_if(table.clone && !table.consistent, quote! {
         /** Allocates a Vec filled with every Row in the table. (R/W) */
         pub fn dump(&self) -> Vec<Row> {
             let mut ret = Vec::with_capacity(self.len());
@@ -283,28 +242,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     });
 
-    let RW_FUNCTIONS = quote! {
-        /** Returns the number of rows in the table. (R/W) */
-        // And assumes that the columns are all the same length.
-        // But there shouldn't be any way to break that invariant.
-        pub fn len(&self) -> usize {
-            self.#COL0.data().len()
+    let RW_FUNCTIONS_CONSISTENT = quote! {
+        /** Returns an iterator over each nonrow in the table that is not marked for deletion.
+         * (R/W) */
+        pub fn iter(&self) -> ConsistentIter<Self> {
+            let checked_iter = CheckedIter::from(self, self.row_range());
+            ConsistentIter::new(checked_iter, &self._lock.free)
         }
 
-        /// Gets the last `RowId`.
-        pub fn last(&self) -> Option<RowId> {
-            let r = self.len();
-            if r == 0 {
-                None
-            } else {
-                Some(fab(r - 1))
-            }
+        /** Returns true if `i` is a valid RowId. */
+        pub fn contains(&self, index: RowId) -> bool {
+            index.to_usize() < self.len() && !self._lock.free.contains_key(&index.to_usize())
         }
-
-        pub fn row_range(&self) -> RowRange<RowId> {
-            (fab(0)..fab(self.len())).into()
-        }
-
+    };
+    let RW_FUNCTIONS_INCONSISTENT = quote! {
         /** Returns an iterator over each row in the table. (R/W) */
         pub fn iter(&self) -> CheckedIter<Self> {
             CheckedIter::from(self, self.row_range())
@@ -315,8 +266,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             index.to_usize() < self.len()
         }
 
-        #GET_ROW
-
         /** Retrieves a structure containing a reference to each value in each column. (R/W) */
         pub fn get_row_ref(&self, index: RowId) -> RowRef {
             RowRef {
@@ -324,93 +273,103 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
 
+        #GET_ROW
+
         #DUMP_ROWS
 
-        /** Release this lock. (R/W) */
-        pub fn close(self) {} // Highly sophisticated! :D
         // FIXME: Join
     };
-    write_quote! {
-        [table, out, "methods common to both Read and Write"],
+    let RW_FUNCTIONS_BOTH = quote! {
+        /** Returns the number of rows in the table. (R/W) */
+        // And assumes that the columns are all the same length.
+        // But there shouldn't be any way to break that invariant.
+        pub fn len(&self) -> usize {
+            self.#COL0.deref().data().len()
+        }
+
+        /// Gets the last `RowId`.
+        pub fn last(&self) -> Option<RowId> {
+            // FIXME: FreeList!
+            let r = self.len();
+            if r == 0 {
+                None
+            } else {
+                Some(RowId::from_usize(r - 1))
+            }
+        }
+
+        pub fn row_range(&self) -> RowRange<RowId> {
+            (RowId::new(0)..RowId::from_usize(self.len())).into()
+        }
+    };
+    let RW_FUNCTIONS = if table.consistent { RW_FUNCTIONS_CONSISTENT } else { RW_FUNCTIONS_INCONSISTENT };
+    out! { ["methods common to both Read and Write"] {
         // We're only repeating ourselves twice here.
 
         impl<'u> Read<'u> {
             #RW_FUNCTIONS
+            #RW_FUNCTIONS_BOTH
         }
         impl<'u> Write<'u> {
             #RW_FUNCTIONS
+            #RW_FUNCTIONS_BOTH
         }
-    }
+    }};
 
-    if table.track_changes {
-        write_quote! {
-            [table, out, "Change tracking"],
-
-            impl<'a> Drop for Write<'a> {
-                fn drop(&mut self) {
-                    if self._needs_flush {
-                        panic!("Changes to {} were not flushed", TABLE_NAME);
-                    }
-                }
-            }
-
-            use std::any::Any;
-
-            /// Trackers receive events from tables when `flush` is called.
-            /// The function can't lock the table.
-            /// `event.0` is the row's original location; `event.1` is `Some(new_location)`, or
-            /// `None` if the row was deleted.
-            pub type Tracker = Box<FnMut(&Universe, &[(RowId, Option<RowId>)]) + Send + Sync>;
+    out! {
+        table.consistent => ["Change tracking"] {
+            use v11::tracking::Tracker;
 
             /// Add a tracker.
-            pub fn register_tracker(universe: &Universe, tracker: Tracker) {
-                let mut gt = get_generic_table(universe).write().unwrap();
+            pub fn register_tracker(universe: &Universe, tracker: Box<Tracker + Send + Sync>) {
+                let gt = get_generic_table(universe).write().unwrap();
                 let mut trackers = gt.trackers.write().unwrap();
-                trackers.push(Box::new(tracker) as PBox);
+                trackers.push(tracker);
             }
 
             impl<'a> Write<'a> {
                 /// Allow the `Write` lock to be closed without flushing changes. Be careful!
                 /// The changes need to be flushed eventually!
-                pub fn noflush(&mut self) {
-                    self._needs_flush = false;
+                pub fn no_flush(mut self) {
+                    self._lock.need_flush = false;
                 }
 
-                /// Propagate all changes made thus far to the Trackers.
-                pub fn flush(&mut self, universe: &Universe) {
-                    {
-                        let events = &self._events.data().data[..];
-                        let gt = get_generic_table(universe).write().unwrap();
-                        let mut trackers = gt.trackers.write().unwrap();
-                        for tracker in trackers.iter_mut() {
-                            let tracker: &mut Tracker = intern::desync_box_mut(tracker).downcast_mut()
-                                .expect("Tracker downcast failed");
-                            tracker(universe, events);
-                        }
-                    }
-                    self._events.clear();
-                    self._needs_flush = false;
+                /// Propagate all changes
+                pub fn flush(mut self, universe: &Universe) {
+                    if self._lock.skip_flush() { return; }
+                    let mut flush = self._lock.acquire_flush();
+                    ::std::mem::drop(self);
+                    flush.flush();
+                    let mut gt = get_generic_table(universe).write().unwrap();
+                    flush.restore(&mut gt);
                 }
 
-                fn event(&mut self, event: Event<RowId>) {
-                    self._events.push(event);
-                    self._needs_flush = true;
+                pub fn delete(&mut self, row: RowId) {
+                    self._lock.delete.push(row.to_usize());
+                    self.event_delete(row.to_usize());
+                    // FIXME: Updating indexes? Maybe we can self-track?
                 }
             }
-        }
+
+            /// Makes sure the flush requirement has been acknowledged
+            impl<'a> Drop for Write<'a> {
+                fn drop(&mut self) {
+                    if self._lock.need_flush {
+                        panic!("Changes to {} were not flushed", TABLE_NAME);
+                    }
+                }
+            }
+        };
     }
 
-    if table.track_changes {
-        write_quote! {
-            [table, out, "Extra drops (Drop for Write implemented above)"],
+    out! {
+        table.consistent => ["Extra drops"] {
             /// Prevent moving out to improve `RefA` safety.
             impl<'u> Drop for Read<'u> {
                 fn drop(&mut self) {}
             }
-        }
-    } else {
-        write_quote! {
-            [table, out, "Extra drops"],
+        };
+        ["Extra drops"] {
             /// Prevent moving out to improve `RefA` safety.
             impl<'u> Drop for Read<'u> {
                 fn drop(&mut self) {}
@@ -420,55 +379,79 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             impl<'u> Drop for Write<'u> {
                 fn drop(&mut self) {}
             }
-        }
+        };
     }
 
-    let EVENT_CLEAR = table.if_tracking(quote! { self.event(Event::ClearAll); });
-    let EVENT_PUSH = table.if_tracking(quote! { self.event(Event::Create(rowid)); });
+    out! {
+        table.consistent => ["event logging for consistent tables"] {
+            impl<'u> Write<'u> {
+                fn event_cleared(&mut self) { self._lock.cleared(); }
+                fn event_add(&mut self, i: usize) { self._lock.add.push(i); }
+                fn event_delete(&mut self, i: usize) { self._lock.delete.push(i); }
+                fn event_add_reserve(&mut self, n: usize) { self._lock.add.reserve(n) }
+                fn event_delete_reserve(&mut self, n: usize) { self._lock.delete.reserve(n) }
+            }
+        };
+        ["event ignoring for inconsistent_columns tables"] {
+            impl<'u> Write<'u> {
+                #[inline] fn event_cleared(&mut self) {}
+                #[inline] fn event_add(&mut self, _: usize) {}
+                #[inline] fn event_delete(&mut self, _: usize) {}
+                #[inline] fn event_add_reserve(&mut self, _: usize) {}
+                #[inline] fn event_delete_reserve(&mut self, _: usize) {}
+            }
+        };
+    }
 
-    write_quote! {
-        [table, out, "safe mut methods"],
+    out! { ["mut methods safe for all guarantees"] {
         impl<'u> Write<'u> {
             /** Prepare the table for insertion of a specific amount of data. `self.len()` is
              * unchanged. */
             pub fn reserve(&mut self, additional: usize) {
-                #(self.#COL_NAME.data_mut().reserve(additional);)*
+                #(self.#COL_NAME.deref_mut().data_mut().reserve(additional);)*
+                self.event_add_reserve(additional);
             }
 
-            /** Removes every row from the table. */
+            /// Removes every row from the table.
             pub fn clear(&mut self) {
-                #(self.#COL_NAME.data_mut().clear();)*
-                #EVENT_CLEAR
+                #(self.#COL_NAME.deref_mut().data_mut().clear();)*
+                self.event_cleared();
             }
 
-            /// Returns the RowId of the next row that would be inserted.
-            pub fn next_pushed(&self) -> RowId {
-                // FIXME: And if we've got a freelist?
-                fab(self.len())
-            }
-
-            // Not really 'safe', but it's private.
+            /// Not really 'safe', but it's private.
+            /// Add a Row to the end of the table, without checking the free-list.
             #[inline]
-            fn push_end(&mut self, row: Row) -> RowId {
-                let rowid = self.next_pushed();
-                #(self.#COL_NAME.data_mut().push(row.#COL_NAME2);)*
-                #EVENT_PUSH
+            fn push_end_unchecked(&mut self, row: Row) -> RowId {
+                #(self.#COL_NAME.deref_mut().data_mut().push(row.#COL_NAME2);)*
+                let rowid = self.last().unwrap();
+                self.event_add(rowid.to_usize());
                 rowid
             }
 
-            #[inline]
-            fn swap_row(&mut self, i: RowId, row: &mut Row) {
-                use std::mem::swap;
-                #(swap(&mut self.#COL_NAME[i], &mut row.#COL_NAME2);)*
-            }
         }
+    }};
+
+    out! {
+        table.sorted || !table.immutable => ["swap_row() for retain & merge"] {
+            impl<'u> Write<'u> {
+                #[inline]
+                // Making this public would break many guarantees!
+                fn swap_row(&mut self, i: RowId, row: &mut Row) {
+                    use std::mem::swap;
+                    #(swap(&mut self.#COL_NAME[i], &mut row.#COL_NAME2);)*
+                }
+            }
+        };
     };
 
-    if let Some(primary) = table.merge {
-        write_quote! {
-            [table, out, "mut methods for always-sorted table"],
-
+    out! {
+        table.sorted => ["row pushing for sorted tables"] {
             impl<'u> Write<'u> {
+                pub fn retain<F: Fn(&Self, I) -> bool>(&mut self, f: F) {
+                    unimplemented!();
+                    let _check_my_source = Vec::retain;
+                }
+
                 pub fn merge<IT: Iterator<Item=Row>, I: Into<AssertSorted<IT>>>(&mut self, rows: I)
                 where IT: IntoIterator<Row>
                 {
@@ -495,7 +478,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                     }
                                 },
                             };
-                            if i < self.len() && &self.#primary[i] <= next {
+                            if i < self.len() && &self.get_row(i) <= next {
                                 None
                             } else {
                                 Some(side)
@@ -530,54 +513,85 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
         };
-    } else {
-        write_quote! {
-            [table, out, "mut methods"],
-
+        ["row pushing for unsorted tables"] {
             impl<'u> Write<'u> {
                 #[inline]
-                pub fn set_row(&mut self, index: RowId, row: Row) {
+                fn set_row_raw(&mut self, index: RowId, row: Row) {
                     #(self.#COL_NAME[index] = row.#COL_NAME2;)*
                 }
 
-                // FIXME: freelist
-
                 /** Populate the table with data from the provided iterator. */
-                #[inline]
                 pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
                     self.reserve(data.size_hint().0);
                     for row in data {
-                        self.push_end(row);
+                        self.push(row);
                     }
                 }
 
-                /// Appends a single Row to the end of the table.
-                /// Returns its RowId.
+                /// Appends a single Row to the table.
+                /// Returns its RowId. This is not necessarily at the end of the table!
+                // In retrospect 'push' might have been a poor name.
                 #[inline]
                 pub fn push(&mut self, row: Row) -> RowId {
-                    self.push_end(row)
+                    let expect = if cfg!(test) {
+                        Some(self.next_pushed())
+                    } else {
+                        None
+                    };
+                    let next = self._lock.free.keys().next().cloned();
+                    let i = if let Some(old) = next {
+                        self._lock.free.remove(&old);
+                        self.event_add(old);
+                        let old = RowId::from_usize(old);
+                        // This is a very simple implementation!
+                        self.set_row_raw(old, row);
+                        old
+                    } else {
+                        self.push_end_unchecked(row)
+                    };
+                    if cfg!(test) {
+                        assert_eq!(Some(i), expect);
+                    }
+                    // It's not a checked index. I think it likely that you'll generally want an
+                    // unchecked index when using this.
+                    i
                 }
 
-                /// Push an 'array' of values. Contiguity is guaranteed.
-                pub fn push_array<I>(&mut self, i: I) -> RowRange<RowId>
+                /// Returns the RowId of the next row that would be inserted.
+                pub fn next_pushed(&self) -> RowId {
+                    let i = self._lock.free
+                        .keys()
+                        .next()
+                        .cloned()
+                        .unwrap_or(self.len());
+                    RowId::from_usize(i)
+                }
+
+                /// Push an 'array' of values. Contiguity guaranteed!
+                pub fn push_array<I>(&mut self, mut i: I) -> RowRange<RowId>
                 where I: ExactSizeIterator<Item=Row>
                 {
                     // This implementation doesn't need ExactSizeIterator, but future configurations
-                    // (FreeList) will require it.
-                    let start = self.next_pushed();
-                    self.push_all(i);
-                    let end = self.last().unwrap_or(start);
+                    // using FreeList might require it.
+                    let start = if let Some(row) = i.next() {
+                        self.push_end_unchecked(row)
+                    } else {
+                        return RowRange::empty();
+                    };
+                    let mut end = start;
+                    for row in i {
+                        end = self.push_end_unchecked(row);
+                    }
                     RowRange {
-                        start: start,
-                        end: end,
+                        start,
+                        end: end.next(),
                     }
                 }
             }
         };
     }
 
-    write_quote! {
-        [table, out, "Lock & Load"],
+    out! { ["Lock & Load"] {
 
         use std::mem::transmute;
         use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
@@ -607,7 +621,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 // This does require heap allocation tho...
             };)*
             Read {
-                _lock: _lock,
+                _lock,
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -631,18 +645,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
 
 
-
         fn convert_write_guard(mut _lock: RwLockWriteGuard<GenericTable>) -> Write {
             #(let #COL_NAME = {
                 let got = _lock.get_column_mut::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
-                    MutA::new(transmute(got))
+                    #COL_MUT::new(transmute(got))
                     // See comment about transmute in `convert_read_guard()`.
                 }
             };)*
             Write {
-                _lock: _lock,
-                #NEED_FLUSH_INIT
+                _lock,
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -678,14 +690,26 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             ))*;
             table.register();
         }
-    };
+    }};
 
-    if table.save {
-        write_quote! {
-            [table, out, "Save"],
+    out! { ["`context!` duck-type implementation"] {
 
+        // Hidden because `$table::read()` is shorter than `$table::Read::lock()`.
+        impl<'u> Write<'u> {
+            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { write(universe) }
+            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("mut ", #TABLE_NAME_STR) }
+        }
+
+        impl<'u> Read<'u> {
+            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { read(universe) }
+            #[doc(hdiden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
+        }
+    }};
+
+    out! {
+        // FIXME: Track free-list
+        table.save => ["Save"] {
             use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
-
 
             impl<'u> Read<'u> {
                 /// Row-based encoding.
@@ -787,285 +811,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
-    /*if !table.no_complex_mut {
-        // These are baaasically incompatible w/ change tracking.
-        // 1: The rug algorithm is already very complex.
-        // 2: A simpler algorithm would do more allocation.
-        // 3: Removing a single item generates O(n) updates; extremely messy.
-        // (We could have a 'bulk-shift' event...)
-        // (We could possibly expose these 'at your own risk', without actually doing the tracking,
-        // if `track_changes` is on.)
-        write_quote! {
-            [table, out, "Complicated mut algorithms (non-tracking edition)"],
-
-            /**
-             * Ergonomics for calling `Write::visit` with a closure that does not add values.
-             * 
-             * `#TABLE_NAME.visit(|table, i| -> #TABLE_NAME::ClearVisit { … })`
-             * */
-            pub type ClearVisit = v11::Action<Row, intern::VoidIter<Row>>;
-
-            impl<'u> Write<'u> {
-                /**
-                 * Keep or discard rows according to the provided closure.
-                 * If it returns `true`, then the row is kept.
-                 * If it returns `false`, then the row is removed.
-                 * */
-                pub fn filter<F>(&mut self, mut closure: F)
-                    where F: FnMut(&mut Write, RowId) -> bool
-                {
-                    self.visit(|wlock, rowid| -> ClearVisit {
-                        if closure(wlock, rowid) {
-                            v11::Action::Continue
-                        } else {
-                            v11::Action::Remove
-                        }
-                    });
-                }
-
-                /**
-                 * Invokes the closure on every entry in the table. For each row, the closure can:
-                 * *. remove that row
-                 * *. modify that row
-                 * *. do nothing to that row
-                 * *. return an iterator to append an arbitrary number of rows
-                 * It is to `Vec.retain`, but also allows insertion.
-                 *
-                 * This method can't insert rows into an empty table.
-                 *
-                 * If you want to remove & insert at the same time, you can do:
-                 * ```
-                 * #TABLE_NAME.set(row_id, iter.next().unwrap());
-                 * return Action::Add(iter);
-                 * 
-                 * In addition to whatever the backing `TCol`s allocate, this function also allocates a
-                 * `Vec` whose size is the number of inserted rows.
-                 * ```
-                 * */
-                pub fn visit<IT, F>(&mut self, mut closure: F) // FIXME: This is dead. Kill it.
-                    where IT: ::std::iter::Iterator<Item=Row>,
-                           F: FnMut(&mut Write, RowId) -> v11::Action<Row, IT>
-                {
-                    // This is... complex.
-                    // It's a "rug pushing" algorithm; you push a free-standing rug, and it makes a
-                    // loop, and you can push the loop along until it hits the end & makes the rug
-                    // longer. But also parts of the rug can be removed, causing the loop to collapse
-                    // before reaching the end.
-
-                    // This algorithm is probably close to maximum efficiency?
-                    // About `number_of_insertions * sizeof(Row)` bytes of memory is allocated
-                    // for internal temporary usage.
-
-                    use std::collections::vec_deque::VecDeque;
-                    // Temporary queue of rows that were displaced by inserts. In the middle of
-                    // iteration, the length of this list is equal to the number of inserted rows.
-                    // If this queue is not empty, then each visited row is pushed onto it,
-                    // replaced with the popped front of the queue, and then that is what is
-                    // actually visited. Should the end of the rowset be reached, this buffer is
-                    // appended, and iteration continues.
-                    let mut displaced_buffer: VecDeque<Row> = VecDeque::new();
-                    // This is the read offset of the index, used when rows have been removed.
-                    // It `rm_off > 0 && !displaced_buffer.is_empty()`, then rows from
-                    // displaced_buffer need to be copied to the columns.
-                    // It can be thought of as 'negative displacement_buffer size'.
-                    let mut rm_off: usize = 0;
-                    // Rows that have just been inserted must not be visited.
-                    let mut skip = 0;
-
-                    let mut index = 0usize;
-                    fn flush_displaced(index: &mut usize,
-                                       rm_off: &mut usize,
-                                       all: &mut Write,
-                                       displaced_buffer: &mut VecDeque<Row>) {
-                        while *rm_off > 0 && !displaced_buffer.is_empty() {
-                            all.set_row(fab(*index), displaced_buffer.pop_front().unwrap());
-                            *index += 1;
-                            *rm_off -= 1;
-                        }
-                    }
-
-                    loop {
-                        let len = self.len();
-                        if index + rm_off >= len {
-                            if displaced_buffer.is_empty() {
-                                if rm_off > 0 {
-                                    #(self.#COL_NAME.data_mut().truncate(len - rm_off);)*
-                                    rm_off = 0;
-                                }
-                                break;
-                            }
-                            flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer); // how necessary?
-                            while let Some(row) = displaced_buffer.pop_front() {
-                                #(self.#COL_NAME.data_mut().push(row.#COL_NAME2);)*
-                                if skip > 0 {
-                                    skip -= 1;
-                                    index += 1;
-                                }
-                            }
-                            continue; // 'goto top_of_block'.
-                        }
-                        if let Some(replacement) = displaced_buffer.pop_front() {
-                            // Swap between '`here`' and the first displaced row.
-                            // No garbage is produced.
-                            displaced_buffer.push_back(self.get_row(fab(index)));
-                            self.set_row(fab(index), replacement);
-                            assert_eq!(rm_off, 0);
-                        }
-                        if rm_off > 0 {
-                            // Move a row from the end of the garbage gap to the beginning.
-                            // The front of the garbage gap is no longer garbage, and the back is
-                            // now garbage.
-                            let tmprow = self.get_row(fab(index + rm_off));
-                            self.set_row(fab(index), tmprow);
-                        }
-                        // An invariant needs to be true at this point: self[index] is valid, not
-                        // garbage data. What could make it garbage?
-                        // This first loop, it's going to be fine.
-                        // If remove has been used, then there are worries.
-                        let action = if skip == 0 {
-                            closure(self, fab(index))
-                        } else {
-                            skip -= 1;
-                            v11::Action::Continue
-                        };
-                        match action {
-                            v11::Action::Break => {
-                                if rm_off == 0 && displaced_buffer.is_empty() {
-                                    // Don't need to do anything
-                                    break;
-                                } else if !displaced_buffer.is_empty() {
-                                    // simply stick 'em on the end
-                                    while let Some(row) = displaced_buffer.pop_front() {
-                                        #(self.#COL_NAME.data_mut().push(row.#COL_NAME2);)*
-                                    }
-                                    // And we don't visit them.
-                                    break;
-                                } else if rm_off != 0 {
-                                    // Trim.
-                                    let start = index + 1;
-                                    #(self.#COL_NAME.data_mut().remove_slice(start..start+rm_off);)*
-                                    rm_off = 0;
-                                    break;
-                                } else {
-                                    // FIXME: #{} needs to be a thing. This little thing isn't
-                                    // worth the hassle.
-                                    // https://github.com/dtolnay/quote/issues/10
-                                    // panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer);
-                                    panic!("Shouldn't be here: rm_off={:?}, displaced_buffer={:?}", rm_off, displaced_buffer.len());
-                                }
-                            },
-                            v11::Action::Continue => { index += 1; },
-                            v11::Action::Remove => {
-                                match displaced_buffer.pop_front() {
-                                    None => { rm_off += 1; },
-                                    Some(row) => {
-                                        self.set_row(fab(index), row);
-                                        index += 1;
-                                    },
-                                }
-                            },
-                            v11::Action::Add(iter) => {
-                                {
-                                    // Must do a little dance; first item returned by the iterator
-                                    // goes to the front of the queue, which is unnatural.
-                                    displaced_buffer.reserve(iter.size_hint().0);
-                                    let mut added = 0;
-                                    for row in iter {
-                                        displaced_buffer.push_back(row);
-                                        added += 1;
-                                    }
-                                    skip += added;
-                                    for _ in 0..added {
-                                        let tmprow = displaced_buffer.pop_back().unwrap();
-                                        displaced_buffer.push_front(tmprow);
-                                    }
-                                }
-                                flush_displaced(&mut index, &mut rm_off, self, &mut displaced_buffer);
-                                index += 1;
-                            }
-                        }
-                    }
-                    assert!(displaced_buffer.is_empty());
-                    assert_eq!(rm_off, 0);
-                }
-            }
-        };
-    }*/
-
-    if table.generic_sort || !table.sort_by.is_empty() {
-        let PUB = if table.generic_sort {
-            i("pub")
-        } else {
-            i("")
-        };
-        write_quote! {
-            [table, out, "Generic sort"],
-
-            use std::cmp::Ordering;
-            impl<'u> Write<'u> {
-                /// Sorts the table using the provided function.
-                #PUB fn sort_with<C>(&mut self, mut compare: C)
-                where C: FnMut(&Write<'u>, RowId, RowId) -> Ordering
-                {
-                    // We do this the lame way to avoid having to implement our own sorting
-                    // algorithm.
-                    // FIXME: Liberate std::collections::slice::merge_sort()
-                    // Or maybe https://github.com/benashford/rust-lazysort ?
-                    let mut indices: Vec<RawType> = (0..(self.len() as RawType)).collect();
-                    {
-                        indices.sort_by(|a: &RawType, b: &RawType| { compare(self, at(*a), at(*b)) });
-                    }
-                    self.apply_resort(indices);
-                }
-
-                fn apply_resort(&mut self, indices: Vec<RawType>) {
-                    // Very inefficient!
-                    let len = indices.len();
-                    #({
-                        let mut tmp = Vec::with_capacity(len);
-                        let mut col = &mut self.#COL_NAME;
-                        {
-                            for i in &indices {
-                                tmp.push(col[at(*i)]);
-                                // This can have us jumping around a lot, making the cache sad.
-                            }
-                        }
-                        col.data_mut().clear();
-                        col.data_mut().append(&mut tmp);
-                    })*
-                }
-            }
-        }
-    }
-
-    for sort_key in &table.sort_by {
-        let SORT_BY_COL = i(format!("sort_by_{}", sort_key));
-        let SORTED_BY_COL = i(format!("sorted_by_{}", sort_key));
-        let SORT_KEY = i(sort_key);
-
-        write_quote! {
-            [table, out, "sorting"],
-
-            impl<'u> Write<'u> {
-                /**
-                 * Sort the table by the indicated key.
-                 * */
-                pub fn #SORT_BY_COL(&mut self) {
-                    self.sort_with(|me: &Write<'u>, a: RowId, b: RowId| {
-                        let col = &me.#SORT_KEY;
-                        col[a].cmp(&col[b])
-                    })
-                }
-            }
-            /// Return the table locked for writing and sorted by $column.
-            pub fn #SORTED_BY_COL(universe: &Universe) -> Write {
-                let mut w = write(universe);
-                w.#SORT_BY_COL();
-                w
-            }
-        }
-    }
-    // FIXME: sorting change tracking
-
+    writeln!(out, "}} /* End {} */", table.name)?;
     Ok(())
 }

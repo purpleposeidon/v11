@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use std::fmt;
 use tables::{GetTableName, LockedTable};
 use num_traits::{ToPrimitive, One, Bounded};
+use num_traits::cast::FromPrimitive;
 
 // #[derive] nothing; stupid phantom data...
 pub struct GenericRowId<T: GetTableName> {
@@ -22,6 +23,9 @@ impl<T: GetTableName> GenericRowId<T> {
         }
     }
 
+    pub fn from_usize(i: usize) -> Self where T::Idx: FromPrimitive {
+        Self::new(T::Idx::from_usize(i).unwrap())
+    }
     pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
     pub fn to_raw(&self) -> T::Idx { self.i }
 
@@ -58,6 +62,7 @@ where T::Idx: fmt::Display
 #[derive(Hash, PartialOrd, Ord, Eq, PartialEq)]
 pub struct CheckedRowId<'a, T: LockedTable + 'a> {
     i: <T::Row as GetTableName>::Idx,
+    // FIXME: This should be a PhantomData. NBD since these things are short-lived.
     table: &'a T,
 }
 impl<'a, T: LockedTable + 'a> Clone for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {
@@ -67,6 +72,7 @@ impl<'a, T: LockedTable + 'a> Clone for CheckedRowId<'a, T> where <T::Row as Get
 }
 impl<'a, T: LockedTable + 'a> Copy for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {}
 impl<'a, T: LockedTable + 'a> CheckedRowId<'a, T> {
+    /// Create a `CheckedRowId` without actually checking.
     pub unsafe fn fab(i: <T::Row as GetTableName>::Idx, table: &'a T) -> Self {
         Self { i, table }
     }
@@ -170,6 +176,13 @@ impl<R> From<Range<R>> for RowRange<R> {
     }
 }
 impl<T: GetTableName> RowRange<GenericRowId<T>> {
+    pub fn empty() -> Self {
+        RowRange {
+            start: GenericRowId::default(),
+            end: GenericRowId::default(),
+        }
+    }
+
     /// Return the `n`th row after the start, if it is within the range.
     pub fn offset(&self, n: T::Idx) -> Option<GenericRowId<T>> {
         use num_traits::CheckedAdd;
@@ -318,4 +331,35 @@ impl<'a, T: LockedTable + 'a> Checkable for CheckedRowId<'a, T> {
         }
     }
     fn uncheck(self) -> GenericRowId<T::Row> { GenericRowId::new(self.i) }
+}
+
+
+use ::joincore::{JoinCore, Join};
+use std::collections::btree_map;
+/// A `CheckedIter` that skips rows marked for deletion.
+pub struct ConsistentIter<'a, T: LockedTable + 'a> {
+    rows: CheckedIter<'a, T>,
+    deleted: JoinCore<btree_map::Keys<'a, usize, ()>>,
+}
+impl<'a, T: LockedTable + 'a> ConsistentIter<'a, T> {
+    pub fn new(rows: CheckedIter<'a, T>, deleted: &'a btree_map::BTreeMap<usize, ()>) -> Self {
+        Self {
+            rows,
+            deleted: JoinCore::new(deleted.keys()),
+        }
+    }
+}
+impl<'a, T: LockedTable + 'a> Iterator for ConsistentIter<'a, T> {
+    type Item = CheckedRowId<'a, T>;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(row) = self.rows.next() {
+            match self.deleted.join(row.to_usize(), |l, r| l.cmp(r)) {
+                // This join is a bit backwards.
+                Join::Next | Join::Stop => return Some(row),
+                Join::Match(_) => continue,
+            }
+        }
+        None
+    }
 }
