@@ -1,14 +1,19 @@
 
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
 /// guarantee, which is provided by `#[kind = "public"]`.
+// FIXME: https://github.com/rust-lang/rust/issues/29628
+// https://doc.rust-lang.org/beta/unstable-book/language-features/on-unimplemented.html
+// #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
+// to structural changes in the `#[foreign]` table."]
 pub trait Tracker {
-    fn track(&self, deleted: &[usize], added: &[usize]);
-    fn cleared(&self);
+    fn cleared(&mut self, universe: &Universe);
+    fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]);
 }
 
 use std::sync::{Arc, RwLock};
 use std::mem;
 use tables::GenericTable;
+use Universe;
 
 #[doc(hidden)]
 pub struct GenericFlush {
@@ -20,13 +25,13 @@ pub struct GenericFlush {
 #[doc(hidden)]
 #[must_use]
 impl GenericFlush {
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self, universe: &Universe) {
         let mut trackers = self.trackers.write().unwrap();
         for tracker in trackers.iter_mut() {
             if self.cleared {
-                tracker.cleared();
+                tracker.cleared(universe);
             }
-            tracker.track(&self.delete[..], &self.add[..]);
+            tracker.track(universe, &self.delete[..], &self.add[..]);
         }
     }
 
@@ -66,5 +71,10 @@ impl GenericTable {
         self.add.clear();
         self.delete.clear();
         self.free.clear();
+    }
+
+    pub fn dirty(&mut self) -> &mut Self {
+        self.need_flush = true;
+        self
     }
 }

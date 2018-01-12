@@ -77,7 +77,18 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
         parser.expect(&Token::OpenDelim(DelimToken::Brace))?;
         parser.parse_seq_to_end(&Token::CloseDelim(DelimToken::Brace), commas, |parser| {
             // #[attrs] column_name: [ElementType; ColumnType<ElementType>],
-            let attrs = parser.parse_outer_attributes()?;
+            let mut indexed = false;
+            let mut foreign = false;
+            let attrs = parser.parse_outer_attributes()?
+                .into_iter()
+                .filter(|attr| {
+                match format!("{}", attr.value.name).as_str() {
+                    "index" => indexed = true,
+                    "foreign" => foreign = true,
+                    _ => return true,
+                }
+                false
+            }).collect();
             let name = parser.parse_ident()?;
             parser.expect(&Token::Colon)?;
             parser.expect(&Token::OpenDelim(DelimToken::Bracket))?;
@@ -90,7 +101,8 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 name,
                 element,
                 colty,
-                indexed: false,
+                indexed,
+                foreign,
             })
         })?
     };

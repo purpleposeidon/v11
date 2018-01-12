@@ -8,6 +8,9 @@ use tables::{GetTableName, LockedTable};
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
 
+use Universe;
+use tracking::Tracker;
+
 // #[derive] nothing; stupid phantom data...
 pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
@@ -32,6 +35,15 @@ impl<T: GetTableName> GenericRowId<T> {
     pub fn next(&self) -> Self {
         Self::new(self.i + T::Idx::one())
     }
+
+    pub fn register_tracker(universe: &Universe, t: Box<Tracker + Send + Sync>) {
+        let gt = universe.get_generic_table(T::get_domain().get_id(), T::get_name());
+        let mut gt = gt.write().unwrap();
+        gt.add_tracker(t);
+    }
+
+    pub fn get_domain() -> ::domain::DomainName { T::get_domain() }
+    pub fn get_name() -> ::tables::TableName { T::get_name() }
 }
 impl<T: GetTableName> Default for GenericRowId<T> {
     fn default() -> Self {

@@ -11,6 +11,70 @@ pub use v11_macros::*;
 define_invoke_proc_macro!(__v11_invoke_table);
 
 /**
+
+This macro generates a column-based data table.
+(It is currently implemented using the procedural-masquerade hack.)
+
+The syntax for this macro is:
+```ignored
+table! {
+    #[kind = "…"]
+    pub DOMAIN::name_of_table {
+        column_name_1: [Element1; ColumnType1],
+        column_name_2: [Element2; ColumnType2],
+        column_name_3: [Element3; ColumnType3],
+        // …
+    }
+}
+```
+where each `ColumnType` is a `TCol`, and Element is `<ColumnType as TCol>::Element`.
+
+Here are some example columns:
+
+* `[i32; VecCol<i32>]` (a column implemented with `Vec<i32>`)
+* `[u8; SegCol<u8>]` (a column of u8 stored in non-contiguous chunks)
+* `[bool; BoolCol]` (a column specialized for single bit storage)
+
+(As a special convenience, `VecCol`, `SegCol`, and `BoolCol` are automatically `use`d by the macro.)
+
+Table and column names must be valid Rust identifiers that also match the regex
+`[A-Za-z][A-Za-z_0-9]*`.
+
+Column elements must implement `Storable`.
+Column types must implement `TCol`.
+
+# Table kinds and Guarantees
+
+The 'kind' of a table selects what functions are generated and what guarantees are upheld.
+
+## `#[kind = "public"]`
+
+Rows in public tables can be used as *foreign keys* in other tables.
+The main guarantee of the public table is that it is kept consistent with such tables:
+the main row and its linkages are (with some user-provided implementation!) deleted as a unit.
+
+## `#[kind = "append"]`
+
+Rows in an "append" table can not be removed.
+
+(TODO: Implement other kinds.)
+
+# Using the generated table
+
+A lock on the table must be obtained using `$tablename::read(universe)`.
+
+(FIXME: Link to `cargo doc` of a sample project. In the meantime, uh, check out `tests/tables.rs` I guess.)
+
+# Table Attributes
+
+## `#[rowid = "usize"]`
+Sets what the (underlying) primitive is used for indexing the table. The default is `usize`.
+This is useful when this table is going to have foreign keys pointing at it.
+
+<hr>
+
+# OLD
+
 This macro generates a column-based data table.
 (It is currently implemented using the procedural-masquerade hack.)
 
@@ -116,9 +180,28 @@ Equivalent to `Version` and `Static`.
 **/
 #[macro_export]
 macro_rules! table {
-    ($($args:tt)*) => {
-        __v11_invoke_table! {
-            __v11_internal_table!($($args)*)
+    (
+        $(#[$meta:meta])*
+        [$domain:ident/$name:ident]
+        $($args:tt)*
+    ) => {
+        // It'd be nicer to generate 'mod' in the procmacro, but the procedural masquerade hack
+        // can't be invoked twice in the same module.
+        mod $name {
+            __v11_invoke_table! {
+                __v11_internal_table!($(#[$meta])* $domain::$name $($args)*)
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
+        pub [$domain:ident/$name:ident]
+        $($args:tt)*
+    ) => {
+        pub mod $name {
+            __v11_invoke_table! {
+                __v11_internal_table!($(#[$meta])* $domain::$name $($args)*)
+            }
         }
     };
 }
@@ -156,10 +239,12 @@ use std::collections::BTreeMap;
 use tracking::Tracker;
 
 /// A table held by `Universe`. Its information is used to populate concrete tables.
+#[doc(hidden)]
 pub struct GenericTable {
     pub domain: DomainName,
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
+    init_fns: Vec<fn(&Universe)>,
     // All the other fields don't need locks, but this one does because it can out-last.
     pub trackers: Arc<RwLock<Vec<Box<Tracker + Send + Sync>>>>,
     pub delete: Vec<usize>,
@@ -176,6 +261,7 @@ impl GenericTable {
             name: name,
             columns: Vec::new(),
             trackers: Default::default(),
+            init_fns: Vec::new(),
 
             delete: Vec::new(),
             add: Vec::new(),
@@ -183,6 +269,20 @@ impl GenericTable {
             cleared: false,
             need_flush: false,
         }
+    }
+
+    pub fn add_init(&mut self, init: fn(&Universe)) {
+        self.init_fns.push(init);
+    }
+
+    pub(crate) fn init(&self, universe: &Universe) {
+        for init in &self.init_fns {
+            init(universe);
+        }
+    }
+
+    pub fn add_tracker(&mut self, t: Box<Tracker + Send + Sync>) {
+        self.trackers.write().unwrap().push(t);
     }
 
     pub fn guard(self) -> RwLock<GenericTable> {
@@ -196,6 +296,7 @@ impl GenericTable {
             name: self.name,
             columns: self.columns.iter().map(GenericColumn::prototype).collect(),
             trackers: Arc::clone(&self.trackers),
+            init_fns: Vec::new(),
 
             delete: Vec::new(),
             add: Vec::new(),
@@ -333,6 +434,7 @@ impl fmt::Display for TableName {
 
 pub trait GetTableName {
     type Idx: ::num_traits::PrimInt + fmt::Display + fmt::Debug + ::std::hash::Hash + Copy;
+    fn get_domain() -> DomainName;
     fn get_name() -> TableName;
 }
 

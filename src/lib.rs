@@ -58,19 +58,18 @@ use domain::MaybeDomain;
  * A context object whose reference should be passed around everywhere.
  * */
 pub struct Universe {
-    // FIXME: Tables should have domains
-    // FIXME: Tables should be in Arcs.
-    //  - allows table links
-    //  - probably add 'struct Domain { tables: Vec, properties: Vec }'
-    //  Actually it's the 'Domain' that should be in an Arc, not the table.
     pub domains: Vec<MaybeDomain>,
 }
 impl Universe {
-    // FIXME: Mark this unsafe.
+    // FIXME: Mark this unsafe?
     pub fn new(domains: &[DomainName]) -> Universe {
-        Universe {
+        let mut ret = Universe {
             domains: Self::get_domains(domains),
+        };
+        for domain in domains {
+            ret.init_domain(*domain);
         }
+        ret
     }
 
     pub fn guard(self) -> GuardedUniverse { Arc::new(RwLock::new(self)) }

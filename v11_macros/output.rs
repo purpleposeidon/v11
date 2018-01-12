@@ -59,7 +59,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }
 
     // Info
-    writeln!(out, "{}mod {} {{", if table.is_pub { "pub " } else { "" }, table.name)?;
     writeln!(out, "// Table config:")?;
     for line in format!("{:#?}", table).split('\n') {
         writeln!(out, "//   {}", line)?;
@@ -172,6 +171,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
         impl GetTableName for Row {
             type Idx = RawType;
+            fn get_domain() -> DomainName { TABLE_DOMAIN }
             fn get_name() -> TableName { TABLE_NAME }
         }
 
@@ -322,9 +322,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             /// Add a tracker.
             pub fn register_tracker(universe: &Universe, tracker: Box<Tracker + Send + Sync>) {
-                let gt = get_generic_table(universe).write().unwrap();
-                let mut trackers = gt.trackers.write().unwrap();
-                trackers.push(tracker);
+                let mut gt = Row::get_generic_table(universe).write().unwrap();
+                gt.add_tracker(tracker);
             }
 
             impl<'a> Write<'a> {
@@ -339,8 +338,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     if self._lock.skip_flush() { return; }
                     let mut flush = self._lock.acquire_flush();
                     ::std::mem::drop(self);
-                    flush.flush();
-                    let mut gt = get_generic_table(universe).write().unwrap();
+                    flush.flush(universe);
+                    let mut gt = Row::get_generic_table(universe).write().unwrap();
                     flush.restore(&mut gt);
                 }
 
@@ -385,11 +384,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["event logging for consistent tables"] {
             impl<'u> Write<'u> {
-                fn event_cleared(&mut self) { self._lock.cleared(); }
-                fn event_add(&mut self, i: usize) { self._lock.add.push(i); }
-                fn event_delete(&mut self, i: usize) { self._lock.delete.push(i); }
-                fn event_add_reserve(&mut self, n: usize) { self._lock.add.reserve(n) }
-                fn event_delete_reserve(&mut self, n: usize) { self._lock.delete.reserve(n) }
+                fn event_cleared(&mut self) { self._lock.dirty().cleared = true; }
+                fn event_add(&mut self, i: usize) { self._lock.dirty().add.push(i); }
+                fn event_delete(&mut self, i: usize) { self._lock.dirty().delete.push(i); }
+                fn event_add_reserve(&mut self, n: usize) { self._lock.dirty().add.reserve(n) }
+                fn event_delete_reserve(&mut self, n: usize) { self._lock.dirty().delete.reserve(n) }
             }
         };
         ["event ignoring for inconsistent_columns tables"] {
@@ -438,7 +437,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 // Making this public would break many guarantees!
                 fn swap_row(&mut self, i: RowId, row: &mut Row) {
                     use std::mem::swap;
-                    #(swap(&mut self.#COL_NAME[i], &mut row.#COL_NAME2);)*
+                    #(swap(&mut self.#COL_NAME.deref_mut()[i], &mut row.#COL_NAME2);)*
                 }
             }
         };
@@ -517,7 +516,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             impl<'u> Write<'u> {
                 #[inline]
                 fn set_row_raw(&mut self, index: RowId, row: Row) {
-                    #(self.#COL_NAME[index] = row.#COL_NAME2;)*
+                    #(self.#COL_NAME.deref_mut()[index] = row.#COL_NAME2;)*
                 }
 
                 /** Populate the table with data from the provided iterator. */
@@ -596,9 +595,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use std::mem::transmute;
         use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
 
-        fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
-            let domain_id = TABLE_DOMAIN.get_id();
-            universe.get_generic_table(domain_id, TABLE_NAME)
+        impl Row {
+            pub fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
+                let domain_id = TABLE_DOMAIN.get_id();
+                universe.get_generic_table(domain_id, TABLE_NAME)
+            }
         }
 
         fn convert_read_guard(_lock: RwLockReadGuard<GenericTable>) -> Read {
@@ -634,12 +635,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// This is equivalent to `RwLock::read`.
         pub fn read_result<'u>(universe: &'u Universe) -> LockResult<Read<'u>> {
-            let table = get_generic_table(universe).read();
+            let table = Row::get_generic_table(universe).read();
             intern::wrangle_lock::map_result(table, convert_read_guard)
         }
 
         pub fn try_read<'u>(universe: &'u Universe) -> TryLockResult<Read<'u>> {
-            let table = get_generic_table(universe).try_read();
+            let table = Row::get_generic_table(universe).try_read();
             intern::wrangle_lock::map_try_result(table, convert_read_guard)
         }
 
@@ -665,19 +666,19 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         pub fn write_result<'u>(universe: &'u Universe) -> LockResult<Write<'u>> {
-            let table = get_generic_table(universe).write();
+            let table = Row::get_generic_table(universe).write();
             intern::wrangle_lock::map_result(table, convert_write_guard)
         }
 
         pub fn try_write<'u>(universe: &'u Universe) -> TryLockResult<Write<'u>> {
-            let table = get_generic_table(universe).try_write();
+            let table = Row::get_generic_table(universe).try_write();
             intern::wrangle_lock::map_try_result(table, convert_write_guard)
         }
 
         /// Register the table onto its domain.
         pub fn register() {
             let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME);
-            let table = table #(.add_column(
+            let mut table = table #(.add_column(
                 #COL_NAME_STR,
                 column_format::#COL_NAME,
                 {
@@ -688,12 +689,37 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     maker
                 },
             ))*;
+            table.add_init(register_foreign_trackers);
             table.register();
         }
     }};
 
-    out! { ["`context!` duck-type implementation"] {
 
+    let COL_TRACK_EVENTS: &Vec<_> = &table.cols.iter()
+        .filter(|x| x.foreign)
+        .map(|x| i(format!("track_{}_events", x.name)))
+        .collect();
+    let COL_TRACK_ELEMENTS: &Vec<_> = &table.cols.iter()
+        .filter(|x| x.foreign)
+        .map(|x| pp::ty_to_string(&*x.element))
+        .map(i)
+        .collect();
+    out! { ["tracking"] {
+        #(
+            /// `Tracker` must be implemented on this struct to maintain consistency by responding to
+            /// structural tables on the foreign table.
+            #[allow(non_camel_case_types)]
+            pub struct #COL_TRACK_EVENTS;
+        )*
+        fn register_foreign_trackers(_universe: &Universe) {
+            #(
+                let bx = Box::new(#COL_TRACK_EVENTS) as Box<Tracker + Sync + Send>;
+                #COL_TRACK_ELEMENTS::register_tracker(_universe, bx);
+            )*
+        }
+    }};
+
+    out! { ["`context!` duck-type implementation"] {
         // Hidden because `$table::read()` is shorter than `$table::Read::lock()`.
         impl<'u> Write<'u> {
             #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { write(universe) }
@@ -811,6 +837,5 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
-    writeln!(out, "}} /* End {} */", table.name)?;
     Ok(())
 }

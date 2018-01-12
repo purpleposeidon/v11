@@ -101,5 +101,6 @@ pub struct Col {
     pub element: P<Ty>,
     pub colty: P<Ty>,
     pub indexed: bool,
+    pub foreign: bool,
     // just use BTreeMap for now; might want HashMap later tho
 }

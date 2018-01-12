@@ -24,8 +24,9 @@ define_proc_macros! {
         let mut parser = new_parser_from_source_str(&sess, "<table! macro>".to_owned(), macro_args);
         let mut table = match ::parse::parse_table(&mut parser) {
             Err(msg) => {
-                println!("{:?}", msg);
-                return String::new();
+                let mut diagnostic = msg.into_diagnostic();
+                diagnostic.cancel();
+                panic!("{}", diagnostic.message());
             },
             Ok(t) => t,
         };

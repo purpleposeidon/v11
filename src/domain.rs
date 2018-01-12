@@ -178,6 +178,7 @@ pub enum MaybeDomain {
     /// The Universe does not have this domain.
     Unset(DomainName),
     /// The Universe does have that domain.
+    // FIXME: Domains should be in Arcs; allows domain sharing
     Domain(DomainInstance),
 }
 impl MaybeDomain {
@@ -210,6 +211,19 @@ impl Universe {
         if self.domains[id].is_set() { return; }
         let globals = clone_globals();
         self.domains[id] = globals.write().unwrap().instantiate_domain(domain);
+        self.init_domain(domain);
+    }
+
+    pub(crate) fn init_domain(&mut self, domain: DomainName) {
+        let did = domain.get_id();
+        if let &MaybeDomain::Domain(ref domain) = &self.domains[did.0] {
+            for table in domain.tables.values() {
+                let table = table.read().unwrap();
+                table.init(self);
+            }
+        } else {
+            panic!("Domain {} not set!?", domain);
+        }
     }
 
     /// Make sure this Universe has a MaybeDomain for every globally registered DomainName.

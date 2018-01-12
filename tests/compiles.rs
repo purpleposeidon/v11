@@ -13,8 +13,7 @@ domain! { TEST }
 
 table! {
     #[kind = "public"]
-    #[rowid = "u32"]
-    TEST::hello_there {
+    [TEST/hello_there] {
         foo: [i32; SegCol<i32>],
     }
 }
