@@ -1,4 +1,3 @@
-
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
 /// guarantee, which is provided by `#[kind = "public"]`.
 // FIXME: https://github.com/rust-lang/rust/issues/29628
@@ -43,6 +42,8 @@ impl GenericFlush {
         mem::swap(&mut gt.add, &mut self.add);
     }
 }
+
+/// Events and their `Tracker`s.
 #[doc(hidden)]
 impl GenericTable {
     pub fn skip_flush(&self) -> bool {
@@ -73,8 +74,33 @@ impl GenericTable {
         self.free.clear();
     }
 
-    pub fn dirty(&mut self) -> &mut Self {
+    pub fn add_tracker(&mut self, t: Box<Tracker + Send + Sync>) {
+        self.trackers.write().unwrap().push(t);
+        self.no_trackers = false;
+    }
+
+    fn skip_events(&self) -> bool { self.no_trackers }
+
+    pub fn delete(&mut self, i: usize) {
+        self.free.insert(i, ()); // freelist needs to stay up to date even if nobody's watching
+        if self.skip_events() { return; }
         self.need_flush = true;
-        self
+        self.delete.push(i);
+    }
+
+    pub fn add(&mut self, i: usize) {
+        if self.skip_events() { return; }
+        self.need_flush = true;
+        self.add.push(i);
+    }
+
+    pub fn delete_reserve(&mut self, n: usize) {
+        if self.skip_events() { return; }
+        self.delete.reserve(n);
+    }
+
+    pub fn add_reserve(&mut self, n: usize) {
+        if self.skip_events() { return; }
+        self.add.reserve(n);
     }
 }

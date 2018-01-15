@@ -104,9 +104,11 @@ where <T::Row as GetTableName>::Idx: fmt::Debug
 #[cfg(test)]
 fn test_formatting() {
     use tables::TableName;
+    use domain::DomainName;
     struct TestName;
     impl GetTableName for TestName {
         type Idx = usize;
+        fn get_domain() -> DomainName { DomainName("test_domain") }
         fn get_name() -> TableName { TableName("test_table") }
     }
     let gen: GenericRowId<TestName> = GenericRowId {
@@ -321,6 +323,10 @@ impl<T: GetTableName> Checkable for GenericRowId<T> {
         if i.to_usize().unwrap() >= table.len() {
             panic!("index out of bounds on table {}: the len is {}, but the index is {}",
                    T::get_name(), table.len(), i);
+        }
+        if table.is_deleted(self) {
+            panic!("indexing on table {} into deleted row {}",
+                   T::get_name(), i);
         }
         unsafe {
             CheckedRowId::fab(i, table)

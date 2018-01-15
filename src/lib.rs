@@ -31,6 +31,7 @@ pub mod property;
 pub mod intern;
 pub mod columns;
 pub mod index;
+pub mod map_index;
 pub mod storage;
 pub mod tracking;
 

@@ -14,6 +14,7 @@
 /// print_sorted(AssertSorted(1..6));
 /// print_sorted(vec![1, 5, 2, 3, 4]);
 /// ```
+#[derive(Debug, Copy, Clone)]
 pub struct AssertSorted<T: Iterator>(pub T);
 
 impl<T> From<Vec<T>> for AssertSorted<::std::vec::IntoIter<T>>

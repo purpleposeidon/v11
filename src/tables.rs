@@ -189,7 +189,7 @@ macro_rules! table {
         // can't be invoked twice in the same module.
         mod $name {
             __v11_invoke_table! {
-                __v11_internal_table!($(#[$meta])* $domain::$name $($args)*)
+                __v11_internal_table!($(#[$meta])* [$domain/$name] $($args)*)
             }
         }
     };
@@ -200,7 +200,7 @@ macro_rules! table {
     ) => {
         pub mod $name {
             __v11_invoke_table! {
-                __v11_internal_table!($(#[$meta])* $domain::$name $($args)*)
+                __v11_internal_table!($(#[$meta])* [$domain/$name] $($args)*)
             }
         }
     };
@@ -247,10 +247,11 @@ pub struct GenericTable {
     init_fns: Vec<fn(&Universe)>,
     // All the other fields don't need locks, but this one does because it can out-last.
     pub trackers: Arc<RwLock<Vec<Box<Tracker + Send + Sync>>>>,
-    pub delete: Vec<usize>,
-    pub add: Vec<usize>,
-    pub free: BTreeMap<usize, ()>,
+    pub(crate) no_trackers: bool,
+    pub(crate) delete: Vec<usize>,
+    pub(crate) add: Vec<usize>,
     pub cleared: bool,
+    pub free: BTreeMap<usize, ()>,
     pub need_flush: bool,
 }
 impl GenericTable {
@@ -261,12 +262,13 @@ impl GenericTable {
             name: name,
             columns: Vec::new(),
             trackers: Default::default(),
+            no_trackers: true,
             init_fns: Vec::new(),
 
             delete: Vec::new(),
             add: Vec::new(),
-            free: BTreeMap::new(),
             cleared: false,
+            free: BTreeMap::new(),
             need_flush: false,
         }
     }
@@ -281,10 +283,6 @@ impl GenericTable {
         }
     }
 
-    pub fn add_tracker(&mut self, t: Box<Tracker + Send + Sync>) {
-        self.trackers.write().unwrap().push(t);
-    }
-
     pub fn guard(self) -> RwLock<GenericTable> {
         RwLock::new(self)
     }
@@ -296,7 +294,8 @@ impl GenericTable {
             name: self.name,
             columns: self.columns.iter().map(GenericColumn::prototype).collect(),
             trackers: Arc::clone(&self.trackers),
-            init_fns: Vec::new(),
+            no_trackers: self.no_trackers,
+            init_fns: self.init_fns.clone(),
 
             delete: Vec::new(),
             add: Vec::new(),
@@ -441,6 +440,7 @@ pub trait GetTableName {
 pub trait LockedTable: Sized {
     type Row: GetTableName;
     fn len(&self) -> usize;
+    fn is_deleted(&self, _idx: GenericRowId<Self::Row>) -> bool { false }
 }
 
 pub use ::assert_sorted::AssertSorted;

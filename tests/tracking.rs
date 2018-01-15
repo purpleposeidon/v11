@@ -12,30 +12,35 @@ domain! { TEST }
 use v11::Universe;
 use v11::tracking::Tracker;
 
+type Name = &'static str;
 
 table! {
     #[kind = "public"]
-    [TEST/track] {
-        number: [i32; VecCol<i32>],
+    #[row_derive(Clone, Debug)]
+    [TEST/ships] {
+        name: [Name; VecCol<Name>],
     }
 }
 
 table! {
     #[kind = "public"]
-    [TEST/follow] {
+    #[row_derive(Debug)]
+    [TEST/sailors] {
         #[foreign]
         #[index]
-        track: [track::RowId; VecCol<track::RowId>],
+        ship: [ships::RowId; VecCol<ships::RowId>],
+        name: [Name; VecCol<Name>],
     }
 }
-impl Tracker for follow::track_track_events {
+
+impl Tracker for sailors::track_ship_events {
     fn cleared(&mut self, universe: &Universe) {
-        follow::write(universe).clear();
+        sailors::write(universe).clear();
     }
-    fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]) {
-        let follow = follow::write(universe);
-        for delete in deleted {
-        }
+    fn track(&mut self, universe: &Universe, deleted_ships: &[usize], _added: &[usize]) {
+        println!("deleted: {:?}", deleted_ships);
+        let mut sailors = sailors::write(universe);
+        sailors.track_ship_removal(deleted_ships);
     }
 }
 
@@ -43,7 +48,81 @@ impl Tracker for follow::track_track_events {
 #[test]
 fn test() {
     TEST.register();
-    track::register();
-    follow::register();
+    ships::register();
+    sailors::register();
     let universe = &Universe::new(&[TEST]);
+
+    let boaty_mcboatface = {
+        let mut ships = ships::write(universe);
+        let titanic = ships.push(ships::Row {
+            name: "RMS Titanic",
+        });
+        let boaty_mcboatface = ships.push(ships::Row {
+            name: "Boaty McBoatface",
+        });
+        let lusitania = ships.push(ships::Row {
+            name: "RMS Lusitania",
+        });
+        let _mont_blanc = ships.push(ships::Row {
+            name: "SS Mont-Blanc",
+        });
+        let mut sailors = sailors::write(universe);
+        sailors.push(sailors::Row {
+            ship: titanic,
+            name: "Alice",
+        });
+        sailors.push(sailors::Row {
+            ship: titanic,
+            name: "Bob",
+        });
+        sailors.push(sailors::Row {
+            ship: boaty_mcboatface,
+            name: "Carol",
+        });
+        sailors.push(sailors::Row {
+            ship: lusitania,
+            name: "Alice",
+        });
+        sailors.push(sailors::Row {
+            ship: lusitania,
+            name: "Bob",
+        });
+        sailors.push(sailors::Row {
+            ship: lusitania,
+            name: "Carol",
+        });
+        for ship in ships.iter() {
+            println!("{:?}", ships.get_row(ship));
+        }
+        for sailor in sailors.iter() {
+            println!("{:?}", sailors.get_row_ref(sailor));
+        }
+        assert_eq!(ships.len(), 4);
+        assert_eq!(sailors.len(), 6);
+        sailors.close();
+        ships.flush(universe);
+        boaty_mcboatface
+    };
+    {
+        let mut ships = ships::write(universe);
+        println!("oh no the Boaty McBoatface has sunk!!");
+        ships.delete(boaty_mcboatface);
+        ships.flush(universe);
+    }
+    {
+        let ships = ships::read(universe);
+        let sailors = sailors::read(universe);
+        let mut tcount = 0;
+        for ship in ships.iter() {
+            println!("{:?}", ships.get_row(ship));
+            tcount += 1;
+        }
+        let mut hcount = 0;
+        for sailor in sailors.iter() {
+            println!("{:?}", sailors.get_row_ref(sailor));
+            hcount += 1;
+        }
+        assert_eq!(tcount, 3);
+        assert_eq!(hcount, 5);
+    }
 }

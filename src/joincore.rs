@@ -36,7 +36,7 @@ use std::iter::Peekable;
 pub struct JoinCore<IT: Iterator> {
     right: Peekable<IT>,
 }
-impl<IT: Iterator> JoinCore<IT> {
+impl<IT: Iterator> JoinCore<IT> where IT::Item: ::std::fmt::Debug {
     pub fn new(iter: IT) -> Self {
         JoinCore {
             right: iter.peekable(),
@@ -44,32 +44,43 @@ impl<IT: Iterator> JoinCore<IT> {
     }
 
     pub fn join<'a, 'b, L: Copy + 'b, Compare>(&'a mut self, left_item: L, cmp: Compare) -> Join<IT::Item>
-        where Compare: for<'c> Fn(L, &'c IT::Item) -> Ordering
+        where Compare: for<'c> Fn(L, &'c IT::Item) -> Ordering,
+              L: ::std::fmt::Debug,
+              <IT as Iterator>::Item: ::std::fmt::Debug,
+              IT::Item: ::std::fmt::Debug,
     {
-        while self.right.peek().is_some() {
-            let right_item = self.right.next().unwrap();
-            return match cmp(left_item, &right_item) {
+        loop {
+            // Contorted due to lack of NLL.
+            let cmp = if let Some(right_item) = self.right.peek() {
+                let cmp = cmp(left_item, right_item);
+                cmp
+            } else {
+                break;
+            };
+            let r = match cmp {
                 // left_item needs to advance
                 Ordering::Less => Join::Next,
                 // a good join
-                Ordering::Equal => Join::Match(right_item),
+                Ordering::Equal => Join::Match(self.right.next().unwrap()),
                 // the right side needs to advance
                 Ordering::Greater => {
                     self.right.next();
                     continue;
                 },
             };
+            return r;
         }
         Join::Stop
     }
 }
-impl<IT: Iterator> JoinCore<IT> where IT::Item: Ord {
+impl<IT: Iterator> JoinCore<IT> where IT::Item: Ord, IT::Item: ::std::fmt::Debug {
     pub fn cmp(&mut self, left_item: &IT::Item) -> Join<IT::Item> {
         self.join(left_item, IT::Item::cmp)
     }
 }
 
 /// Return value for `JoinCore.join`.
+#[derive(Debug)]
 pub enum Join<T> {
     /// The outer/left iterator needs to be advanced.
     Next,

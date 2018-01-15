@@ -1,9 +1,9 @@
-use syntex_syntax::parse::parser::Parser;
-use syntex_syntax::parse::token::{Token, DelimToken};
-use syntex_syntax::parse::common::SeqSep;
+use syntex_syntax::ast::{MetaItem, MetaItemKind, LitKind, NestedMetaItemKind};
 use syntex_syntax::symbol::keywords as keyword;
+use syntex_syntax::parse::parser::Parser;
+use syntex_syntax::parse::token::{Token, DelimToken, BinOpToken};
+use syntex_syntax::parse::common::SeqSep;
 use syntex_syntax::diagnostics::plugin::DiagnosticBuilder;
-use syntex_syntax::ast::{MetaItem, MetaItemKind, LitKind};
 
 use super::table::{Table, Col, TableKind};
 #[allow(unused_imports)]
@@ -18,7 +18,7 @@ macro_rules! err {
 /*
  * table! {
  *     #[some_attribute]
- *     pub domain_name/table_name {
+ *     pub [domain_name/table_name] {
  *         observing: SegCol<::watchers::MyTable::RowId>,
  *         position: VecCol<MyCoordinate>,
  *         color: SegCol<RgbHexColor>,
@@ -46,7 +46,8 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
 
     // [#[attr]] [pub] DOMAIN_NAME::table_name { ... }
     for attr in parser.parse_outer_attributes()?.into_iter() {
-        match format!("{}", attr.value.name).as_str() {
+        let attr_name = format!("{}", attr.value.name);
+        match attr_name.as_str() {
             "kind" => table.set_kind(match meta_arg(&attr.value).as_str() {
                 "append" => TableKind::Append,
                 "public" => TableKind::Public,
@@ -54,6 +55,20 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 e => err!(parser, "Unknown kind {:?}", e),
             }),
             "rowid" => table.row_id = meta_arg(&attr.value),
+            "row_derive" => if let MetaItemKind::List(items) = attr.value.node {
+                for item in &items {
+                    let item = &item.node;
+                    if let &NestedMetaItemKind::MetaItem(MetaItem { ref name, node: MetaItemKind::Word, .. }) = item {
+                        match format!("{}", name.as_str()).as_str() {
+                            "Clone" => table.derive.clone = true,
+                            "Copy" => table.derive.copy = true,
+                            "Debug" => table.derive.debug = true,
+                            _ => (),
+                        }
+                    }
+                }
+                table.row_derive.extend(items);
+            },
             _ => {
                 // other attrs go on the module
                 table.module_attrs.push(attr);
@@ -63,11 +78,13 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
     if table.kind.is_none() {
         err!(parser, "Table kind not set");
     }
-    table.is_pub = parser.eat_keyword(keyword::Pub);
+    table.is_pub = parser.eat_keyword(keyword::Pub); // FIXME: Syn + parse visibility
     //parser.expect(&Token::Mod)?;
+    parser.expect(&Token::OpenDelim(DelimToken::Bracket))?;
     table.domain = parser.parse_ident()?.to_string();
-    parser.expect(&Token::ModSep)?;
+    parser.expect(&Token::BinOp(BinOpToken::Slash))?;
     table.name = parser.parse_ident()?.to_string();
+    parser.expect(&Token::CloseDelim(DelimToken::Bracket))?;
 
 
     // Load structure

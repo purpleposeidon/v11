@@ -7,23 +7,20 @@ use std::marker::PhantomData;
 use Storable;
 use tables::{GetTableName, LockedTable, GenericRowId, CheckedRowId};
 
-/// All storage types implement this trait.
-// We might be able to live without this, tho it provides some 'module unsafety boundary' guarantees.
+/// All column storage types implement this trait.
 pub trait TCol {
-    /// This is duck-typingly a `Vec`.
-    type Data;
     type Element: Storable;
 
     fn new() -> Self where Self: Sized;
-    fn data(&self) -> &Self::Data;
-    fn data_mut(&mut self) -> &mut Self::Data;
 
-    fn col_index(&self, i: usize) -> &Self::Element;
-    fn col_index_mut(&mut self, i: usize) -> &mut Self::Element;
-    unsafe fn col_index_unchecked(&self, i: usize) -> &Self::Element { self.col_index(i) }
-    unsafe fn col_index_unchecked_mut(&mut self, i: usize) -> &mut Self::Element { self.col_index_mut(i) }
-    // just here to properly constrain by the unsafety scope
     fn len(&self) -> usize;
+    unsafe fn unchecked_index(&self, i: usize) -> &Self::Element;
+    unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element;
+    fn reserve(&mut self, n: usize);
+    fn clear(&mut self);
+    fn push(&mut self, v: Self::Element);
+    unsafe fn unchecked_swap(&mut self, i: usize, new: &mut Self::Element) { ::std::mem::swap(self.unchecked_index_mut(i), new) }
+    unsafe fn deleted(&mut self, _i: usize) {}
 }
 
 /// It's not possible to do a blanket implementation of indexing on `TCol`s due to orphan rules,
@@ -38,32 +35,59 @@ impl<C: TCol, T: GetTableName> Col<C, T> {
         Self { inner: C::new(), table: PhantomData }
     }
 
-    #[inline] pub fn data(&self) -> &C::Data { self.inner.data() }
-    #[inline] pub fn data_mut(&mut self) -> &mut C::Data { self.inner.data_mut() }
+    fn check(&self, i: usize) -> usize {
+        if i >= self.inner.len() {
+            panic!("Index out of range: Size is {}, but index is {}", self.inner.len(), i);
+        }
+        i
+    }
+
+    #[doc(hidden)] pub fn inner(&self) -> &C { &self.inner }
+    #[doc(hidden)] pub fn inner_mut(&mut self) -> &mut C { &mut self.inner }
 }
 impl<C: TCol, T: GetTableName> Index<GenericRowId<T>> for Col<C, T> {
     type Output = C::Element;
-    fn index(&self, index: GenericRowId<T>) -> &Self::Output { self.inner.col_index(index.to_usize()) }
+    fn index(&self, i: GenericRowId<T>) -> &Self::Output {
+        unsafe {
+            let i = self.check(i.to_usize());
+            self.inner.unchecked_index(i)
+        }
+    }
 }
 impl<C: TCol, T: GetTableName> IndexMut<GenericRowId<T>> for Col<C, T> {
-    fn index_mut(&mut self, index: GenericRowId<T>) -> &mut Self::Output { self.inner.col_index_mut(index.to_usize()) }
+    fn index_mut(&mut self, i: GenericRowId<T>) -> &mut Self::Output {
+        unsafe {
+            let i = self.check(i.to_usize());
+            self.inner.unchecked_index_mut(i)
+        }
+    }
 }
 impl<'a, C: TCol, T: LockedTable + 'a> Index<CheckedRowId<'a, T>> for Col<C, T::Row> {
     type Output = C::Element;
-    fn index(&self, index: CheckedRowId<T>) -> &Self::Output { unsafe { self.inner.col_index_unchecked(index.to_usize()) } }
+    fn index(&self, index: CheckedRowId<T>) -> &Self::Output {
+        unsafe {
+            self.inner.unchecked_index(index.to_usize())
+        }
+    }
 }
 impl<'a, C: TCol, T: LockedTable + 'a> IndexMut<CheckedRowId<'a, T>> for Col<C, T::Row> {
-    fn index_mut(&mut self, index: CheckedRowId<T>) -> &mut Self::Output { unsafe { self.inner.col_index_unchecked_mut(index.to_usize()) } }
+    fn index_mut(&mut self, index: CheckedRowId<T>) -> &mut Self::Output {
+        unsafe {
+            self.inner.unchecked_index_mut(index.to_usize())
+        }
+    }
 }
 
 
-
-/// A column that can be `Index`ed.
+/// The `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but allow a
+/// separate 'private' interface for our macro output.
+///
+/// A `RefA` is a column that can be `Index`ed.
 pub struct RefA<'a, T: 'a>(&'a T);
-/// A column that can be `Index`ed and `IndexMut`ed.
+/// A `MutA` is a column that can be `Index`ed and `IndexMut`ed.
 pub struct MutA<'a, T: 'a>(&'a mut T);
-/// A column that can be `Index`ed.
-/// (And is secretly mutable by the implementation.)
+/// A `EditA` is a column that can be `Index`ed.
+/// (And is secretly mutable by v11.)
 pub struct EditA<'a, T: 'a>(&'a mut T);
 
 impl<'a, T: 'a> RefA<'a, T> {
@@ -81,8 +105,7 @@ impl<'a, T: 'a> EditA<'a, T> {
     #[doc(hidden)] pub fn deref_mut(&mut self) -> &mut T { self.0 }
 }
 
-// Type macros. Some day.
-// FIXME: RefA's should use TCol directly.
+// Forward indexing operations to `Col`.
 impl<'a, I, T: Index<I> + 'a> Index<I> for RefA<'a, T> {
     type Output = T::Output;
     fn index(&self, i: I) -> &T::Output { &self.0[i] }
@@ -99,6 +122,3 @@ impl<'a, I, T: Index<I> + 'a> Index<I> for EditA<'a, T> {
 impl<'a, I, T: IndexMut<I> + 'a> IndexMut<I> for MutA<'a, T> {
     fn index_mut(&mut self, i: I) -> &mut T::Output { &mut self.0[i] }
 }
-
-
-

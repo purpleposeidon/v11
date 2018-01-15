@@ -1,4 +1,4 @@
-use syntex_syntax::ast::{Ident, Ty, Attribute};
+use syntex_syntax::ast::{Ident, Ty, Attribute, NestedMetaItem};
 use syntex_syntax::ptr::P;
 
 #[derive(Debug, Copy, Clone)]
@@ -8,11 +8,19 @@ pub enum TableKind {
     Bag,
 }
 
+#[derive(Default, Debug)]
+pub struct Derives {
+    pub clone: bool,
+    pub debug: bool,
+    pub copy: bool,
+}
+
 #[derive(Debug)]
 #[derive(Default)] // Don't actually use this, it's just to keep new() easy.
 pub struct Table {
     // Header
     pub module_attrs: Vec<Attribute>,
+    pub row_derive: Vec<NestedMetaItem>,
     pub is_pub: bool,
     pub domain: String,
     pub name: String,
@@ -21,11 +29,9 @@ pub struct Table {
 
     // Modifiers
     pub row_id: String,
-    pub debug: bool,
-    pub copy: bool,
-    pub clone: bool,
     pub version: usize,
     pub save: bool,
+    pub derive: Derives,
 
     // Guarantees
     pub immutable: bool,
@@ -68,9 +74,6 @@ impl Table {
     }
     pub fn new() -> Self {
         Table {
-            debug: true,
-            copy: true,
-            clone: true,
             row_id: "usize".to_owned(),
             version: 1,
             .. Table::default()
@@ -87,7 +90,7 @@ impl Table {
         if self.cols.is_empty() {
             return Some("No columns");
         }
-        if self.copy && !self.clone {
+        if self.derive.copy && !self.derive.clone {
             return Some("deriving copy, but not clone");
         }
         None

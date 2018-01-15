@@ -9,23 +9,21 @@ pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }
 impl<E: Storable> TCol for VecCol<E> {
-    type Data = Vec<E>;
     type Element = E;
 
     fn new() -> Self { VecCol { data: Vec::new() } }
-    fn data(&self) -> &Self::Data { &self.data }
-    fn data_mut(&mut self) -> &mut Self::Data { &mut self.data }
 
-    fn col_index(&self, index: usize) -> &E { &self.data[index] }
-    fn col_index_mut(&mut self, index: usize) -> &mut E { &mut self.data[index] }
-    unsafe fn col_index_unchecked(&self, index: usize) -> &E { self.data.get_unchecked(index) }
-    unsafe fn col_index_unchecked_mut(&mut self, index: usize) -> &mut E { self.data.get_unchecked_mut(index) }
     fn len(&self) -> usize { self.data.len() }
+    unsafe fn unchecked_index(&self, i: usize) -> &Self::Element { self.data.get_unchecked(i) }
+    unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element { self.data.get_unchecked_mut(i) }
+    fn reserve(&mut self, n: usize) { self.data.reserve(n) }
+    fn clear(&mut self) { self.data.clear() }
+    fn push(&mut self, v: Self::Element) { self.data.push(v) }
 }
 
 /// Temporary (hopefully) stub for avec.
 /// Use this for tables that may be heavily extended at run-time.
-// FIXME: Implement.
+// FIXME: Implement. Mostly just need some kind of page_size allocator.
 pub type SegCol<E> = VecCol<E>;
 
 type BitVec = ::bit_vec::BitVec<u64>;
@@ -37,18 +35,21 @@ pub struct BoolCol {
     data: BitVec,
 }
 impl TCol for BoolCol {
-    type Data = BitVec;
     type Element = bool;
-    fn new() -> BoolCol {
-        Default::default()
-    }
 
-    fn data(&self) -> &Self::Data { &self.data }
-    fn data_mut(&mut self) -> &mut Self::Data { &mut self.data }
+    fn new() -> BoolCol { Default::default() }
 
-    fn col_index(&self, index: usize) -> &bool { &self.data[index] }
-    fn col_index_mut(&mut self, index: usize) -> &mut bool { &mut self.data[index] }
     fn len(&self) -> usize { self.data.len() }
+    unsafe fn unchecked_index(&self, i: usize) -> &Self::Element { &self.data[i] } // FIXME: be unchecked
+    unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element { &mut self.data[i] }
+    fn reserve(&mut self, n: usize) { self.data.reserve(n) }
+    fn clear(&mut self) { self.data.clear() }
+    fn push(&mut self, v: Self::Element) { self.data.push(v) }
+    unsafe fn unchecked_swap(&mut self, i: usize, new: &mut Self::Element) {
+        let new_v = *new;
+        *new = self.data[i];
+        self.data.set(i, new_v);
+    }
 }
 
 #[cfg(test)]
