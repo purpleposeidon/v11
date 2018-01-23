@@ -1,5 +1,4 @@
-//! This crate contains internal (but still public) items that are used by the `table!` and
-//! `property!` macros.
+//! This crate contains internal (but still public) items that are used by the macros.
 //! User-code should not use this directly.
 
 pub fn check_name(name: &str) {

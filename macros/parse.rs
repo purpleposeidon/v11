@@ -71,6 +71,9 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 table.row_derive.extend(items);
             },
             "save" => table.save = true,
+            "version" => {
+                table.version = str::parse(meta_arg(&attr.value).as_str()).unwrap();
+            },
             _ => {
                 // other attrs go on the module
                 table.module_attrs.push(attr);

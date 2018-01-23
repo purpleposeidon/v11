@@ -31,20 +31,20 @@ table! {
 
 context! {
     pub struct CheeseCtx {
-        stinkiness: stenches::Write,
+        pub stinkiness: stenches::Write,
     }
 }
 context! {
     pub struct FullCtx {
-        cheeses: cheeses::Read,
-        stinkiness: stenches::Write,
-        alcohols: wines::Read,
+        pub cheeses: cheeses::Read,
+        pub stinkiness: stenches::Write,
+        pub alcohols: wines::Read,
     }
 }
 
 context! {
     pub struct ReducedCtx {
-        cheeses: cheeses::Read,
+        pub cheeses: cheeses::Read,
     }
 }
 
@@ -52,8 +52,8 @@ property! { pub static TESTS/SUMPROP: usize = 10; }
 
 context! {
     pub struct WithPropsCtx {
-        sumprop: SUMPROP::Write,
-        cheeses: cheeses::Read,
+        pub sumprop: SUMPROP::Write,
+        pub cheeses: cheeses::Read,
     }
 }
 

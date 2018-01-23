@@ -1,16 +1,18 @@
 //! A column-based in-memory database for [Data-Oriented Design][dod].
 //!
 //! # Safety
-//! This crate *lies about safety*. Rust is monkey-safe; v11 aims for derp-safe.
+//! This crate *lies about safety*. Rust wants to be monkey-safe; v11 aims for merely derp-safe.
 //!
-//! The danger zones:
-//! *. Calling `register()` functions on domains, properties and tables. This should only be done from the
+//! The danger zones are easy to avoid:
+//!
+//! - Calling `register()` functions on domains, properties and tables. This should only be done from the
 //! main thread, before any `Universe`s have been created.
-//! *. Doing strange things with the references in a table lock. (Namely, `mem::swap`.)
-//! *. Calling public functions that are marked `#[doc(hidden)]`
+//! - Doing strange things with the references in a table lock. (Namely, `mem::swap`.)
+//! - Using `pub` items that are marked `#[doc(hidden)]`. These should only be used by
+//! macro-generated code.
 //!
 //!
-//! [dod]: (http://www.dataorienteddesign.com/dodmain/)
+//! [dod]: http://www.dataorienteddesign.com/dodmain/
 
 #[allow(unused_imports)]
 #[macro_use]
@@ -21,6 +23,7 @@ extern crate procedural_masquerade;
 extern crate rustc_serialize;
 extern crate itertools;
 extern crate bit_vec_mut as bit_vec;
+#[doc(hidden)]
 pub extern crate num_traits;
 #[macro_use]
 extern crate lazy_static;
@@ -31,11 +34,13 @@ use std::sync::*;
 pub mod domain;
 pub mod tables;
 pub mod property;
+#[doc(hidden)]
 pub mod intern;
 pub mod columns;
 pub mod index;
 pub mod map_index;
 pub mod storage;
+#[doc(hidden)]
 pub mod tracking;
 
 pub mod joincore;
@@ -56,8 +61,8 @@ pub mod v11 {
 /**
  * Trait describing bounds that all storable types must satisfy.
  *
- * Types that implement this trait also shouldn't implement `Drop`, although this is not yet
- * expressable, and isn't yet required.
+ * Types that implement this trait also shouldn't implement `Drop`,
+ * however this can not yet be expressed.
  * */
 // FIXME: !Drop
 pub trait Storable: Sync + Sized /* + !Drop */ {}
@@ -67,15 +72,16 @@ impl<T> Storable for T where T: Sync + Sized /* + !Drop */ {}
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
 pub use tracking::Tracker;
-pub use domain::DomainName;
-use domain::MaybeDomain;
+use domain::{DomainName, MaybeDomain};
 
 /**
  * A context object whose reference should be passed around everywhere.
  * */
 pub struct Universe {
-    pub domains: Vec<MaybeDomain>,
+    #[doc(hidden)] pub domains: Vec<MaybeDomain>,
 }
+
+/// Universe manipulation methods.
 impl Universe {
     // FIXME: Mark this unsafe?
     pub fn new(domains: &[DomainName]) -> Universe {
@@ -121,14 +127,16 @@ impl fmt::Debug for Universe {
     }
 }
 
+/// Return value for function parameters passed into `$table.visit`.
 #[derive(Debug, Clone)]
 pub enum Action<IT> {
     /// If `remove` is true, then this row is removed.
-    /// In that gap, on immediately after, the rows yielded by `add` are inserted.
+    /// Any items yielded by `add` are inserted prior to the next item.
+    /// They will not be visited.
     Continue {
         remove: bool,
         add: IT,
     },
-    /// Stop visiting rows
+    /// Stop visiting rows. They will not be removed.
     Break,
 }

@@ -16,6 +16,7 @@ This macro generates a column-based data table.
 (It is currently implemented using the procedural-masquerade hack.)
 
 The syntax for this macro is:
+
 ```ignored
 table! {
     #[kind = "…"]
@@ -49,10 +50,12 @@ Table and column names must be valid Rust identifiers that also match the regex
 Column elements must implement `Storable`.
 Column types must implement `TCol`.
 
+It is recommended that the table name be plural and the column name be singular,
+eg in `customers.name[id]`.
+
 # Using the Table
 
 ```ignored
-# FIXME: lang=ignored=lame
 
 // Create a new domain. This is a single-level namespace
 domain! { MY_DOMAIN }
@@ -120,6 +123,9 @@ This is useful when this table is going to have foreign keys pointing at it.
 ## `#[row_derive(Foo, Bar)]`
 Puts `#[derive(Foo, Bar)]` on the generated `Row` and `RowRef` structs.
 
+## `#[version = "0"]`
+A version number. The default is `0`.
+
 # Column Attributes
 
 ## `#[foreign]`
@@ -128,121 +134,8 @@ The row's element must be another table's RowId.
 ## `#[index]`
 Creates an index of the column, using a `BTreeMap`.
 Indexed elements are immutable.
-
-FIXME: IndexSet. Or just expose a set() method.
-
-<hr>
-
-// FIXME: Would `#[mut]` be cool? Cols are immutable by default? :D
-
-
-<hr>
-
-# OLD
-
-This macro generates a column-based data table.
-(It is currently implemented using the procedural-masquerade hack.)
-
-The syntax for this macro is:
-
-```ignored
-table! {
-    pub [DOMAIN/name_of_table] {
-        column_name_1: [Element1; ColumnType1],
-        column_name_2: [Element2; ColumnType2],
-        column_name_3: [Element3; ColumnType3],
-        // ...
-    }
-    // optonal table attribute section
-    impl {
-        table_attributes;
-        of_which_there_are(ManyVarieties);
-    }
-}
-```
-where each `ColumnType` is a `TCol`, and Element is `<ColumnType as TCol>::Element`.
-
-For example:
-
-
-* `[u8; SegCol<u8>]`
-* `[bool; BoolCol]`
-
-
-(Note that `VecCol`, `SegCol`, and `BoolCol` are already `use`d by the macro for your convenience.)
-
-`DOMAIN`s are declared using the `domain!` macro.
-The leading `pub` may be elided to make the generated module private.
-
-Table and column names must be valid Rust identifiers that also match the regex
-`[A-Za-z][A-Za-z_0-9]*`.
-
-Column elements must implement `Storable`.
-Column types must implement `TCol`.
-
-The `impl` section is optional.
-
-# Using the generated table
-(FIXME: Link to `cargo doc` of a sample project. In the meantime, uh, check out `tests/tables.rs` I guess.)
-
-
-# Table Attributes
-These are options that affect the code generation of tables. (And are why we can't just use `macro_rules!`!)
-Notice that each attribute is terminated by a `;`.
-
-## `RowId = some_primitive;`
-Sets what the (underlying) primitive is used for indexing the table. The default is `usize`.
-This is useful when this table is going to have foreign keys pointing at it.
-
-## `NoDebug;`
-`#[derive(Debug)]` is added to `Row` by default; this prevents that.
-
-## `NoComplexMut;`
-Don't provide the mut functions `filter` and `visit`.
-
-## `NoCopy;`
-Don't derive Copy on `Row` (but DO derive Clone).
-
-## `NoClone;`
-Derive neither Clone nor Copy on `Row`.
-
-## `Track;`
-Creates an event log of rows that were moved, deleted, and removed.
-Dependants of this table, `Tracker`s, are notified of these changes by calling `flush()`.
-
-To avoid the error of the event log being forgotten, the lock on a changed table will panic
-if a `flush()` should be called. This can be surpressed by calling `noflush()`.
-(FIXME: unfinished; need #[foreign])
-
-## `GenericSort;`
-Adds a parameterized sort method.
-
-## `SortBy(SomeColumnName);`
-Add a method to sort the table by that column.
-(FIXME: #[sortable] on the column?)
-
-## `FreeList;`
-(FIXME: nyi. Also tricky.)
-Allow marking rows as dead, and pushing new rows will re-use a dead row.
-
-## `Save;`
-Add methods for encoding or decoding the table by row (or column), using rustc.
-(FIXME: Maybe it should be default? Also, serde.)
-
-## `Static;`
-Marks the table as being something that is only modified once.
-This allows skipping some codegen.
-It also makes using certain other attributes an error.
-Static tables will want to to use `VecCol` columns rather than `SegCol` columns.
-(FIXME: Initialize the table with a function; then locking is unnecessary. [But, yikes on implementing that])
-
-## `Version(number);`
-Sets the version number of the table. This is a `usize`. Its default value is `1`.
-
-## `Legacy(number);`
-Equivalent to `Version` and `Static`.
-
 **/
+// (FIXME: lang=ignored=lame)
 #[macro_export]
 macro_rules! table {
     (
@@ -279,24 +172,12 @@ use intern::PBox;
 use domain::{DomainName, DomainId, MaybeDomain};
 
 impl Universe {
+    #[doc(hidden)]
     pub fn get_generic_table(&self, domain_id: DomainId, name: TableName) -> &RwLock<GenericTable> {
-        use domain::MaybeDomain;
         if let Some(&MaybeDomain::Domain(ref domain)) = self.domains.get(domain_id.0) {
             return domain.get_generic_table(name);
         }
         panic!("Request for table {} in unknown domain #{}", name, domain_id.0);
-    }
-
-    pub fn table_names(&self) -> Vec<TableName> {
-        let mut ret = Vec::new();
-        for domain in &self.domains {
-            if let MaybeDomain::Domain(ref domain) = *domain {
-                for table in domain.tables.keys() {
-                    ret.push(*table);
-                }
-            }
-        }
-        ret
     }
 }
 
@@ -466,6 +347,7 @@ impl fmt::Debug for GenericTable {
     }
 }
 
+#[doc(hidden)]
 pub struct GenericColumn {
     name: &'static str,
     stored_type_name: &'static str,
@@ -498,12 +380,14 @@ impl fmt::Display for TableName {
     }
 }
 
+#[doc(hidden)]
 pub trait GetTableName {
     type Idx: ::num_traits::PrimInt + fmt::Display + fmt::Debug + ::std::hash::Hash + Copy;
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;
 }
 
+#[doc(hidden)]
 pub trait LockedTable: Sized {
     type Row: GetTableName;
     fn len(&self) -> usize;

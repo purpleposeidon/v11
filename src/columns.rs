@@ -1,6 +1,7 @@
 //! Table indexing is strongly typed.
 //! Each table has its own index type (`GenericRowId`),
-//! which may be converted to a 'pre-checked' form (`CheckedRowId`).
+//! which may be converted to a 'post-checked' form (`CheckedRowId`).
+// FIXME: RowIdPreCheck, RowIdPostCheck?
 
 use std::ops::{Index, IndexMut};
 use std::marker::PhantomData;
@@ -86,21 +87,21 @@ impl<'a, C: TCol, T: LockedTable + 'a> IndexMut<CheckedRowId<'a, T>> for Col<C, 
 }
 
 
-/// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
-/// hidden interface for `table!` to use.
-///
 /// A `RefA` is a column that can be `Index`ed.
+///
+/// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
+/// hidden interface for `table!` to use.
 pub struct RefA<'a, T: 'a>(&'a T);
-/// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
-/// hidden interface for `table!` to use.
-///
 /// A `MutA` is a column that can be `Index`ed and `IndexMut`ed.
-pub struct MutA<'a, T: 'a>(&'a mut T);
+///
 /// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
 /// hidden interface for `table!` to use.
-///
+pub struct MutA<'a, T: 'a>(&'a mut T);
 /// A `EditA` is a column that can be `Index`ed.
 /// (And is secretly mutable by v11.)
+///
+/// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
+/// hidden interface for `table!` to use.
 pub struct EditA<'a, T: 'a>(&'a mut T);
 
 #[doc(hidden)]

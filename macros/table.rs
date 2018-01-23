@@ -30,7 +30,7 @@ pub struct Table {
 
     // Modifiers
     pub row_id: String,
-    pub version: usize,
+    pub version: u64,
     pub save: bool,
     pub derive: Derives,
 
@@ -79,7 +79,7 @@ impl Table {
     pub fn new() -> Self {
         Table {
             row_id: "usize".to_owned(),
-            version: 1,
+            version: 0,
             .. Table::default()
         }
     }

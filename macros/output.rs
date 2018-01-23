@@ -114,7 +114,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use super::*;
 
         use v11;
-        use self::v11::{Universe, DomainName};
+        use self::v11::Universe;
+        use self::v11::domain::DomainName;
         use self::v11::intern::{self, PBox};
         use self::v11::tables::*;
         use self::v11::columns::*;
@@ -123,12 +124,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[allow(unused_imports)] use self::v11::storage::*; // A reasonable convenience for the user.
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
-        #[allow(unused_imports)] use self::v11::num_traits::Bounded;
         #[allow(unused_imports)] use std::collections::VecDeque;
 
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         pub const TABLE_DOMAIN: DomainName = super::#TABLE_DOMAIN;
-        pub const VERSION: usize = #TABLE_VERSION;
+        pub const VERSION: u64 = #TABLE_VERSION;
 
         #[allow(non_upper_case_globals)]
         mod column_format {
@@ -139,20 +139,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let ROW_ID_TYPE = i(&table.row_id);
     out! { ["Indexing"] {
         /// This is the type used to index into `#TABLE_NAME`'s columns.
-        /// It is typed specifically for this table.
+        /// It is unique to the table.
         pub type RowId = GenericRowId<Row>;
         /// The internal index type, which also limits the maximum number of rows.
         pub type RawType = #ROW_ID_TYPE;
 
-        /// An undefined index value to be used for default values.
-        pub const INVALID: RowId = RowId {
-            i: ::std::usize::MAX as RawType,
-            t: ::std::marker::PhantomData,
-        };
-
         /// A reference to the first row. Is invalid if there is no rows.
         pub const FIRST: RowId = RowId {
             i: 0,
+            t: ::std::marker::PhantomData,
+        };
+
+        /// An index value to be used for default values.
+        /// Note that it may become valid if the table is full!
+        pub const INVALID: RowId = RowId {
+            i: ::std::usize::MAX as RawType,
             t: ::std::marker::PhantomData,
         };
 
@@ -404,6 +405,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             type E = #IFC_ELEMENT;
                             let deleted_foreign = E::from_usize(*deleted_foreign);
                             loop {
+                                // It'd be nicer to keep the iterator around, but we immediately
+                                // invalidate it. We could collect it into a Vec?
                                 let kill = if let Some(kill) = self.#IFC.deref().inner().find(deleted_foreign).next() {
                                     kill
                                 } else {

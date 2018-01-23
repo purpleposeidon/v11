@@ -5,8 +5,27 @@
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
 // to structural changes in the `#[foreign]` table."]
 pub trait Tracker {
+    /// The foreign table was cleared. Clearing the local table is likely appropriate.
     fn cleared(&mut self, universe: &Universe);
+
+    /// The indicated foreign rows have been deleted or added.
+    ///
+    /// If the column has an `#[index]`, you can call `$table.track_$col_events(deleted)`.
+    /// `added` rows must be processed *after* deleted rows.
+    ///
+    /// Unfortunately `usize`s are passed instead of `$table::RowId`.
+    /// They can be converted using `$table::RowId::from_usize`.
+    /// This might be fixed in the future.
+    ///
+    /// You may lock the foreign table for editing, but making structural changes would likely
+    /// cause you trouble.
     fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]);
+
+    // FIXME: usize instead of GenericRowId.
+    // This'd break object safety tho... GenericTable has:
+    //  - deleted: Vec<usize>, 
+    //  - Vec<Box<Tracker>>
+    // Might need to box a tracker container trait.
 }
 
 use std::sync::{Arc, RwLock};

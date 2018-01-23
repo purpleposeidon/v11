@@ -1,7 +1,9 @@
 //! `v11` code involving many table locks can encounter two problems.
+//!
 //! 1. A higher function may have a write lock, and some lower function also needs a write locking,
 //!    resulting in a dead-lock.
 //! 2. Passing many locks around is unwieldy, but must be done in tight `for` loops.
+//!
 //! You could create context structs manually, but this is labor-intensive, especially when you
 //! start needing to combine them.
 use std::os::raw::c_void;
@@ -26,25 +28,26 @@ pub trait ReleaseFields {
 /// `fn name() -> &'static str`
 /// can be used.
 ///
+/// Tuples of up to three contexts can be combined. Try nesting the tuples if you need more.
+///
 /// # Example
 /// ```no_compile
 /// context! {
 ///     pub struct MyContext {
-///         reader: data_table::Read,
-///         writer: data_log::Write,
+///         pub reader: data_table::Read,
+///         pub writer: data_log::Write,
 ///     }
 /// }
 /// ```
-// This macro is Wildy Exciting.
+// This macro is Wildly Exciting.
 #[macro_export]
 macro_rules! context {
     (pub struct $name:ident {
-        // FIXME: Change to (pub $i: $lock)
-        $($i:ident: $lock:path,)*
+        $(pub $i:ident: $lock:path,)*
     }) => {
         #[doc(hidden)]
         #[allow(non_snake_case)]
-        mod $name {
+        pub mod $name {
             use std::mem;
             use std::ptr::null_mut;
 
@@ -154,8 +157,7 @@ macro_rules! context {
     };
 }
 
-/// Tuples of up to three contexts can be combined. Try nesting them if you want more.
-pub mod merging_multiple_contexts {
+mod merging_multiple_contexts {
     use super::*;
 
     impl ReleaseFields for () {

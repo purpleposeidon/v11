@@ -16,12 +16,14 @@ impl fmt::Display for PropertyName {
     }
 }
 
+#[doc(hidden)]
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct DomainedPropertyId(usize);
+#[doc(hidden)]
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct GlobalPropertyId(pub usize);
 
-/// Internal.
+#[doc(hidden)]
 pub mod unset {
     use super::{DomainedPropertyId, GlobalPropertyId, DomainId};
     const UNSET: usize = ::std::usize::MAX;
@@ -32,6 +34,7 @@ pub mod unset {
 
 
 
+#[doc(hidden)]
 #[derive(Copy, Clone, PartialEq)]
 pub struct PropertyIndex<V> {
     pub domain_id: DomainId,
@@ -45,6 +48,7 @@ impl<V> fmt::Debug for PropertyIndex<V> {
     }
 }
 
+#[doc(hidden)]
 pub trait ToPropRef<V: Sync>: Sync {
     unsafe fn get(&self) -> &Prop<V>;
     fn register(&self);
@@ -53,8 +57,10 @@ pub trait ToPropRef<V: Sync>: Sync {
 
 
 /**
- * Usage example:
- * 
+ * Generate a property.
+ *
+ * # Usage
+ *
  * ```
  * # #[macro_use]
  * # extern crate v11;
@@ -338,6 +344,7 @@ impl<V> fmt::Display for Prop<V> {
 }
 
 
+/// Property manipulation methods.
 impl Universe {
     /// Returns a copy of the value of the given property. Only works for properties that are `Copy`.
     pub fn get<V: Any + Sync + Copy>(&self, prop: &ToPropRef<V>) -> V {
@@ -441,7 +448,7 @@ pub /* property! requires this */ mod test {
 
         // default value
         assert!(universe.get(PROP) == 0);
-        
+
         // set should work
         universe.set(PROP, 99);
         assert!(universe.get(PROP) == 99);
