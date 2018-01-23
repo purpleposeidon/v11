@@ -1,0 +1,1 @@
+find target/ | grep v11_macros | xargs rm
