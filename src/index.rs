@@ -1,6 +1,6 @@
 //! `GenericRowId`, `CheckedRowId`, and `RowRange`.
 // FIXME: Need https://github.com/rust-lang/rust/issues/38078 to ditch obnoxious verbosity
-// FIXME: s/GenericRowId/WillCheckRowId
+// FIXME: s/GenericRowId/FutureCheckRowId? s/UncheckedRowId/PastCheckRowId ?
 
 use std::marker::PhantomData;
 use std::fmt;
@@ -11,6 +11,8 @@ use num_traits::cast::FromPrimitive;
 use Universe;
 use tracking::Tracker;
 
+/// Index to a row on some table.
+/// You can call `row_index.check(&table)` to pre-check the index.
 // #[derive] nothing; stupid phantom data...
 pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]

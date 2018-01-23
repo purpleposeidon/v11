@@ -21,7 +21,7 @@ extern crate procedural_masquerade;
 extern crate rustc_serialize;
 extern crate itertools;
 extern crate bit_vec_mut as bit_vec;
-extern crate num_traits;
+pub extern crate num_traits;
 #[macro_use]
 extern crate lazy_static;
 
@@ -41,6 +41,16 @@ pub mod tracking;
 pub mod joincore;
 pub mod context;
 mod assert_sorted;
+
+// #[cfg(doc)] ???
+pub mod examples;
+#[doc(hidden)] // #[cfg(doc)] ???
+pub mod v11 {
+    pub use super::*;
+    // This is a work around for not having $crate in the procedural_masquerade.
+    // It is necessary for the macro invokations in `examples`.
+    // It might be possible to emulate $crate...
+}
 
 
 /**

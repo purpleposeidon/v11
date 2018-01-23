@@ -1,30 +1,62 @@
-use columns::TCol;
-use std::collections::BTreeMap;
+//! Columns can be made searchable using `#[index]`.
+//! Such columns have their mutability restricted.
+//! The index can be searched using `table.column.find(&element)`.
+
+use std::collections::{BTreeMap, btree_map};
 use std::hash::Hash;
 
-pub type BIndex<E> = BTreeMap<(E, usize), ()>;
+use num_traits::NumCast;
 
-pub trait IndexedCol: TCol {
-    fn get_index(&self) -> &BIndex<Self::Element>;
+use columns::TCol;
+use tables::GetTableName;
+use index::GenericRowId;
+
+/// An iterator over the rows containing a searched-for element.
+pub struct Indexes<'a, C: TCol + 'a, T: GetTableName + 'a> {
+    range: btree_map::Range<'a, (C::Element, T::Idx), ()>,
+}
+impl<'a, C: TCol + 'a, T: GetTableName + 'a> Iterator for Indexes<'a, C, T> {
+    type Item = GenericRowId<T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.range
+            .next()
+            .map(|v| (v.0).1)
+            .map(GenericRowId::new)
+    }
 }
 
-pub struct BTreeIndex<T: TCol>
-where T::Element: Hash + Ord + Copy
+/// A `TCol` wrapper that does indexing. The element must be Ord.
+pub struct BTreeIndex<C: TCol, T: GetTableName>
+where C::Element: Hash + Ord + Copy
 {
-    inner: T,
-    index: BIndex<T::Element>,
+    inner: C,
+    /// Unfortunately it duplicates the elements, but at least it is very easy to implement and does
+    /// limited allocation.
+    index: BTreeMap<(C::Element, T::Idx), ()>,
 }
-impl<T: TCol> IndexedCol for BTreeIndex<T>
-where T::Element: Hash + Ord + Copy {
-    fn get_index(&self) -> &BIndex<T::Element> { &self.index }
+impl<C: TCol, T: GetTableName> BTreeIndex<C, T>
+where C::Element: Hash + Ord + Copy
+{
+    /// Returns an iterator yielding the rows containing `key`.
+    pub fn find(&self, key: C::Element) -> Indexes<C, T> {
+        use num_traits::{Zero, Bounded};
+        let zero = T::Idx::zero();
+        let max = T::Idx::max_value();
+        Indexes {
+            // This excludes MAX. Unlikely! Can be fixed when `collections_range` lands.
+            range: self.index.range((key, zero)..(key, max))
+        }
+    }
 }
-impl<T: TCol> TCol for BTreeIndex<T> where T::Element: Hash + Ord + Copy {
-    type Element = T::Element;
+impl<C: TCol, T: GetTableName> TCol for BTreeIndex<C, T>
+where C::Element: Hash + Ord + Copy
+{
+    type Element = C::Element;
 
     fn new() -> Self where Self: Sized {
         BTreeIndex {
-            inner: T::new(),
-            index: BIndex::new(),
+            inner: C::new(),
+            index: BTreeMap::new(),
         }
     }
 
@@ -48,29 +80,34 @@ impl<T: TCol> TCol for BTreeIndex<T> where T::Element: Hash + Ord + Copy {
     fn push(&mut self, v: Self::Element) {
         let i = self.inner.len();
         self.inner.push(v);
-        self.index.insert((v, i), ());
+        let native_i = NumCast::from(i).unwrap();
+        self.index.insert((v, native_i), ());
     }
 
     unsafe fn unchecked_swap_out(&mut self, i: usize, new: &mut Self::Element) {
         let old = *self.unchecked_index(i);
-        self.index.remove(&(old, i));
-        self.index.insert((*new, i), ());
+        let native_i = NumCast::from(i).unwrap();
+        self.index.remove(&(old, native_i));
+        self.index.insert((*new, native_i), ());
         self.inner.unchecked_swap_out(i, new);
     }
 
     unsafe fn unchecked_swap(&mut self, a: usize, b: usize) {
         let old_a = *self.unchecked_index(a);
         let old_b = *self.unchecked_index(b);
-        self.index.remove(&(old_a, a));
-        self.index.remove(&(old_b, b));
-        self.index.insert((old_a, b), ());
-        self.index.insert((old_b, a), ());
+        let native_a = NumCast::from(a).unwrap();
+        let native_b = NumCast::from(b).unwrap();
+        self.index.remove(&(old_a, native_a));
+        self.index.remove(&(old_b, native_b));
+        self.index.insert((old_a, native_b), ());
+        self.index.insert((old_b, native_a), ());
         self.inner.unchecked_swap(a, b);
     }
 
     unsafe fn deleted(&mut self, i: usize) {
         let old = *self.unchecked_index(i);
-        self.index.remove(&(old, i));
+        let native_i = NumCast::from(i).unwrap();
+        self.index.remove(&(old, native_i));
         self.inner.deleted(i);
     }
 }

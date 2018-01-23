@@ -74,7 +74,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         .map(|x| {
             let ct = pp::ty_to_string(&*x.colty);
             if x.indexed {
-                format!("Col<BTreeIndex<{}>, Row>", ct)
+                format!("Col<BTreeIndex<{}, Row>, Row>", ct)
             } else {
                 format!("Col<{}, Row>", ct)
             }
@@ -121,8 +121,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use self::v11::index::{CheckedIter, Checkable};
 
         #[allow(unused_imports)] use self::v11::storage::*; // A reasonable convenience for the user.
-        #[allow(unused_imports)] use self::v11::map_index::{BTreeIndex, IndexedCol};
+        #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
+        #[allow(unused_imports)] use self::v11::num_traits::Bounded;
         #[allow(unused_imports)] use std::collections::VecDeque;
 
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
@@ -402,17 +403,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         for deleted_foreign in deleted {
                             type E = #IFC_ELEMENT;
                             let deleted_foreign = E::from_usize(*deleted_foreign);
-                            let delete_range = (deleted_foreign, 0)..(deleted_foreign, ::std::usize::MAX);
                             loop {
-                                let referenced_by = {
-                                    let index = self.#IFC.deref().inner().get_index();
-                                    if let Some((&(_foreign, local), &())) = index.range(delete_range.clone()).next() {
-                                        local
-                                    } else {
-                                        break;
-                                    }
+                                let kill = if let Some(kill) = self.#IFC.deref().inner().find(deleted_foreign).next() {
+                                    kill
+                                } else {
+                                    break;
                                 };
-                                let kill = RowId::from_usize(referenced_by);
                                 self.delete(kill);
                                 if cfg!(test) && self.contains(kill) {
                                     panic!("Deletion failed");

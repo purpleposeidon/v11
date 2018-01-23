@@ -7,7 +7,8 @@ use std::marker::PhantomData;
 use Storable;
 use tables::{GetTableName, LockedTable, GenericRowId, CheckedRowId};
 
-/// All column storage types implement this trait.
+/// All column storage types use this trait to expose a `Vec`-like interface.
+/// Some of the methods are used to keep `IndexedCol`s in sync.
 pub trait TCol {
     type Element: Storable;
 
@@ -20,10 +21,13 @@ pub trait TCol {
     fn reserve(&mut self, n: usize);
     fn clear(&mut self) { self.truncate(0) }
     fn push(&mut self, v: Self::Element);
+
     unsafe fn unchecked_swap_out(&mut self, i: usize, new: &mut Self::Element) { ::std::mem::swap(self.unchecked_index_mut(i), new) }
     unsafe fn unchecked_swap(&mut self, a: usize, b: usize);
+    /// Callback for when an element is deleted.
     unsafe fn deleted(&mut self, _i: usize) {}
 }
+// FIXME: Should the whole trait be unsafe?
 
 /// It's not possible to do a blanket implementation of indexing on `TCol`s due to orphan rules,
 /// so this is a wrapper.
@@ -33,6 +37,7 @@ pub struct Col<C: TCol, T: GetTableName> {
     table: PhantomData<T>,
 }
 impl<C: TCol, T: GetTableName> Col<C, T> {
+    #[doc(hidden)]
     pub fn new() -> Self {
         Self { inner: C::new(), table: PhantomData }
     }
@@ -81,30 +86,39 @@ impl<'a, C: TCol, T: LockedTable + 'a> IndexMut<CheckedRowId<'a, T>> for Col<C, 
 }
 
 
-/// The `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but allow a
-/// separate 'private' interface for our macro output.
+/// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
+/// hidden interface for `table!` to use.
 ///
 /// A `RefA` is a column that can be `Index`ed.
 pub struct RefA<'a, T: 'a>(&'a T);
+/// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
+/// hidden interface for `table!` to use.
+///
 /// A `MutA` is a column that can be `Index`ed and `IndexMut`ed.
 pub struct MutA<'a, T: 'a>(&'a mut T);
+/// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
+/// hidden interface for `table!` to use.
+///
 /// A `EditA` is a column that can be `Index`ed.
 /// (And is secretly mutable by v11.)
 pub struct EditA<'a, T: 'a>(&'a mut T);
 
+#[doc(hidden)]
 impl<'a, T: 'a> RefA<'a, T> {
     pub fn new(t: &'a T) -> Self { RefA(t) }
-    #[doc(hidden)] pub fn deref(&self) -> &T { self.0 }
+    pub fn deref(&self) -> &T { self.0 }
 }
+#[doc(hidden)]
 impl<'a, T: 'a> MutA<'a, T> {
     pub fn new(t: &'a mut T) -> Self { MutA(t) }
-    #[doc(hidden)] pub fn deref(&self) -> &T { self.0 }
-    #[doc(hidden)] pub fn deref_mut(&mut self) -> &mut T { self.0 }
+    pub fn deref(&self) -> &T { self.0 }
+    pub fn deref_mut(&mut self) -> &mut T { self.0 }
 }
+#[doc(hidden)]
 impl<'a, T: 'a> EditA<'a, T> {
     pub fn new(t: &'a mut T) -> Self { EditA(t) }
-    #[doc(hidden)] pub fn deref(&self) -> &T { self.0 }
-    #[doc(hidden)] pub fn deref_mut(&mut self) -> &mut T { self.0 }
+    pub fn deref(&self) -> &T { self.0 }
+    pub fn deref_mut(&mut self) -> &mut T { self.0 }
 }
 
 // Forward indexing operations to `Col`.
