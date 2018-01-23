@@ -8,6 +8,7 @@ extern crate rustc_serialize;
 
 use v11::*;
 use v11::tables::RowRange;
+use v11::tracking::Tracker;
 
 
 
@@ -22,7 +23,8 @@ domain! { pub TEST }
 pub struct Blah;
 
 table! {
-    /// Can we document the table?
+    /// FIXME: Does this document the table?
+    #[kind = "consistent"]
     [TEST/elements] {
         bits: [bool; BoolCol],
         bytes: [u8; VecCol<u8>],
@@ -31,11 +33,24 @@ table! {
 }
 
 table! {
+    #[kind = "consistent"]
+    #[row_derive(Clone)]
     [TEST/arrays] {
+        #[foreign]
+        #[index]
+        range_start: [elements::RowId; VecCol<elements::RowId>],
+        // FIXME: foreign gives us a `usize` on the events, which isn't convertible to a RowRange.
+        // There's a less trivial way to work around this that we're too lazy to try here.
         range: [RowRange<elements::RowId>; VecCol<RowRange<elements::RowId>>],
     }
-    impl {
-        Save;
+}
+impl Tracker for arrays::track_range_start_events {
+    fn cleared(&mut self, universe: &Universe) {
+        arrays::write(universe).clear();
+    }
+    fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]) {
+        let mut arrays = arrays::write(universe);
+        arrays.track_range_start_removal(deleted);
     }
 }
 
@@ -69,6 +84,7 @@ fn ranged() {
                 });
             }
             a.push(arrays::Row {
+                range_start: start,
                 range: RowRange {
                     start: start,
                     end: end.next(),
@@ -79,13 +95,15 @@ fn ranged() {
 
     for row in a.iter() {
         println!("{:?}: {:?}", row, a.range[row]);
-        for erow in a.range[row] {
+        for erow in e.range(a.range[row]) {
             println!("\t{}", e.bits[erow]);
         }
         // RowRange is copy, so this does the full iteration twice.
         println!("{:?}: {:?}", row, a.range[row]);
-        for erow in a.range[row] {
+        for erow in e.range(a.range[row]) {
             println!("\t{}", e.bits[erow]);
         }
     }
+    a.flush(universe);
+    e.flush(universe);
 }

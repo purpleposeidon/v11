@@ -12,7 +12,7 @@ domain! { TEST }
 
 
 table! {
-    #[kind = "public"]
+    #[kind = "consistent"]
     [TEST/hello_there] {
         foo: [i32; SegCol<i32>],
     }

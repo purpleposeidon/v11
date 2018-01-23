@@ -19,7 +19,9 @@ The syntax for this macro is:
 ```ignored
 table! {
     #[kind = "…"]
-    pub DOMAIN::name_of_table {
+    // table attributes can go here
+    pub [DOMAIN/name_of_table] {
+        // column attributes can go here
         column_name_1: [Element1; ColumnType1],
         column_name_2: [Element2; ColumnType2],
         column_name_3: [Element3; ColumnType3],
@@ -27,7 +29,11 @@ table! {
     }
 }
 ```
-where each `ColumnType` is a `TCol`, and Element is `<ColumnType as TCol>::Element`.
+where each ColumnType is a `TCol`, and Element is a `Storable` `<ColumnType as TCol>::Element`.
+
+`pub` can be elided for a private table.
+
+DOMAIN is specified using the `domain!` macro.
 
 Here are some example columns:
 
@@ -43,21 +49,61 @@ Table and column names must be valid Rust identifiers that also match the regex
 Column elements must implement `Storable`.
 Column types must implement `TCol`.
 
+# Using the Table
+
+```ignored
+# FIXME: lang=ignored=lame
+
+// Create a new domain. This is a single-level namespace
+domain! { MY_DOMAIN }
+
+// Generate code for a table.
+table! {
+    #[kind = "append"]
+    pub [MY_DOMAIN/my_table] {
+        my_int: [i32; VecCol<i32>],
+    }
+}
+
+fn main() {
+    // Every domain, table, and property should be registered before creating the Universe.
+    MY_DOMAIN::register();
+    my_table::register();
+
+    // Every member of MY_DOMAIN is initialized at this point.
+    let universe = &Universe::new(&[MY_DOMAIN]);
+
+    // The universe owns a `RwLock` for each table & property.
+    let mut my_table = my_table::write(universe);
+    my_table.push(my_table::Row {
+        my_int: 42,
+    });
+}
+```
+
 # Table kinds and Guarantees
 
 The 'kind' of a table selects what functions are generated and what guarantees are upheld.
 
-## `#[kind = "public"]`
+## `#[kind = "consistent"]`
 
-Rows in public tables can be used as *foreign keys* in other tables.
+Rows in consistent tables can be used as *foreign keys* in other tables.
 The main guarantee of the public table is that it is kept consistent with such tables:
 the main row and its linkages are (with some user-provided implementation!) deleted as a unit.
 
+Since maintaining consistency requires locking other tables,
+you must call `table.flush(universe)` instead of letting the table fall out of scope.
+You also may call `table.no_flush()` to let someone else deal with it.
+
 ## `#[kind = "append"]`
 
-Rows in an "append" table can not be removed.
+Rows in an "append" table can not be removed. Consistency is thus trivially guaranteed.
 
-(TODO: Implement other kinds.)
+## `#[kind = "bag"]`
+NYI. (Internal order would be arbitrary and there would be no consistency guarantee.)
+
+## `#[kind = "sorted"]`
+NYI.
 
 # Using the generated table
 
@@ -67,9 +113,28 @@ A lock on the table must be obtained using `$tablename::read(universe)`.
 
 # Table Attributes
 
-## `#[rowid = "usize"]`
+## `#[row_id = "usize"]`
 Sets what the (underlying) primitive is used for indexing the table. The default is `usize`.
 This is useful when this table is going to have foreign keys pointing at it.
+
+## `#[row_derive(Foo, Bar)]`
+Puts `#[derive(Foo, Bar)]` on the generated `Row` and `RowRef` structs.
+
+# Column Attributes
+
+## `#[foreign]`
+The row's element must be another table's RowId.
+
+## `#[index]`
+Creates an index of the column, using a `BTreeMap`.
+Indexed elements are immutable.
+
+FIXME: IndexSet. Or just expose a set() method.
+
+<hr>
+
+// FIXME: Would `#[mut]` be cool? Cols are immutable by default? :D
+
 
 <hr>
 
@@ -187,6 +252,7 @@ macro_rules! table {
     ) => {
         // It'd be nicer to generate 'mod' in the procmacro, but the procedural masquerade hack
         // can't be invoked twice in the same module.
+        #[allow(dead_code)]
         mod $name {
             __v11_invoke_table! {
                 __v11_internal_table!($(#[$meta])* [$domain/$name] $($args)*)
@@ -198,6 +264,7 @@ macro_rules! table {
         pub [$domain:ident/$name:ident]
         $($args:tt)*
     ) => {
+        #[allow(dead_code)]
         pub mod $name {
             __v11_invoke_table! {
                 __v11_internal_table!($(#[$meta])* [$domain/$name] $($args)*)

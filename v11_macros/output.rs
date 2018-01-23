@@ -106,6 +106,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_TYPE2 = COL_TYPE;
 
     let TABLE_NAME_STR = table.name.clone();
+    #[allow(unused)]
     let TABLE_VERSION = table.version;
     let TABLE_DOMAIN = i(table.domain.clone());
     out! { ["Imports & header data"] {
@@ -119,12 +120,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use self::v11::columns::*;
         use self::v11::index::{CheckedIter, Checkable};
 
-        // Having them automatically imported is a reasonable convenience.
-        #[allow(unused_imports)]
-        use self::v11::storage::*;
-
-        #[allow(unused_imports)]
-        use self::v11::map_index::{BTreeIndex, IndexedCol};
+        #[allow(unused_imports)] use self::v11::storage::*; // A reasonable convenience for the user.
+        #[allow(unused_imports)] use self::v11::map_index::{BTreeIndex, IndexedCol};
+        #[allow(unused_imports)] use self::v11::Action;
+        #[allow(unused_imports)] use std::collections::VecDeque;
 
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         pub const TABLE_DOMAIN: DomainName = super::#TABLE_DOMAIN;
@@ -135,11 +134,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(pub const #COL_NAME: &'static str = #COL_FORMAT;)*
         }
     }}
-
-    let ROW_DERIVES: &Vec<_> = &table.row_derive.iter()
-        .map(pp::meta_list_item_to_string)
-        .map(i)
-        .collect();
 
     let ROW_ID_TYPE = i(&table.row_id);
     out! { ["Indexing"] {
@@ -165,6 +159,17 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub fn at(i: #ROW_ID_TYPE) -> RowId { RowId::new(i) }
     }}
 
+    let ROW_DERIVES: &Vec<_> = &table.row_derive.iter()
+        .map(pp::meta_list_item_to_string)
+        .map(i)
+        .collect();
+
+    let ROW_REF_DERIVES: Vec<_> = ROW_DERIVES.iter()
+        .filter(|x| match x.as_ref() {
+            "Clone" | "RustcEncodable" | "RustcDecodable" => false,
+            _ => true,
+        }).collect();
+
     out! { ["The `Row` struct"] {
         /**
          * A structure holding a copy of each column's data. This is used to pass entire rows around through methods;
@@ -181,8 +186,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         /// A row of a reference to each element.
-        #(#[derive(#ROW_DERIVES)])*
-        // Do we want RowRef to be copy/clone? There could be a lot of rows!
+        #(#[derive(#ROW_REF_DERIVES)])*
+        #[derive(Clone)]
+        // Do we want RowRef to *always* be Copy? There could be a lot of rows!
         pub struct RowRef<'a> {
             #(#COL_ATTR pub #COL_NAME: &'a #COL_ELEMENT,)*
         }
@@ -231,10 +237,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
 
     let RW_FUNCTIONS_CONSISTENT = quote! {
-        /** Returns an iterator over each nonrow in the table that is not marked for deletion.
+        /** Returns an iterator over each non-row in the table that is not marked for deletion.
          * (R/W) */
         pub fn iter(&self) -> ConsistentIter<Self> {
-            let checked_iter = CheckedIter::from(self, self.row_range());
+            self.range(self.row_range())
+        }
+
+        /** Iterate over a range of rows. (R/W) */
+        pub fn range(&self, range: RowRange<RowId>) -> ConsistentIter<Self> {
+            let checked_iter = CheckedIter::from(self, range);
             ConsistentIter::new(checked_iter, &self._lock.free)
         }
 
@@ -243,17 +254,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             index.to_usize() < self.len() && !self._lock.free.contains_key(&index.to_usize())
         }
     };
-    let RW_FUNCTIONS_INCONSISTENT = quote! {
-        /** Returns an iterator over each row in the table. (R/W) */
-        pub fn iter(&self) -> CheckedIter<Self> {
-            CheckedIter::from(self, self.row_range())
-        }
-
-        /** Returns true if `i` is a valid RowId. */
-        pub fn contains(&self, index: RowId) -> bool {
-            index.to_usize() < self.len()
-        }
-
+    let DUMP = quote_if(table.derive.clone, quote! {
         /** Allocates a Vec filled with every Row in the table. (R/W) */
         // we exclude consistent, because deleted rows shouldn't be included, but then if you
         // reconstitute, indexes would be wrong.
@@ -264,7 +265,34 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
             ret
         }
+    });
+    let RW_FUNCTIONS_INCONSISTENT = quote! {
+        /** Returns an iterator over each row in the table. (R/W) */
+        pub fn iter(&self) -> CheckedIter<Self> {
+            self.range(self.row_range())
+        }
+
+        /** Iterate over a range of rows. (R/W) */
+        pub fn range(&self, range: RowRange<RowId>) -> CheckedIter<Self> {
+            CheckedIter::from(self, range)
+        }
+
+        /** Returns true if `i` is a valid RowId. */
+        pub fn contains(&self, index: RowId) -> bool {
+            index.to_usize() < self.len()
+        }
+
+        #DUMP
     };
+    let GET_ROW = quote_if(table.derive.clone, quote! {
+        /** Retrieves a structure containing a clone of the value in each column. (R/W) */
+        pub fn get_row<R: Checkable<Row=Row>>(&self, index: R) -> Row where Row: Clone {
+            let index = index.check(self);
+            Row {
+                #(#COL_NAME: self.#COL_NAME2[index].clone(),)*
+            }
+        }
+    });
     let RW_FUNCTIONS_BOTH = quote! {
         /** Returns the number of rows in the table. (R/W) */
         // And assumes that the columns are all the same length.
@@ -277,13 +305,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             (RowId::new(0)..RowId::from_usize(self.len())).into()
         }
 
-        /** Retrieves a structure containing a clone of the value in each column. (R/W) */
-        pub fn get_row<R: Checkable<Row=Row>>(&self, index: R) -> Row {
-            let index = index.check(self);
-            Row {
-                #(#COL_NAME: self.#COL_NAME2[index].clone(),)*
-            }
-        }
+        #GET_ROW
 
         /** Retrieves a structure containing a reference to each value in each column. (R/W) */
         pub fn get_row_ref<R: Checkable<Row=Row>>(&self, index: R) -> RowRef {
@@ -378,7 +400,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     /// `deleted` is a list of removed foreign keys.
                     pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[usize]) {
                         for deleted_foreign in deleted {
-                            let deleted_foreign = #IFC_ELEMENT::from_usize(*deleted_foreign);
+                            type E = #IFC_ELEMENT;
+                            let deleted_foreign = E::from_usize(*deleted_foreign);
                             let delete_range = (deleted_foreign, 0)..(deleted_foreign, ::std::usize::MAX);
                             loop {
                                 let referenced_by = {
@@ -486,28 +509,133 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }};
 
     out! {
-        table.sorted || !table.immutable => ["swap_row() for retain & merge"] {
+        table.sorted || !table.immutable => ["swapping"] {
+            // Making this public would break many guarantees!
             impl<'u> Write<'u> {
                 #[inline]
-                // Making this public would break many guarantees!
-                fn swap_row(&mut self, i: RowId, row: &mut Row) {
+                fn swap_out_row(&mut self, i: RowId, row: &mut Row) {
                     unsafe {
                         let i = i.check(self).to_usize();
-                        #(self.#COL_NAME.deref_mut().inner_mut().unchecked_swap(i, &mut row.#COL_NAME2);)*
+                        #(self.#COL_NAME.deref_mut().inner_mut().unchecked_swap_out(i, &mut row.#COL_NAME2);)*
                     }
+                }
+
+                #[inline]
+                fn swap(&mut self, a: RowId, b: RowId) {
+                    unsafe {
+                        let a = a.check(self).to_usize();
+                        let b = b.check(self).to_usize();
+                        #(self.#COL_NAME.deref_mut().inner_mut().unchecked_swap(a, b);)*
+                    }
+                }
+
+                #[inline]
+                fn truncate(&mut self, new_len: usize) {
+                    #(self.#COL_NAME.deref_mut().inner_mut().truncate(new_len);)*
                 }
             }
         };
     };
 
-    out! {
-        table.sorted => ["row pushing for sorted tables"] {
-            impl<'u> Write<'u> {
-                pub fn retain<F: Fn(&Self, I) -> bool>(&mut self, f: F) {
-                    unimplemented!();
-                    let _check_my_source = Vec::retain;
-                }
+    if table.sorted && !table.derive.clone {
+        panic!("sorted tables must be clone");
+    }
+    out! { !table.immutable && table.derive.clone => ["merge functions"] {
+        impl<'u> Write<'u> {
+            pub fn retain<F: FnMut(&Self, RowId) -> bool>(&mut self, mut f: F) {
+                self.merge0(|me, rowid| {
+                    Action::Continue {
+                        remove: !f(me, rowid),
+                        add: ::std::iter::empty(),
+                    }
+                })
+            }
 
+            // We use a physically-inspired bulging rug algorithm.
+            // There are four actions that happen here.
+            // The first two happen while iterating over the table.
+            // 1: on each row we push_back a row to keep, and an iterator to run
+            // 2: we pop off the front of the rug to fill in the gaps created by deletions.
+            // 3: after the iteration, there may be rows to trim.
+            // 4: we push out the contents of the rug.
+            fn merge0<IT, F>(&mut self, mut f: F)
+            where
+                IT: IntoIterator<Item = Row>,
+                F: FnMut(&Self, RowId) -> Action<IT>,
+            {
+                // It'd be nice to use a type alias here...
+                let mut rug: VecDeque<Result<Row, IT::IntoIter>> = VecDeque::new();
+
+                // Try to remove a single row from the rug.
+                let pull_rug = |rug: &mut VecDeque<Result<Row, IT::IntoIter>>| {
+                    while let Some(rug_next) = rug.pop_front() {
+                        match rug_next {
+                            Ok(rug_row) => return Some(rug_row),
+                            Err(mut iter) => {
+                                if let Some(next) = iter.next() {
+                                    rug.push_front(Err(iter));
+                                    return Some(next);
+                                }
+                            }
+                        }
+                    }
+                    None
+                };
+                // entries in `rug_front..rug_back` are uninitialized.
+                let mut rug_front = FIRST;
+                let mut rug_back = FIRST;
+                let mut stopped = false;
+                while rug_back.to_usize() < self.len() {
+                    let action = if stopped { Action::Break } else { f(self, rug_back) };
+                    match action {
+                        Action::Continue { remove, add } => {
+                            if !remove {
+                                rug.push_back(Ok(self.get_row(rug_back)));
+                            }
+                            rug_back = rug_back.next();
+                            rug.push_back(Err(add.into_iter()));
+                        }
+                        Action::Break => {
+                            stopped = true;
+                            if rug_front == rug_back && rug.is_empty() {
+                                // We were a no-op
+                                return;
+                            }
+                            // same as 'remove: false, add: None'
+                            rug.push_back(Ok(self.get_row(rug_back)));
+                            rug_back = rug_back.next();
+                        }
+                    }
+                    while rug_front < rug_back {
+                        if let Some(mut rug_row) = pull_rug(&mut rug) {
+                            self.swap_out_row(rug_front, &mut rug_row);
+                            rug_front = rug_front.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.truncate(rug_front.to_usize());
+                while let Some(row) = pull_rug(&mut rug) {
+                    self.push(row);
+                }
+            }
+        }
+    };}
+    out! { !table.immutable && table.derive.clone && !table.sorted => ["visit"] {
+        impl<'u> Write<'u> {
+            pub fn visit<IT, F>(&mut self, f: F)
+            where
+                IT: IntoIterator<Item=Row>,
+                F: FnMut(&Self, RowId) -> Action<IT>
+            {
+                self.merge0(f)
+            }
+        }
+    };}
+    out! {
+        !table.immutable && table.sorted => ["row pushing for sorted tables"] {
+            impl<'u> Write<'u> {
                 pub fn merge<IT: Iterator<Item=Row>, I: Into<AssertSorted<IT>>>(&mut self, rows: I)
                 where IT: IntoIterator<Row>
                 {
@@ -516,7 +644,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     // We get 'next' by merging the rug and the iter.
                     // Whenever something gets bumped off the table, it is pushed onto the rug.
                     // The rug is sorted because the table is sorted.
-                    let mut rug = ::std::collections::VecDeque::new();
+                    let mut rug = VecDeque::new();
                     let mut iter = rows.into().peekable();
                     let mut i = FIRST;
                     self.reserve(iter.size_hint().0);
@@ -549,7 +677,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             }.unwrap();
                             if i < self.len() {
                                 // swap the row
-                                self.swap_row(i, next);
+                                self.swap_out_row(i, next);
                                 if cfg!(debug) {
                                     // We know that `rug` is sorted.
                                     // But what if `next < rug.front()`? We'd break the ordering!
@@ -772,7 +900,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         fn register_foreign_trackers(_universe: &Universe) {
             #(
                 let bx = Box::new(#COL_TRACK_EVENTS) as Box<Tracker + Sync + Send>;
-                #COL_TRACK_ELEMENTS::register_tracker(_universe, bx);
+                type E = #COL_TRACK_ELEMENTS;
+                E::register_tracker(_universe, bx);
             )*
         }
     }};
@@ -790,6 +919,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }};
 
+    if table.save && !table.derive.clone { panic!("#[save] requires #[row_derive(Clone)]"); }
+
     out! {
         // FIXME: Use Serde, and encode by columns instead.
         table.save => ["Save"] {
@@ -799,12 +930,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// Row-based encoding.
                 pub fn encode_rows<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
                     if !self._lock.skip_flush() { panic!("Encoding unflushed table!"); }
-                    use rustc_serialize::Encoder;
                     e.emit_struct(#TABLE_NAME_STR, 2, |e| {
-                        e.emit_struct_field(0, "free_list", |e| self._lock.free.encode(e))?;
-                        e.emit_struct_field(1, "rows", |e| e.emit_seq(self.len(), |e| {
+                        e.emit_struct_field("free_list", 0, |e| self._lock.free.encode(e))?;
+                        e.emit_struct_field("rows", 1, |e| e.emit_seq(self.len(), |e| {
                             for i in self.iter() {
-                                let row = self.get_row_ref(i);
+                                let row = self.get_row(i);
+                                // FIXME: This requires clone. Column-based easily would not.
                                 e.emit_seq_elt(i.to_usize(), |e| row.encode(e))?;
                             }
                             Ok(())
@@ -818,10 +949,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// there is an error.
                 pub fn decode_rows<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
                     if !self._lock.skip_flush() { panic!("Decoding unflushed table!"); }
-                    use rustc_serialize::Decoder;
                     self.clear();
                     let caught = d.read_struct(#TABLE_NAME_STR, 2, |d| {
-                        let free_list = d.read_struct_field("free_list", 0, Vec::decode)?;
+                        self._lock.free = d.read_struct_field("free_list", 0, ::std::collections::BTreeMap::decode)?;
                         d.read_struct_field("rows", 1, |d| d.read_seq(|e, count| {
                             self.reserve(count);
                             for i in 0..count {

@@ -12,19 +12,16 @@ domain! { TEST }
 
 
 table! {
+    #[kind = "append"]
+    #[row_derive(Debug)]
     [TEST/yes_debug] {
         foo: [i32; SegCol<i32>],
     }
-    impl {
-        // ...
-    }
 }
 table! {
+    #[kind = "append"]
     [TEST/no_debug] {
         foo: [i32; SegCol<i32>],
-    }
-    impl {
-        NoDebug;
     }
 }
 

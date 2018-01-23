@@ -10,12 +10,12 @@ extern crate rustc_serialize;
 domain! { TEST }
 
 table! {
+    #[kind = "consistent"]
+    #[save]
+    #[row_derive(RustcEncodable, RustcDecodable, Debug, Clone)]
     [TEST/saveme] {
         foo: [i32; VecCol<i32>],
         bar: [bool; BoolCol],
-    }
-    impl {
-        Save;
     }
 }
 
@@ -41,7 +41,7 @@ fn test() {
             bar: true,
         });
         for blah in saveme.iter() {
-            println!("{:?}", saveme.get_row(blah));
+            println!("{:?}", saveme.get_row_ref(blah));
         }
     }
     use rustc_serialize::json;
@@ -58,7 +58,7 @@ fn test() {
         let mut inp = json::Decoder::new(j);
         saveme.decode_rows(&mut inp).unwrap();
         for blah in saveme.iter() {
-            println!("{:?}", saveme.get_row(blah));
+            println!("{:?}", saveme.get_row_ref(blah));
         }
     }
 }

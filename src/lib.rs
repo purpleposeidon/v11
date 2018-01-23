@@ -1,17 +1,20 @@
 //! A column-based in-memory database for [Data-Oriented Design][dod].
-//! 
+//!
 //! # Safety
-//! This crate *lies about safety*.
-//! The intention is that nothing goes wrong, so long as 
-//! 
-//! This is no problem so long as
-//! the registration of properties, tables, and domains is cleanly separated from their usage.
-//! 
+//! This crate *lies about safety*. Rust is monkey-safe; v11 aims for derp-safe.
+//!
+//! The danger zones:
+//! *. Calling `register()` functions on domains, properties and tables. This should only be done from the
+//! main thread, before any `Universe`s have been created.
+//! *. Doing strange things with the references in a table lock. (Namely, `mem::swap`.)
+//! *. Calling public functions that are marked `#[doc(hidden)]`
+//!
+//!
 //! [dod]: (http://www.dataorienteddesign.com/dodmain/)
 
 #[allow(unused_imports)]
 #[macro_use]
-// We don't actually use macros or the derive, but this silences up a warning.
+// We don't actually use macros or the derive, but this silences a warning.
 extern crate v11_macros;
 #[macro_use]
 extern crate procedural_masquerade;
@@ -41,17 +44,19 @@ mod assert_sorted;
 
 
 /**
- * Trait that all storable types must implement.
+ * Trait describing bounds that all storable types must satisfy.
  *
- * Types that implement this trait should also not implement `Drop`, although this is not yet
- * expressable, and is not presently required.
+ * Types that implement this trait also shouldn't implement `Drop`, although this is not yet
+ * expressable, and isn't yet required.
  * */
+// FIXME: !Drop
 pub trait Storable: Sync + Sized /* + !Drop */ {}
 impl<T> Storable for T where T: Sync + Sized /* + !Drop */ {}
 
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
+pub use tracking::Tracker;
 pub use domain::DomainName;
 use domain::MaybeDomain;
 
@@ -106,3 +111,14 @@ impl fmt::Debug for Universe {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Action<IT> {
+    /// If `remove` is true, then this row is removed.
+    /// In that gap, on immediately after, the rows yielded by `add` are inserted.
+    Continue {
+        remove: bool,
+        add: IT,
+    },
+    /// Stop visiting rows
+    Break,
+}

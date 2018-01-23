@@ -6,6 +6,8 @@ authors = ["neptunepink <purpleposeidon@gmail.com>"]
 [lib]
 crate-type = ["rlib", "dylib"]
 
+[dev-dependencies]
+rand = "*"
 
 [dependencies]
 v11_macros = { path = "./v11_macros" }

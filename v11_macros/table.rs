@@ -4,8 +4,9 @@ use syntex_syntax::ptr::P;
 #[derive(Debug, Copy, Clone)]
 pub enum TableKind {
     Append,
-    Public,
+    Consistent,
     Bag,
+    List,
 }
 
 #[derive(Default, Debug)]
@@ -45,13 +46,16 @@ impl Table {
         self.kind = Some(kind);
         match kind {
             TableKind::Append => { },
-            TableKind::Public => {
+            TableKind::Consistent => {
                 self.consistent = true;
                 self.secret = false;
             },
             TableKind::Bag => {
                 self.secret = true;
                 panic!("Bags are NYI");
+            },
+            TableKind::List => {
+                self.secret = true;
             },
         }
         for col in &self.cols {

@@ -169,7 +169,7 @@ where T::Idx: Decodable
 
 
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[derive(RustcDecodable, RustcEncodable)]
 pub struct RowRange<R> {
     pub start: R,
@@ -248,7 +248,7 @@ pub struct CheckedIter<'a, T: LockedTable + 'a> {
 }
 impl<'a, T: LockedTable> CheckedIter<'a, T> {
     pub fn from(table: &'a T, slice: RowRange<GenericRowId<T::Row>>) -> Self {
-        assert!(slice.start.to_usize() < table.len());
+        assert!(slice.start.to_usize() < table.len() || (slice.start == slice.end));
         assert!(slice.end.to_usize() <= table.len()); // Remember: end is excluded from the iteration!
         CheckedIter {
             table,

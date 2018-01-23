@@ -9,18 +9,21 @@ use v11::Universe;
 domain! { pub TESTS }
 
 table! {
+    #[kind = "consistent"]
     [TESTS/cheeses] {
         color: [u32; SegCol<u32>],
     }
 }
 
 table! {
+    #[kind = "consistent"]
     [TESTS/stenches] {
         stinkiness: [f32; SegCol<f32>],
     }
 }
 
 table! {
+    #[kind = "consistent"]
     [TESTS/wines] {
         alcohols: [u64; SegCol<u64>],
     }

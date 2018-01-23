@@ -50,11 +50,12 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
         match attr_name.as_str() {
             "kind" => table.set_kind(match meta_arg(&attr.value).as_str() {
                 "append" => TableKind::Append,
-                "public" => TableKind::Public,
+                "consistent" => TableKind::Consistent,
                 "bag" => TableKind::Bag,
-                e => err!(parser, "Unknown kind {:?}", e),
+                "list" => TableKind::List,
+                e => err!(parser, "Unknown table kind {:?}", e),
             }),
-            "rowid" => table.row_id = meta_arg(&attr.value),
+            "row_id" => table.row_id = meta_arg(&attr.value),
             "row_derive" => if let MetaItemKind::List(items) = attr.value.node {
                 for item in &items {
                     let item = &item.node;
@@ -69,6 +70,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 }
                 table.row_derive.extend(items);
             },
+            "save" => table.save = true,
             _ => {
                 // other attrs go on the module
                 table.module_attrs.push(attr);

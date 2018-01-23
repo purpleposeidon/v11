@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[macro_use]
 extern crate v11;
 #[macro_use]
@@ -9,18 +7,19 @@ extern crate rustc_serialize;
 
 
 domain! { TEST }
-use v11::{Universe, Action};
+use v11::{Universe, Tracker};
 
 table! {
+    #[kind = "append"]
+    #[row_id = "u8"]
     pub [TEST/new_table_test] {
         random_number: [usize; VecCol<usize>],
-    }
-    impl {
-        RowId = u8;
     }
 }
 
 table! {
+    #[kind = "append"]
+    #[row_derive(Clone, Debug)]
     [TEST/easy] {
         x: [i32; VecCol<i32>],
     }
@@ -40,6 +39,8 @@ pub type EasyRowId = easy::RowId;
 
 
 table! {
+    #[kind = "consistent"]
+    #[row_derive(Clone, Debug)]
     [TEST/cheese] {
         mass: [usize; VecCol<usize>],
         holes: [u16; VecCol<u16>],
@@ -48,8 +49,19 @@ table! {
 }
 
 table! {
+    #[kind = "consistent"]
     [TEST/test_foreign] {
+        #[foreign]
+        #[index]
         id: [EasyRowId; VecCol<EasyRowId>],
+    }
+}
+impl Tracker for test_foreign::track_id_events {
+    fn cleared(&mut self, universe: &Universe) {
+        test_foreign::write(universe).clear();
+    }
+    fn track(&mut self, universe: &Universe, deleted: &[usize], _added: &[usize]) {
+        test_foreign::write(universe).track_id_removal(deleted);
     }
 }
 
@@ -64,9 +76,6 @@ fn make_universe() -> Universe {
         easy::register();
         cheese::register();
         test_foreign::register();
-        sortie::register();
-        bsortie::register();
-        bits::register();
         test_u16::register();
     });
     Universe::new(&[TEST])
@@ -123,252 +132,6 @@ fn walk_table() {
         println!("{:?}", cheese.get_row(i));
     }
 }
-fn dump(easy: &mut easy::Write) {
-    for i in easy.iter() {
-        println!("{:?}", easy.get_row(i));
-    }
-}
-
-#[test]
-fn visit_remove() {
-    let universe = make_universe();
-    let mut easy = easy::write(&universe);
-    easy.push(easy::Row {x: 1});
-    dump(&mut easy);
-    for d in 2..10 {
-        let mut first = true;
-        easy.visit(|easy, i| {
-            if d == 2 && !first {
-                panic!("visiting stuff I just made! {:?} {:?}", easy.get_row(i), i);
-            }
-            first = false;
-            Action::Add(Some(easy::Row { x: easy.x[i] * d }).into_iter())
-        });
-        println!("d = {}", d);
-        dump(&mut easy);
-    }
-    easy.visit(|easy, i| -> easy::ClearVisit {
-        if easy.x[i] % 10 == 0 {
-            Action::Remove
-        } else {
-            Action::Continue
-        }
-    });
-    println!("Some 0's removed:");
-    dump(&mut easy);
-}
-
-#[test]
-fn visit_break_immediate() {
-    let universe = make_universe();
-    let mut easy = easy::write(&universe);
-    easy.push(easy::Row {x: 1});
-    easy.visit(|_, _| -> easy::ClearVisit { Action::Break } );
-}
-
-#[test]
-fn visit_add() {
-    fn dump(easy: &mut easy::Write) {
-        for i in easy.iter() {
-            println!("{:?}", easy.get_row(i));
-        }
-    }
-    let universe = make_universe();
-    let mut easy = easy::write(&universe);
-    easy.push(easy::Row {x: 1});
-    //dump(&mut easy);
-    for d in 2..10 {
-        let mut first = true;
-        easy.visit(|easy, i| {
-            if d == 2 && !first {
-                panic!("visiting stuff I just made! {:?} {:?}", easy.get_row(i), i);
-            }
-            first = false;
-            Action::Add(Some(easy::Row { x: easy.x[i] * d }).into_iter())
-        });
-        //println!("d = {}", d);
-        //dump(&mut easy);
-    }
-}
-
-// These two aren't very good tests. Just don't panic, I guess.
-#[test]
-fn visit_remove_break() {
-    fn b() -> easy::ClearVisit { Action::Break }
-    visit_remove_and(b);
-}
-
-#[test]
-fn visit_remove_continue() {
-    fn c() -> easy::ClearVisit { Action::Continue }
-    visit_remove_and(c);
-}
-
-fn visit_remove_and<A: Fn() -> easy::ClearVisit>(act: A) {
-    let universe = make_universe();
-    let mut easy = easy::write(&universe);
-    for n in 0..10 {
-        easy.push(easy::Row {x: n});
-    }
-    dump(&mut easy);
-    let mut n = 0;
-    easy.visit(|_, _| -> easy::ClearVisit {
-        n += 1;
-        if n > 5 {
-            act()
-        } else {
-            Action::Remove
-        }
-    });
-    println!("After stuff was removed:");
-    dump(&mut easy);
-}
-
-#[test]
-fn remove_one() {
-    let universe = make_universe();
-    let mut easy = easy::write(&universe);
-    for i in 0..2 {
-        easy.push(easy::Row { x: i });
-    }
-    let mut first = true;
-    println!("Start");
-    dump(&mut easy);
-    assert_eq!(easy.len(), 2);
-    easy.visit(|_, _| -> easy::ClearVisit {
-        if first {
-            first = false;
-            Action::Remove
-        } else {
-            Action::Break
-        }
-    });
-    println!("");
-    dump(&mut easy);
-    assert_eq!(easy.len(), 1);
-}
-
-table! {
-    [TEST/sortie] {
-        i: [usize; VecCol<usize>],
-    }
-    impl {
-        RowId = usize;
-        SortBy(i);
-    }
-}
-
-#[test]
-fn sort() {
-    let universe = make_universe();
-    println!("Input:");
-    let orig_len = {
-        let mut sortie = sortie::write(&universe);
-        for i in 0..40 {
-            let i = 40 - i;
-            println!("{}", i);
-            sortie.push(sortie::Row { i: i });
-        }
-        sortie.len()
-    };
-    let mut sortie = sortie::write(&universe);
-    sortie.sort_by_i();
-    println!("Sorted:");
-    for i in sortie.iter() {
-        println!("{}", sortie.i[i]);
-    }
-    assert_eq!(orig_len, sortie.len());
-}
-
-
-
-table! {
-    [TEST/bsortie] {
-        i: [bool; BoolCol],
-    }
-    impl {
-        SortBy(i);
-    }
-}
-
-#[test]
-fn bsort() {
-    let universe = make_universe();
-    let orig_len = {
-        let mut bsortie = bsortie::write(&universe);
-        bsortie.push(bsortie::Row { i: false });
-        bsortie.push(bsortie::Row { i: false });
-        bsortie.push(bsortie::Row { i: true });
-        bsortie.push(bsortie::Row { i: false });
-        bsortie.push(bsortie::Row { i: true });
-        bsortie.len()
-    };
-    let mut bsortie = bsortie::write(&universe);
-    bsortie.sort_by_i();
-    println!("Sorted:");
-    for i in bsortie.iter() {
-        println!("{:?}", bsortie.get_row(i));
-    }
-    assert_eq!(orig_len, bsortie.len());
-    assert_eq!(bsortie.dump().iter().map(|r| { r.i }).collect::<Vec<_>>(), &[false, false, false, true, true]);
-}
-
-table! {
-    [TEST/bits] {
-        a: [bool; BoolCol],
-        b: [bool; VecCol<bool>],
-    }
-    impl {
-        SortBy(a);
-        SortBy(b);
-    }
-}
-
-
-#[test]
-fn bool_col() {
-    let universe = make_universe();
-    {
-        let mut bits = bits::write(&universe);
-        bits.push(bits::Row { a: true, b: true });
-        bits.push(bits::Row { a: false, b: false });
-        bits.push(bits::Row { a: true, b: true });
-        bits.push(bits::Row { a: false, b: false });
-        println!("{}", bits.len());
-    }
-    {
-        {
-            let mut bits = bits::write(&universe);
-            bits.sort_by_a();
-            println!("{}", bits.len());
-        }
-        {
-            let mut bits = bits::write(&universe);
-            bits.sort_by_b();
-            println!("{}", bits.len());
-        }
-        let mut bits = bits::write(&universe);
-        bits.sort_by_a();
-        println!("");
-        println!("");
-        for i in bits.iter() {
-            println!("{:?}", i);
-        }
-        for i in bits.iter() {
-            println!("{:?}", i);
-            println!("{:?}", bits.get_row(i));
-        }
-    }
-}
-
-
-#[test]
-fn push() {
-    let universe = make_universe();
-    let mut easy = easy::write(&universe);
-    let er = easy.push(easy::Row { x: 1 });
-    assert_eq!(er.to_usize(), 0);
-}
 
 #[test]
 fn compile_rowid_in_hashmap() {
@@ -381,11 +144,10 @@ fn compile_rowid_in_hashmap() {
 }
 
 table! {
+    #[kind = "consistent"]
+    #[row_id = "u16"]
     [TEST/test_u16] {
         x: [i32; VecCol<i32>],
-    }
-    impl {
-        RowId = u16;
     }
 }
 
@@ -450,11 +212,10 @@ fn contains() {
 //}
 
 table! {
+    #[kind = "append"]
+    #[derive(Save, Clone)]
     pub [TEST/compile_serialization] {
         random_number: [usize; VecCol<usize>],
-    }
-    impl {
-        Save;
     }
 }
 

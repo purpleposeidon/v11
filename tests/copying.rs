@@ -12,13 +12,9 @@ pub struct NotCopy;
 domain! { TEST }
 
 table! {
+    #[kind = "append"]
     [TEST/notcopy] {
         index: [usize; VecCol<usize>],
         foo: [NotCopy; VecCol<NotCopy>],
-    }
-    impl {
-        NoCopy;
-        NoClone;
-        //SortBy(foo);
     }
 }

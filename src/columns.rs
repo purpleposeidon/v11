@@ -14,12 +14,14 @@ pub trait TCol {
     fn new() -> Self where Self: Sized;
 
     fn len(&self) -> usize;
+    fn truncate(&mut self, len: usize);
     unsafe fn unchecked_index(&self, i: usize) -> &Self::Element;
     unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element;
     fn reserve(&mut self, n: usize);
-    fn clear(&mut self);
+    fn clear(&mut self) { self.truncate(0) }
     fn push(&mut self, v: Self::Element);
-    unsafe fn unchecked_swap(&mut self, i: usize, new: &mut Self::Element) { ::std::mem::swap(self.unchecked_index_mut(i), new) }
+    unsafe fn unchecked_swap_out(&mut self, i: usize, new: &mut Self::Element) { ::std::mem::swap(self.unchecked_index_mut(i), new) }
+    unsafe fn unchecked_swap(&mut self, a: usize, b: usize);
     unsafe fn deleted(&mut self, _i: usize) {}
 }
 

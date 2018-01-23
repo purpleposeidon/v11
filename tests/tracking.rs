@@ -15,7 +15,7 @@ use v11::tracking::Tracker;
 type Name = &'static str;
 
 table! {
-    #[kind = "public"]
+    #[kind = "consistent"]
     #[row_derive(Clone, Debug)]
     [TEST/ships] {
         name: [Name; VecCol<Name>],
@@ -23,7 +23,7 @@ table! {
 }
 
 table! {
-    #[kind = "public"]
+    #[kind = "consistent"]
     #[row_derive(Debug)]
     [TEST/sailors] {
         #[foreign]

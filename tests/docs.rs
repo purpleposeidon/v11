@@ -11,16 +11,16 @@ extern crate v11_macros;
 
 // FIXME: Test sorting.
 
-// FIXME: Can this go into "tests/" as is standard? Previous usage of build.rs probably made that
-// difficult.
-
 domain! { pub DOCTEST }
 table! {
-    /// Can we document the table?
+    /// Can we document the table? (FIXME: No, we can't.)
+    #[kind = "consistent"]
     pub [DOCTEST/documentation] {
         /// Can we document this column?
-        /// FIXME: The answer is no.
         documented_column: [bool; BoolCol],
         undocumented_column: [bool; BoolCol],
     }
 }
+
+#[test]
+fn v11_macro_dump() {}

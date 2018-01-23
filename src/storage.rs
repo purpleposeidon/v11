@@ -14,11 +14,21 @@ impl<E: Storable> TCol for VecCol<E> {
     fn new() -> Self { VecCol { data: Vec::new() } }
 
     fn len(&self) -> usize { self.data.len() }
+    fn truncate(&mut self, len: usize) { self.data.truncate(len) }
     unsafe fn unchecked_index(&self, i: usize) -> &Self::Element { self.data.get_unchecked(i) }
     unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element { self.data.get_unchecked_mut(i) }
     fn reserve(&mut self, n: usize) { self.data.reserve(n) }
     fn clear(&mut self) { self.data.clear() }
     fn push(&mut self, v: Self::Element) { self.data.push(v) }
+    unsafe fn unchecked_swap(&mut self, a: usize, b: usize) {
+        if cfg!(debug) {
+            self.data.swap(a, b);
+        } else {
+            let pa: *mut E = self.unchecked_index_mut(a);
+            let pb: *mut E = self.unchecked_index_mut(b);
+            ::std::ptr::swap(pa, pb);
+        }
+    }
 }
 
 /// Temporary (hopefully) stub for avec.
@@ -40,15 +50,21 @@ impl TCol for BoolCol {
     fn new() -> BoolCol { Default::default() }
 
     fn len(&self) -> usize { self.data.len() }
+    fn truncate(&mut self, len: usize) { self.data.truncate(len) }
     unsafe fn unchecked_index(&self, i: usize) -> &Self::Element { &self.data[i] } // FIXME: be unchecked
     unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element { &mut self.data[i] }
     fn reserve(&mut self, n: usize) { self.data.reserve(n) }
-    fn clear(&mut self) { self.data.clear() }
     fn push(&mut self, v: Self::Element) { self.data.push(v) }
-    unsafe fn unchecked_swap(&mut self, i: usize, new: &mut Self::Element) {
+    unsafe fn unchecked_swap_out(&mut self, i: usize, new: &mut Self::Element) {
         let new_v = *new;
         *new = self.data[i];
         self.data.set(i, new_v);
+    }
+    unsafe fn unchecked_swap(&mut self, a: usize, b: usize) {
+        let av = self.data[a];
+        let bv = self.data[b];
+        self.data[a] = bv;
+        self.data[a] = av;
     }
 }
 
@@ -60,28 +76,33 @@ mod test {
         let mut bc = super::BoolCol::new();
         let v = &[true, false, true];
         for i in v {
-            bc.data_mut().push(*i);
+            bc.data.push(*i);
         }
         println!("");
         println!("Start:");
-        for i in bc.data().iter() {
+        for i in &bc.data {
             println!("{}", i);
         }
         println!("Cleared:");
-        bc.data_mut().clear();
-        for i in bc.data().iter() {
+        bc.clear();
+        for i in &bc.data {
             println!("{}", i);
         }
         println!("Really Cleared:");
-        bc.data_mut().clear();
-        for i in bc.data().iter() {
+        bc.clear();
+        for i in &bc.data {
             println!("{}", i);
         }
+        assert!(bc.data.is_empty());
         println!("Append:");
-        bc.data_mut().extend(vec![true, true]);
-        for i in bc.data().iter() {
+        bc.data.extend(vec![true, false]);
+        for i in &bc.data {
             println!("{}", i);
         }
         println!("{:?}", bc);
+        unsafe {
+            assert_eq!(bc.unchecked_index(0), &true);
+            assert_eq!(bc.unchecked_index(1), &false);
+        }
     }
 }
