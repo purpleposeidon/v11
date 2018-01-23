@@ -48,7 +48,6 @@ impl<V> fmt::Debug for PropertyIndex<V> {
     }
 }
 
-#[doc(hidden)]
 pub trait ToPropRef<V: Sync>: Sync {
     unsafe fn get(&self) -> &Prop<V>;
     fn register(&self);

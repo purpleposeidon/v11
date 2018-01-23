@@ -45,13 +45,14 @@ macro_rules! context {
     (pub struct $name:ident {
         $(pub $i:ident: $lock:path,)*
     }) => {
-        #[doc(hidden)]
         #[allow(non_snake_case)]
         pub mod $name {
             use std::mem;
             use std::ptr::null_mut;
 
             $(mod $i {
+                #[allow(unused)]
+                use super::super::*; // super::duper::*
                 // This funky business allows access to `$lock` as a type using `self::$i::Lock`,
                 // which is required due to macro restrictions.
                 pub use $lock as Lock;
@@ -101,7 +102,7 @@ macro_rules! context {
             }
 
             impl<'a> $name<'a> {
-                /// Create a context from another one, recycling any lock that are in both, and
+                /// Create a context from another one, recycling any locks that are in both, and
                 /// dropping any that are not.
                 pub fn from<F>(universe: &'a $crate::Universe, old: F) -> Self
                 where F: $crate::context::ReleaseFields
@@ -153,7 +154,7 @@ macro_rules! context {
                 $name::from(universe, old)
             }
         }
-        pub use $name::*;
+        pub use self::$name::*; // Uhm, this is haxx.
     };
 }
 

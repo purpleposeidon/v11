@@ -7,3 +7,12 @@ table! {
         bits: [bool; BoolCol],
     }
 }
+
+property! { pub static EXAMPLE_DOMAIN/MY_PROPERTY: u32 = 42; }
+
+context! {
+    pub struct MyContext {
+        pub example_table: self::example_table::Write,
+        pub my_property: self::MY_PROPERTY::Read,
+    }
+}

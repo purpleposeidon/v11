@@ -31,8 +31,11 @@ extern crate lazy_static;
 use std::sync::*;
 
 
+#[macro_use]
 pub mod domain;
+#[macro_use]
 pub mod tables;
+#[macro_use]
 pub mod property;
 #[doc(hidden)]
 pub mod intern;
@@ -44,6 +47,7 @@ pub mod storage;
 pub mod tracking;
 
 pub mod joincore;
+#[macro_use]
 pub mod context;
 mod assert_sorted;
 
