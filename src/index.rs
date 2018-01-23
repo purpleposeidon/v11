@@ -36,6 +36,10 @@ impl<T: GetTableName> GenericRowId<T> {
         Self::new(self.i + T::Idx::one())
     }
 
+    pub fn prev(&self) -> Self {
+        Self::new(self.i - T::Idx::one())
+    }
+
     pub fn register_tracker(universe: &Universe, t: Box<Tracker + Send + Sync>) {
         let gt = universe.get_generic_table(T::get_domain().get_id(), T::get_name());
         let mut gt = gt.write().unwrap();
