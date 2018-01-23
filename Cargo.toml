@@ -10,7 +10,7 @@ crate-type = ["rlib", "dylib"]
 rand = "*"
 
 [dependencies]
-v11_macros = { path = "./v11_macros" }
+v11_macros = { path = "./macros" }
 procedural-masquerade = "0.1.2"
 rustc-serialize = "*"
 itertools = "0.4.16"
