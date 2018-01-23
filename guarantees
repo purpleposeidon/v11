@@ -1,0 +1,54 @@
+If there is ever a question, "but what should this function do under $guarantee?", exclude it or restrict it.
+
+append:
+    We guarantee that rows are never deleted
+        - No free-list
+        - No retain
+    But all tables are clearable!
+
+public:
+    We guarantee that foreign tables learn about existential changes
+        - Row deletions require use of free-list
+        - Insertions & deletions must be logged
+        - Write lock requires flush() or skip_flush()
+
+foreign key:
+    You must implement an event handler; there's helper functions.
+    You can call 'join'
+
+sorted:
+    We guarantee that the rows are kept sorted:
+        - can only insert via sorted iterable.
+        - #[sort] field is immutable.
+        - Sorted tables can't have trackers. (insert at front == spam)
+        - No #[index] allowed. (The primary key does act as one)
+        - Unchecked rowids can't be made.
+    User must implement (or derive?) Ord for Row. Keep in mind that #[derive(Ord)] may give you more sorting than you'd want.
+
+free list:
+    Rows can be marked as 'deleted'
+    Deleted rows are not iterated over
+    New rows overwrite deleted ones
+
+join:
+    What if we want to do a merge-join? Well. It's NEVER a merge join!
+
+column indexes:
+    We guarantee that indexed columns are always up to date.
+        - #[index] field can not be modified
+
+
+
+
+
+
+
+
+# Unimplemented:
+bag:
+    We guarantee nobody's watching:
+        - Unchecked rowids can't be made
+        - Order is arbitrary. (Delete == replace w/ pop())
+
+array:
+    Like 'bag', but order is preserved
