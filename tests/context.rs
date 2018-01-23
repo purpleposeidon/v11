@@ -30,13 +30,11 @@ table! {
 }
 
 context! {
-    mod cheese_mod;
     pub struct CheeseCtx {
         stinkiness: stenches::Write,
     }
 }
 context! {
-    mod full_mod;
     pub struct FullCtx {
         cheeses: cheeses::Read,
         stinkiness: stenches::Write,
@@ -45,7 +43,6 @@ context! {
 }
 
 context! {
-    mod reduced_mod;
     pub struct ReducedCtx {
         cheeses: cheeses::Read,
     }
@@ -54,7 +51,6 @@ context! {
 property! { pub static TESTS/SUMPROP: usize = 10; }
 
 context! {
-    mod with_props;
     pub struct WithPropsCtx {
         sumprop: SUMPROP::Write,
         cheeses: cheeses::Read,

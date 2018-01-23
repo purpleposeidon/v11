@@ -29,7 +29,6 @@ pub trait ReleaseFields {
 /// # Example
 /// ```no_compile
 /// context! {
-///     mod my_context_throwaway_module_name;
 ///     pub struct MyContext {
 ///         reader: data_table::Read,
 ///         writer: data_log::Write,
@@ -39,108 +38,119 @@ pub trait ReleaseFields {
 // This macro is Wildy Exciting.
 #[macro_export]
 macro_rules! context {
-    (mod $nonce:ident; pub struct $name:ident {
+    (pub struct $name:ident {
         // FIXME: Change to (pub $i: $lock)
         $($i:ident: $lock:path,)*
     }) => {
         #[doc(hidden)]
-        mod $nonce {
-            // The nonce is annoying, but we would have to switch over to procedural macros to
-            // ditch it, but that seems like too much work.
-            // We could provide a default nonce, but then if you call the macro twice, you'd get
-            // an error. I think that's an uglier situation to be in.
-            pub use std::mem;
-            pub use std::ptr::null_mut;
+        #[allow(non_snake_case)]
+        mod $name {
+            use std::mem;
+            use std::ptr::null_mut;
 
-            $(pub mod $i {
-                // This funky business allows access to $lock as a type using $i::Lock.
+            $(mod $i {
+                // This funky business allows access to `$lock` as a type using `self::$i::Lock`,
+                // which is required due to macro restrictions.
                 pub use $lock as Lock;
             })*
-        }
 
-        /// Holds locks for several tables.
-        pub struct $name<'a> {
-            $(pub $i: self::$nonce::$i::Lock<'a>,)*
-        }
-        impl<'a> $name<'a> {
-            pub fn new(universe: &'a $crate::Universe) -> Self {
-                use self::$nonce::*;
-                Self {
-                    $($i: $i::Lock::lock(universe),)*
+            /// Holds locks for any number of tables or properties.
+            pub struct $name<'a> {
+                $(pub $i: self::$i::Lock<'a>,)*
+            }
+            impl<'a> $name<'a> {
+                /// Create a fresh context.
+                pub fn new(universe: &'a $crate::Universe) -> Self {
+                    Self {
+                        $($i: $i::Lock::lock(universe),)*
+                    }
                 }
             }
-        }
 
-        impl<'a> $crate::context::ReleaseFields for $name<'a> {
-            unsafe fn release_fields<F>(self, mut field_for: F)
-            where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize)
-            {
-                use self::$nonce::*;
-                $({
-                    let mut field = self.$i;
-                    let (swap_to, size) = field_for($i::Lock::lock_name());
-                    if swap_to.is_null() {
-                        mem::drop(field);
-                    } else {
-                        let expect_size = mem::size_of::<$i::Lock>();
-                        if size != expect_size {
-                            panic!("sizes of {} did not match! {} vs {}", $i::Lock::lock_name(), size, expect_size);
-                        }
-                        // swap_to points at invalid memory
-                        let swap_to = &mut *(swap_to as *mut $i::Lock);
-                        mem::swap(&mut field, swap_to);
-                        mem::forget(field);
-                    }
-                })*
-                // $name'll implement Drop, which would be a problem
-                // if we didn't move all the fields out.
+            #[allow(unused)]
+            pub fn new(universe: &$crate::Universe) -> $name {
+                $name::new(universe)
             }
-        }
 
-        impl<'a> $name<'a> {
-            pub fn from<F>(universe: &'a $crate::Universe, old: F) -> Self
+            impl<'a> $crate::context::ReleaseFields for $name<'a> {
+                unsafe fn release_fields<F>(self, mut field_for: F)
+                where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize)
+                {
+                    $({
+                        let mut field = self.$i;
+                        let (swap_to, size) = field_for($i::Lock::lock_name());
+                        if swap_to.is_null() {
+                            mem::drop(field);
+                        } else {
+                            let expect_size = mem::size_of::<$i::Lock>();
+                            if size != expect_size {
+                                panic!("sizes of {} did not match! {} vs {}", $i::Lock::lock_name(), size, expect_size);
+                            }
+                            // swap_to points at invalid memory
+                            let swap_to = &mut *(swap_to as *mut $i::Lock);
+                            mem::swap(&mut field, swap_to);
+                            mem::forget(field);
+                        }
+                    })*
+                    // $name'll implement Drop, which would be a problem
+                    // if we didn't move all the fields out.
+                }
+            }
+
+            impl<'a> $name<'a> {
+                /// Create a context from another one, recycling any lock that are in both, and
+                /// dropping any that are not.
+                pub fn from<F>(universe: &'a $crate::Universe, old: F) -> Self
+                where F: $crate::context::ReleaseFields
+                {
+                    // We have a static list of our own fields, and we try to initialize them from
+                    // `old`'s. Since the macro doesn't actually know what fields `old` has, we need to
+                    // track which of our own fields we've initialized.
+                    // (FIXME: LLVM w/ --release should make this 0-cost; does it?)
+                    // FIXME: What if there's a panic?
+                    $(
+                        let mut $i: (bool, $i::Lock<'a>);
+                    )*
+                    unsafe {
+                        $(
+                            $i = (false, mem::zeroed());
+                            // FIXME: Why not just Option?
+                        )*
+                        old.release_fields(|name| {
+                            $(if name == $i::Lock::lock_name() {
+                                return if $i.0 {
+                                    // This case is likely a combined table. release_fields' contract
+                                    // requires dead memory, so this test is necessary.
+                                    (null_mut(), 0)
+                                } else {
+                                    $i.0 = true;
+                                    (mem::transmute(&mut $i.1), mem::size_of::<$i::Lock>())
+                                };
+                            })*
+                            (null_mut(), 0)
+                        });
+                        $(
+                            if !$i.0 {
+                                let mut new = $i::Lock::<'a>::lock(universe);
+                                mem::swap(&mut new, &mut $i.1);
+                                mem::forget(new);
+                            }
+                        )*
+                    }
+                    Self {
+                        $($i: $i.1),*
+                    }
+                }
+            }
+
+            #[allow(unused)]
+            pub fn from<F>(universe: &$crate::Universe, old: F) -> $name
             where F: $crate::context::ReleaseFields
             {
-                use self::$nonce::*;
-                // We have a static list of our own fields, and we try to initialize them from
-                // `old`'s. Since the macro doesn't actually know what fields `old` has, we need to
-                // track which of our own fields we've initialized.
-                // (FIXME: LLVM w/ --release should make this 0-cost; does it?)
-                // FIXME: What if there's a panic?
-                $(
-                    let mut $i: (bool, $i::Lock<'a>);
-                )*
-                unsafe {
-                    $(
-                        $i = (false, mem::zeroed());
-                        // FIXME: Why not just Option?
-                    )*
-                    old.release_fields(|name| {
-                        $(if name == $i::Lock::lock_name() {
-                            return if $i.0 {
-                                // This case is likely a combined table. release_fields' contract
-                                // requires dead memory, so this test is necessary.
-                                (null_mut(), 0)
-                            } else {
-                                $i.0 = true;
-                                (mem::transmute(&mut $i.1), mem::size_of::<$i::Lock>())
-                            };
-                        })*
-                        (null_mut(), 0)
-                    });
-                    $(
-                        if !$i.0 {
-                            let mut new = $i::Lock::<'a>::lock(universe);
-                            mem::swap(&mut new, &mut $i.1);
-                            mem::forget(new);
-                        }
-                    )*
-                }
-                Self {
-                    $($i: $i.1),*
-                }
+                $name::from(universe, old)
             }
         }
+        pub use $name::*;
     };
 }
 
