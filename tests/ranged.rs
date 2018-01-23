@@ -48,7 +48,7 @@ impl Tracker for arrays::track_range_start_events {
     fn cleared(&mut self, universe: &Universe) {
         arrays::write(universe).clear();
     }
-    fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]) {
+    fn track(&mut self, universe: &Universe, deleted: &[usize], _added: &[usize]) {
         let mut arrays = arrays::write(universe);
         arrays.track_range_start_removal(deleted);
     }
