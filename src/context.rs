@@ -30,6 +30,9 @@ pub trait ReleaseFields {
 ///
 /// Tuples of up to three contexts can be combined. Try nesting the tuples if you need more.
 ///
+/// This macro can't be invoked more than once in the same module; you can invoke it in a
+/// sub-module if necessary.
+///
 /// # Example
 /// ```no_compile
 /// context! {
@@ -46,7 +49,7 @@ macro_rules! context {
         $(pub $i:ident: $lock:path,)*
     }) => {
         #[allow(non_snake_case)]
-        pub mod $name {
+        pub mod context_module {
             use std::mem;
             use std::ptr::null_mut;
 
@@ -154,7 +157,7 @@ macro_rules! context {
                 $name::from(universe, old)
             }
         }
-        pub use self::$name::*; // Uhm, this is haxx.
+        pub use self::context_module::*;
     };
 }
 

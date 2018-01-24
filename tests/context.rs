@@ -29,24 +29,33 @@ table! {
     }
 }
 
-context! {
-    pub struct CheeseCtx {
-        pub stinkiness: stenches::Write,
+mod cheese_nonce {
+    context! {
+        pub struct CheeseCtx {
+            pub stinkiness: stenches::Write,
+        }
     }
 }
-context! {
-    pub struct FullCtx {
-        pub cheeses: cheeses::Read,
-        pub stinkiness: stenches::Write,
-        pub alcohols: wines::Read,
+use self::cheese_nonce::*;
+mod full_nonce {
+    context! {
+        pub struct FullCtx {
+            pub cheeses: cheeses::Read,
+            pub stinkiness: stenches::Write,
+            pub alcohols: wines::Read,
+        }
     }
 }
+use self::full_nonce::*;
 
-context! {
-    pub struct ReducedCtx {
-        pub cheeses: cheeses::Read,
+mod reduced_nonce {
+    context! {
+        pub struct ReducedCtx {
+            pub cheeses: cheeses::Read,
+        }
     }
 }
+use self::reduced_nonce::*;
 
 property! { pub static TESTS/SUMPROP: usize = 10; }
 
