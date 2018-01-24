@@ -101,6 +101,7 @@ Rows in an "append" table can not be removed. Consistency is thus trivially guar
 
 ## `#[kind = "sorted"]`
 Guarantees the table is sorted. You must implement `Ord` for `$table::RowRef`.
+If you put `#[sort_key]` on a column, it will do this for you.
 Rows can be added with `merge`, and removed with `retain`.
 (The macro derives `Eq`, `PartialEq`, and `PartialOrd` on `$table::RowRef`, and those + `Ord` on `$table::Row`)
 
@@ -135,6 +136,9 @@ The row's element must be another table's RowId.
 ## `#[index]`
 Creates an index of the column, using a `BTreeMap`.
 Indexed elements are immutable.
+
+## `#[sort_key]`
+Use the element's comparision order to derive `Ord` for `RowRef`.
 **/
 // (FIXME: lang=ignored=lame)
 #[macro_export]

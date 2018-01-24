@@ -562,6 +562,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             impl<'a> Eq for RowRef<'a> {}
         };
     };
+    if let Some(sort_key) = table.sort_key {
+        let SORT_KEY = i(pp::ident_to_string(sort_key));
+        out! { [""] {
+            impl<'a> Ord for RowRef<'a> {
+                fn cmp(&self, rhs: &Self) -> Ordering {
+                    self.#SORT_KEY.cmp(&rhs.#SORT_KEY)
+                }
+            }
+        }};
+    }
 
     out! {
         table.sorted || !table.immutable => ["swapping"] {

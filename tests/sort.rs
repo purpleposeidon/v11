@@ -22,16 +22,9 @@ table! {
     #[kind = "sorted"]
     #[row_derive(Debug, Clone)]
     pub [TEST/sorted] {
+        #[sort_key]
         key: [u8; VecCol<u8>],
         val: [&'static str; VecCol<&'static str>],
-    }
-}
-
-
-use std::cmp::Ordering;
-impl<'a> Ord for sorted::RowRef<'a> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.key.cmp(other.key)
     }
 }
 

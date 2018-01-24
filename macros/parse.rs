@@ -102,12 +102,14 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             // #[attrs] column_name: [ElementType; ColumnType<ElementType>],
             let mut indexed = false;
             let mut foreign = false;
+            let mut sort_key = false;
             let attrs = parser.parse_outer_attributes()?
                 .into_iter()
                 .filter(|attr| {
                 match format!("{}", attr.value.name).as_str() {
                     "index" => indexed = true,
                     "foreign" => foreign = true,
+                    "sort_key" => sort_key = true,
                     _ => return true,
                 }
                 false
@@ -119,6 +121,15 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             parser.expect(&Token::Semi)?;
             let colty = parser.parse_ty()?;
             parser.expect(&Token::CloseDelim(DelimToken::Bracket))?;
+            if sort_key {
+                if let Some(ref existing) = table.sort_key {
+                    panic!("#[sort_key] already set on {:?}", existing);
+                }
+                if table.kind != Some(TableKind::Sorted) {
+                    panic!("#[sort_key] requires #[table_kind = \"sorted\"]");
+                }
+                table.sort_key = Some(name.clone());
+            }
             Ok(Col {
                 attrs,
                 name,

@@ -1,7 +1,7 @@
 use syntex_syntax::ast::{Ident, Ty, Attribute, NestedMetaItem};
 use syntex_syntax::ptr::P;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TableKind {
     Append,
     Consistent,
@@ -34,6 +34,7 @@ pub struct Table {
     pub version: u64,
     pub save: bool,
     pub derive: Derives,
+    pub sort_key: Option<Ident>,
 
     // Guarantees
     pub immutable: bool,
