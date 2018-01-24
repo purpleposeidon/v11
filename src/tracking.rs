@@ -94,6 +94,9 @@ impl GenericTable {
     }
 
     pub fn add_tracker(&mut self, t: Box<Tracker + Send + Sync>) {
+        if !self.guarantee.consistent {
+            panic!("Tried to add tracker to inconsistent table, {}/{}", self.domain, self.name);
+        }
         self.trackers.write().unwrap().push(t);
         self.no_trackers = false;
     }

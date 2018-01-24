@@ -18,7 +18,7 @@ table! {
 }
 
 table! {
-    #[kind = "append"]
+    #[kind = "consistent"]
     #[row_derive(Clone, Debug)]
     [TEST/easy] {
         x: [i32; VecCol<i32>],
@@ -141,6 +141,7 @@ fn compile_rowid_in_hashmap() {
     let universe = make_universe();
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
+    easy.flush(&universe);
 }
 
 table! {
@@ -162,6 +163,7 @@ fn compile_rowid_cmp() {
     let b = easy.push(easy::Row {x: 1});
     assert!(a != b);
     assert!(b > a);
+    easy.flush(&universe);
 }
 
 #[test]
@@ -172,6 +174,7 @@ fn contains() {
     let a = easy.push(easy::Row {x: 1});
     assert!(easy.contains(a));
     assert!(!easy.contains(easy::at(2)));
+    easy.flush(&universe);
 }
 
 

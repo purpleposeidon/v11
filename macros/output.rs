@@ -109,6 +109,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     #[allow(unused)]
     let TABLE_VERSION = table.version;
     let TABLE_DOMAIN = i(table.domain.clone());
+    let GUARANTEES = {
+        let CONSISTENT = table.consistent;
+        quote! {
+            Guarantee {
+                consistent: #CONSISTENT,
+            }
+        }
+    };
     out! { ["Imports & header data"] {
         #[allow(unused_imports)]
         use super::*;
@@ -129,6 +137,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         pub const TABLE_DOMAIN: DomainName = super::#TABLE_DOMAIN;
         pub const VERSION: u64 = #TABLE_VERSION;
+        pub const GUARANTEES: Guarantee = #GUARANTEES;
 
         #[allow(non_upper_case_globals)]
         mod column_format {
@@ -862,7 +871,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// Register the table onto its domain.
         pub fn register() {
-            let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME);
+            let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME, GUARANTEES.clone());
             let mut table = table #(.add_column(
                 #COL_NAME_STR,
                 column_format::#COL_NAME,

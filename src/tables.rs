@@ -201,9 +201,15 @@ pub struct GenericTable {
     pub cleared: bool,
     pub free: BTreeMap<usize, ()>,
     pub need_flush: bool,
+    pub guarantee: Guarantee,
+}
+#[doc(hidden)]
+#[derive(Default, Clone)]
+pub struct Guarantee {
+    pub consistent: bool,
 }
 impl GenericTable {
-    pub fn new(domain: DomainName, name: TableName) -> GenericTable {
+    pub fn new(domain: DomainName, name: TableName, guarantee: Guarantee) -> GenericTable {
         intern::check_name(name.0);
         GenericTable {
             domain: domain,
@@ -212,12 +218,14 @@ impl GenericTable {
             trackers: Default::default(),
             no_trackers: true,
             init_fns: Vec::new(),
+            guarantee,
 
             delete: Vec::new(),
             add: Vec::new(),
             cleared: false,
             free: BTreeMap::new(),
             need_flush: false,
+
         }
     }
 
@@ -244,6 +252,7 @@ impl GenericTable {
             trackers: Arc::clone(&self.trackers),
             no_trackers: self.no_trackers,
             init_fns: self.init_fns.clone(),
+            guarantee: self.guarantee.clone(),
 
             delete: Vec::new(),
             add: Vec::new(),
