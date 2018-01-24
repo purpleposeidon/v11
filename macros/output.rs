@@ -539,7 +539,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     if table.sorted && !table.derive.clone {
         panic!("sorted tables must be clone");
     }
-    out! { !table.immutable && table.derive.clone => ["merge functions"] {
+    out! { !table.immutable && table.derive.clone && !table.consistent => ["merge functions"] {
         impl<'u> Write<'u> {
             pub fn retain<F: FnMut(&Self, RowId) -> bool>(&mut self, mut f: F) {
                 self.merge0(|me, rowid| {
@@ -621,7 +621,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
     };}
-    out! { !table.immutable && table.derive.clone && !table.sorted => ["visit"] {
+    out! { !table.immutable && table.derive.clone && !table.sorted && !table.consistent => ["visit"] {
         impl<'u> Write<'u> {
             pub fn visit<IT, F>(&mut self, f: F)
             where
@@ -633,7 +633,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };}
     out! {
-        !table.immutable && table.sorted => ["row pushing for sorted tables"] {
+        !table.immutable && table.sorted && !table.consistent => ["row pushing for sorted tables"] {
             impl<'u> Write<'u> {
                 pub fn merge<IT: Iterator<Item=Row>, I: Into<AssertSorted<IT>>>(&mut self, rows: I)
                 where IT: IntoIterator<Row>
