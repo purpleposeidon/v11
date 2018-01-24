@@ -101,8 +101,10 @@ Rows in an "append" table can not be removed. Consistency is thus trivially guar
 
 ## `#[kind = "sorted"]`
 Guarantees the table is sorted. You must implement `Ord` for `$table::RowRef`.
-(...which means you have to implement `Eq`, `PartialEq`, and `PartialOrd` as well...)
 Rows can be added with `merge`, and removed with `retain`.
+(The macro derives `Eq`, `PartialEq`, and `PartialOrd` on `$table::RowRef`, and those + `Ord` on `$table::Row`)
+
+Sorted tables are good for `joincore`.
 
 ## `#[kind = "bag"]`
 NYI. (Internal order would be arbitrary and there would be no consistency guarantee.)

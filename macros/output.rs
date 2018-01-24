@@ -546,6 +546,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
 
             impl Eq for Row {}
+
+            impl<'a> PartialOrd for RowRef<'a> {
+                fn partial_cmp(&self, rhs: &RowRef) -> Option<Ordering> {
+                    Some(self.cmp(rhs))
+                }
+            }
+
+            impl<'a> PartialEq for RowRef<'a> {
+                fn eq(&self, rhs: &RowRef) -> bool {
+                    self.cmp(rhs) == Ordering::Equal
+                }
+            }
+
+            impl<'a> Eq for RowRef<'a> {}
         };
     };
 

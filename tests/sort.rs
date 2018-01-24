@@ -29,18 +29,9 @@ table! {
 
 
 use std::cmp::Ordering;
-impl<'a> PartialEq for sorted::RowRef<'a> {
-    fn eq(&self, other: &Self) -> bool { self.key == other.key }
-}
-impl<'a> Eq for sorted::RowRef<'a> {}
 impl<'a> Ord for sorted::RowRef<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.cmp(other.key)
-    }
-}
-impl<'a> PartialOrd for sorted::RowRef<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 
