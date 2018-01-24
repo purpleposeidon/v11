@@ -4,6 +4,7 @@
 
 use std::marker::PhantomData;
 use std::fmt;
+use std::cmp::Ordering;
 use tables::{GetTableName, LockedTable};
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
@@ -106,22 +107,83 @@ where <T::Row as GetTableName>::Idx: fmt::Debug
     }
 }
 
-#[test]
+// Implement comparisons between Checked & Unchecked
+macro_rules! cmp {
+    ($a:ty, $b:ty) => {
+        cmp!(impl, $a, $b);
+        cmp!(impl, $b, $a);
+    };
+    (impl, $left:ty, $right:ty) => {
+        impl<'a, T: LockedTable + 'a> PartialEq<$right> for $left {
+            fn eq(&self, rhs: &$right) -> bool {
+                self.i == rhs.i
+            }
+        }
+        impl<'a, T: LockedTable + 'a> PartialOrd<$right> for $left {
+            fn partial_cmp(&self, rhs: &$right) -> Option<Ordering> {
+                Some(self.i.cmp(&rhs.i))
+            }
+        }
+    };
+}
+cmp!(CheckedRowId<'a, T>, GenericRowId<T::Row>);
+
 #[cfg(test)]
-fn test_formatting() {
-    use tables::TableName;
+mod test {
+    use super::*;
+    use tables::{TableName, LockedTable};
     use domain::DomainName;
+
     struct TestName;
     impl GetTableName for TestName {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("test_domain") }
         fn get_name() -> TableName { TableName("test_table") }
     }
-    let gen: GenericRowId<TestName> = GenericRowId {
-        i: 23,
-        t: ::std::marker::PhantomData,
-    };
-    assert_eq!("test_table[23]", format!("{:?}", gen));
+    struct TestTable;
+    impl LockedTable for TestTable {
+        type Row = TestName;
+        fn len(&self) -> usize { 14 }
+    }
+
+    #[test]
+    fn test_formatting() {
+        let gen: GenericRowId<TestName> = GenericRowId {
+            i: 23,
+            t: ::std::marker::PhantomData,
+        };
+        assert_eq!("test_table[23]", format!("{:?}", gen));
+    }
+
+    #[test]
+    fn eq() {
+        let my_table = TestTable;
+        let checked = CheckedRowId {
+            i: 10,
+            table: &my_table,
+        };
+        let unchecked = GenericRowId {
+            i: 10,
+            t: PhantomData,
+        };
+        assert_eq!(checked, unchecked);
+        assert_eq!(unchecked, checked);
+    }
+
+    #[test]
+    fn cmp() {
+        let my_table = TestTable;
+        let checked = CheckedRowId {
+            i: 3,
+            table: &my_table,
+        };
+        let unchecked = GenericRowId {
+            i: 10,
+            t: PhantomData,
+        };
+        assert!(checked < unchecked);
+        assert!(unchecked >= checked);
+    }
 }
 
 
@@ -132,12 +194,12 @@ impl<T: GetTableName> PartialEq for GenericRowId<T> {
     }
 }
 impl<T: GetTableName> PartialOrd for GenericRowId<T> {
-    fn partial_cmp(&self, other: &GenericRowId<T>) -> Option<::std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &GenericRowId<T>) -> Option<Ordering> {
         self.i.partial_cmp(&other.i)
     }
 }
 impl<T: GetTableName> Ord for GenericRowId<T> {
-    fn cmp(&self, other: &GenericRowId<T>) -> ::std::cmp::Ordering {
+    fn cmp(&self, other: &GenericRowId<T>) -> Ordering {
         self.i.cmp(&other.i)
     }
 }
