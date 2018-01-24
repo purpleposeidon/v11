@@ -53,6 +53,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 "consistent" => TableKind::Consistent,
                 "bag" => TableKind::Bag,
                 "list" => TableKind::List,
+                "sorted" => TableKind::Sorted,
                 e => err!(parser, "Unknown table kind {:?}", e),
             }),
             "row_id" => table.row_id = meta_arg(&attr.value),

@@ -85,11 +85,9 @@ fn main() {
 ```
 
 # Table kinds and Guarantees
-
 The 'kind' of a table selects what functions are generated and what guarantees are upheld.
 
 ## `#[kind = "consistent"]`
-
 Rows in consistent tables can be used as *foreign keys* in other tables.
 The main guarantee of the public table is that it is kept consistent with such tables:
 the main row and its linkages are (with some user-provided implementation!) deleted as a unit.
@@ -99,14 +97,15 @@ you must call `table.flush(universe)` instead of letting the table fall out of s
 You also may call `table.no_flush()` to let someone else deal with it.
 
 ## `#[kind = "append"]`
-
 Rows in an "append" table can not be removed. Consistency is thus trivially guaranteed.
+
+## `#[kind = "sorted"]`
+Guarantees the table is sorted. You must implement `Ord` for `$table::RowRef`.
+(...which means you have to implement `Eq`, `PartialEq`, and `PartialOrd` as well...)
+Rows can be added with `merge`, and removed with `retain`.
 
 ## `#[kind = "bag"]`
 NYI. (Internal order would be arbitrary and there would be no consistency guarantee.)
-
-## `#[kind = "sorted"]`
-NYI.
 
 # Using the generated table
 

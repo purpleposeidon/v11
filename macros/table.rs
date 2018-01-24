@@ -7,6 +7,7 @@ pub enum TableKind {
     Consistent,
     Bag,
     List,
+    Sorted,
 }
 
 #[derive(Default, Debug)]
@@ -56,6 +57,9 @@ impl Table {
             },
             TableKind::List => {
                 self.secret = true;
+            },
+            TableKind::Sorted => {
+                self.sorted = true;
             },
         }
         for col in &self.cols {

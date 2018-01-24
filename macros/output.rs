@@ -133,6 +133,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
         #[allow(unused_imports)] use std::collections::VecDeque;
+        #[allow(unused_imports)] use std::cmp::Ordering;
 
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         pub const TABLE_DOMAIN: DomainName = super::#TABLE_DOMAIN;
@@ -202,6 +203,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         // Do we want RowRef to *always* be Copy? There could be a lot of rows!
         pub struct RowRef<'a> {
             #(#COL_ATTR pub #COL_NAME: &'a #COL_ELEMENT,)*
+        }
+        impl Row {
+            /// Convert this `Row` into a `RowRef`.
+            pub fn as_ref(&self) -> RowRef {
+                RowRef {
+                    #(#COL_NAME: &self.#COL_NAME2,)*
+                }
+            }
         }
 
         // FIXME: Implement `struct RowMut`, would need to respect EditA.
@@ -517,6 +526,30 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }};
 
     out! {
+        table.sorted => ["derive Ord for Row from RowRef"] {
+            impl PartialOrd for Row {
+                fn partial_cmp(&self, rhs: &Row) -> Option<Ordering> {
+                    Some(self.cmp(rhs))
+                }
+            }
+
+            impl Ord for Row {
+                fn cmp(&self, rhs: &Row) -> Ordering {
+                    self.as_ref().cmp(&rhs.as_ref())
+                }
+            }
+
+            impl PartialEq for Row {
+                fn eq(&self, rhs: &Row) -> bool {
+                    self.cmp(rhs) == Ordering::Equal
+                }
+            }
+
+            impl Eq for Row {}
+        };
+    };
+
+    out! {
         table.sorted || !table.immutable => ["swapping"] {
             // Making this public would break many guarantees!
             impl<'u> Write<'u> {
@@ -545,11 +578,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     };
 
-    if table.sorted && !table.derive.clone {
-        panic!("sorted tables must be clone");
-    }
     out! { !table.immutable && table.derive.clone && !table.consistent => ["merge functions"] {
         impl<'u> Write<'u> {
+            /// Remove all rows for which the predicate returns `false`.
             pub fn retain<F: FnMut(&Self, RowId) -> bool>(&mut self, mut f: F) {
                 self.merge0(|me, rowid| {
                     Action::Continue {
@@ -625,7 +656,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
                 self.truncate(rug_front.to_usize());
                 while let Some(row) = pull_rug(&mut rug) {
-                    self.push(row);
+                    self.push_end_unchecked(row);
                 }
             }
         }
@@ -645,7 +676,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         !table.immutable && table.sorted && !table.consistent => ["row pushing for sorted tables"] {
             impl<'u> Write<'u> {
                 pub fn merge<IT: Iterator<Item=Row>, I: Into<AssertSorted<IT>>>(&mut self, rows: I)
-                where IT: IntoIterator<Row>
                 {
                     // This is actually a three-way merge. Joy!
                     // We have three things: the table, the rug, and the iter.
@@ -653,13 +683,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     // Whenever something gets bumped off the table, it is pushed onto the rug.
                     // The rug is sorted because the table is sorted.
                     let mut rug = VecDeque::new();
-                    let mut iter = rows.into().peekable();
+                    let mut iter = rows.into().into_iter().peekable();
                     let mut i = FIRST;
                     self.reserve(iter.size_hint().0);
                     loop {
                         enum Side { Rug, Iter }
                         let side = {
-                            let (next, side) = match (rug.last(), iter.peek()) {
+                            let (next, side) = match (rug.back().map(Row::as_ref), iter.peek().map(Row::as_ref)) {
                                 (None, None) => break,
                                 (None, Some(il)) => (il, Side::Iter),
                                 (Some(rl), None) => (rl, Side::Rug),
@@ -671,7 +701,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                     }
                                 },
                             };
-                            if i < self.len() && &self.get_row(i) <= next {
+                            if i.to_usize() < self.len() && self.get_row_ref(i) <= next {
                                 None
                             } else {
                                 Some(side)
@@ -679,26 +709,26 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         };
                         // { Some(Rug), Some(Iter), None } × { more table, table finished }
                         if let Some(side) = side {
-                            let next = match side {
+                            let mut next = match side {
                                 Side::Rug => rug.pop_front(),
                                 Side::Iter => iter.next(),
                             }.unwrap();
-                            if i < self.len() {
+                            if i.to_usize() < self.len() {
                                 // swap the row
-                                self.swap_out_row(i, next);
+                                self.swap_out_row(i, &mut next);
                                 if cfg!(debug) {
                                     // We know that `rug` is sorted.
                                     // But what if `next < rug.front()`? We'd break the ordering!
                                     // Well, we never arrive at that situation.
                                     // ALWAYS: primary[i] < rug.front() && primary[i] < iter.peek()
                                     if let Some(rug_front) = rug.front() {
-                                        assert!(next >= rug_front);
-                                        assert!(next >= rug.back().unwrap());
+                                        assert!(next.as_ref() >= rug_front.as_ref());
+                                        assert!(next.as_ref() >= rug.back().unwrap().as_ref());
                                     }
                                 }
                                 rug.push_back(next);
                             } else {
-                                self.push_end(row);
+                                self.push_end_unchecked(next);
                             }
                         } // else: no change
                         i = i.next();
