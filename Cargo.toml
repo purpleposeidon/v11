@@ -25,3 +25,6 @@ lazy_static = "*"
 # OwningRef: https://kimundi.github.io/owning-ref-rs/owning_ref/struct.OwningRef.html
 
 # parking-lot is kind of awesome
+
+[features]
+doc = []

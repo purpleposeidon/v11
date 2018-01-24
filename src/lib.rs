@@ -51,9 +51,15 @@ pub mod joincore;
 pub mod context;
 mod assert_sorted;
 
-// #[cfg(doc)] ???
+#[cfg(feature = "doc")]
 pub mod examples;
-#[doc(hidden)] // #[cfg(doc)] ???
+
+#[cfg(not(feature = "doc"))]
+/// Run `cargo doc --feature doc` to see example macro output.
+pub mod examples {}
+
+#[cfg(feature = "doc")]
+#[doc(hidden)]
 pub mod v11 {
     pub use super::*;
     // This is a work around for not having $crate in the procedural_masquerade.
