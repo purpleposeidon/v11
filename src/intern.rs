@@ -1,6 +1,8 @@
 //! This crate contains internal (but still public) items that are used by the macros.
 //! User-code should not use this directly.
 
+use std::ops::Deref;
+
 pub fn check_name(name: &str) {
     match name.chars().next() {
         None => panic!("Empty name"),
@@ -31,7 +33,6 @@ impl<I> Iterator for VoidIter<I> {
 
 // FIXME: Are these actually necessary?
 pub fn desync_box<'a>(v: &'a PBox) -> &'a Any {
-    use std::ops::Deref;
     v.deref()
 }
 
@@ -65,6 +66,29 @@ pub mod wrangle_lock {
                 TryLockError::Poisoned(poison) => TryLockError::Poisoned(PoisonError::new(f(poison.into_inner()))),
                 TryLockError::WouldBlock => TryLockError::WouldBlock,
             }),
+        }
+    }
+}
+
+/// Two different types that dereferenced into the same type.
+pub enum BiRef<A, B, T>
+where
+    A: Deref<Target = T>,
+    B: Deref<Target = T>,
+{
+    Left(A),
+    Right(B),
+}
+impl<A, B, T> Deref for BiRef<A, B, T>
+where
+    A: Deref<Target = T>,
+    B: Deref<Target = T>,
+{
+    type Target = T;
+    fn deref(&self) -> &T {
+        match self {
+            &BiRef::Left(ref a) => a.deref(),
+            &BiRef::Right(ref b) => b.deref(),
         }
     }
 }

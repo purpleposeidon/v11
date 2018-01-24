@@ -124,7 +124,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use v11;
         use self::v11::Universe;
         use self::v11::domain::DomainName;
-        use self::v11::intern::{self, PBox};
+        use self::v11::intern::{self, PBox, BiRef};
         use self::v11::tables::*;
         use self::v11::columns::*;
         use self::v11::index::{CheckedIter, Checkable};
@@ -231,9 +231,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * The table, locked for reading.
          * */
         pub struct Read<'u> {
-            _lock: ::std::sync::RwLockReadGuard<'u, GenericTable>,
+            _lock: BiRef<::std::sync::RwLockReadGuard<'u, GenericTable>, &'u GenericTable, GenericTable>,
             #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
         }
+
         /**
          * The table, locked for writing.
          * */
@@ -870,7 +871,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 // This does require heap allocation tho...
             };)*
             Read {
-                _lock,
+                _lock: BiRef::Left(_lock),
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -939,6 +940,25 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             ))*;
             table.add_init(register_foreign_trackers);
             table.register();
+        }
+
+        impl<'u> Write<'u> {
+            /// Borrow a `Read` lock from a `Write` lock.
+            ///
+            /// You might want to implement methods on your table locks. Some of these will
+            /// only require an immutable reference, but you might still want to use them on
+            /// `Write` locks. Using `$table.as_read()` lets those methods be reasonably
+            /// accessible, without code duplication.
+            pub fn as_read<'r>(&'u self) -> Read<'r>
+            where 'u: 'r
+            {
+                Read {
+                    _lock: BiRef::Right(&*self._lock),
+                    #(
+                        #COL_NAME: RefA::new(self.#COL_NAME2.deref()),
+                    )*
+                }
+            }
         }
     }};
 
