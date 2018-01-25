@@ -26,6 +26,13 @@ where T: Ord
     }
 }
 
+/// `Option` iterators are trivially sorted.
+impl<T> From<Option<T>> for AssertSorted<::std::option::IntoIter<T>> {
+    fn from(opt: Option<T>) -> Self {
+        AssertSorted(opt.into_iter())
+    }
+}
+
 use std::iter::IntoIterator;
 impl<T> IntoIterator for AssertSorted<T>
 where T: Iterator
