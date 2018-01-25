@@ -132,6 +132,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[allow(unused_imports)] use self::v11::storage::*; // A reasonable convenience for the user.
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
+        #[allow(unused_imports)] use self::v11::tracking::Tracker;
         #[allow(unused_imports)] use std::collections::VecDeque;
         #[allow(unused_imports)] use std::cmp::Ordering;
 
@@ -382,8 +383,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     out! {
         table.consistent => ["Change tracking"] {
-            use v11::tracking::Tracker;
-
             /// Add a tracker.
             pub fn register_tracker(universe: &Universe, tracker: Box<Tracker + Send + Sync>) {
                 let mut gt = Row::get_generic_table(universe).write().unwrap();
