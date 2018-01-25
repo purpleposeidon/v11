@@ -5,6 +5,7 @@
 use std::marker::PhantomData;
 use std::fmt;
 use std::cmp::Ordering;
+use std::ops::Deref;
 use tables::{GetTableName, LockedTable};
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
@@ -15,6 +16,7 @@ use tracking::Tracker;
 /// Index to a row on some table.
 /// You can call `row_index.check(&table)` to pre-check the index.
 // #[derive] nothing; stupid phantom data...
+#[repr(C)]
 pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
     pub i: T::Idx,
@@ -79,6 +81,7 @@ where T::Idx: fmt::Display
 /// It borrows the table to ensure that it is a valid index.
 /// It has already been checked.
 #[derive(Hash, PartialOrd, Ord, Eq, PartialEq)]
+#[repr(C)]
 pub struct CheckedRowId<'a, T: LockedTable + 'a> {
     i: <T::Row as GetTableName>::Idx,
     // FIXME: This should be a PhantomData. NBD since these things are short-lived.
@@ -127,6 +130,16 @@ macro_rules! cmp {
     };
 }
 cmp!(CheckedRowId<'a, T>, GenericRowId<T::Row>);
+
+// Let checked indexes be transparently converted to unchecked
+impl<'a, T: LockedTable + 'a> Deref for CheckedRowId<'a, T> {
+    type Target = GenericRowId<T::Row>;
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            ::std::mem::transmute(&self.i)
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -183,6 +196,16 @@ mod test {
         };
         assert!(checked < unchecked);
         assert!(unchecked >= checked);
+    }
+
+    #[test]
+    fn transparent_convert() {
+        let my_table = TestTable;
+        let checked = CheckedRowId {
+            i: 3,
+            table: &my_table,
+        };
+        let thing: GenericRowId<TestName> = *checked;
     }
 }
 
