@@ -19,6 +19,9 @@ pub trait Tracker {
     ///
     /// You may lock the foreign table for editing, but making structural changes would likely
     /// cause you trouble.
+    ///
+    /// If the foreign key is `#[sort_key]`, then the events are sorted. Otherwise, the order is
+    /// undefined.
     fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]);
 
     // FIXME: usize instead of GenericRowId.
@@ -26,6 +29,7 @@ pub trait Tracker {
     //  - deleted: Vec<usize>, 
     //  - Vec<Box<Tracker>>
     // Might need to box a tracker container trait.
+    // FIXME: Maybe separate 'track_delete' and 'track_add' fns? What about all three?
 }
 
 use std::sync::{Arc, RwLock};
@@ -39,12 +43,17 @@ pub struct GenericFlush {
     delete: Vec<usize>,
     add: Vec<usize>,
     cleared: bool,
+    sort_events: bool,
 }
 #[doc(hidden)]
 #[must_use]
 impl GenericFlush {
     pub fn flush(&mut self, universe: &Universe) {
         let mut trackers = self.trackers.write().unwrap();
+        if self.sort_events {
+            self.delete.sort();
+            self.add.sort();
+        }
         for tracker in trackers.iter_mut() {
             if self.cleared {
                 tracker.cleared(universe);
@@ -82,6 +91,7 @@ impl GenericTable {
             delete,
             add,
             cleared,
+            sort_events: self.sort_events,
         }
     }
 
@@ -93,12 +103,13 @@ impl GenericTable {
         self.free.clear();
     }
 
-    pub fn add_tracker(&mut self, t: Box<Tracker + Send + Sync>) {
+    pub fn add_tracker(&mut self, t: Box<Tracker + Send + Sync>, sort_events: bool) {
         if !self.guarantee.consistent {
             panic!("Tried to add tracker to inconsistent table, {}/{}", self.domain, self.name);
         }
         self.trackers.write().unwrap().push(t);
         self.no_trackers = false;
+        self.sort_events |= sort_events;
     }
 
     fn skip_events(&self) -> bool { self.no_trackers }

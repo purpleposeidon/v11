@@ -99,7 +99,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 pp::ty_to_string(&*x.colty))
     }).collect();
 
-    // Work around for things like #(#COL_NAME: row.#COL_NAME)*
+    // Work around for things like #(#COL_NAME: row.#COL_NAME)* triggering a weird bug in `quote!`.
     let COL_NAME2 = COL_NAME;
     let COL_NAME3 = COL_NAME;
     let COL_NAME4 = COL_NAME;
@@ -117,6 +117,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
     };
+    //: bool = table.sort_key.is_some();
     out! { ["Imports & header data"] {
         #[allow(unused_imports)]
         use super::*;
@@ -405,9 +406,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["Change tracking"] {
             /// Add a tracker.
-            pub fn register_tracker(universe: &Universe, tracker: Box<Tracker + Send + Sync>) {
+            pub fn register_tracker(universe: &Universe, tracker: Box<Tracker + Send + Sync>, sort_events: bool) {
                 let mut gt = Row::get_generic_table(universe).write().unwrap();
-                gt.add_tracker(tracker);
+                gt.add_tracker(tracker, sort_events);
             }
 
             impl<'a> Write<'a> {
@@ -447,6 +448,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                 // It'd be nicer to keep the iterator around, but we immediately
                                 // invalidate it. We could collect it into a Vec?
                                 let kill = if let Some(kill) = self.#IFC.deref().inner().find(deleted_foreign).next() {
+                                    // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
                                     kill
                                 } else {
                                     break;
@@ -983,14 +985,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }};
 
 
-    let COL_TRACK_EVENTS: &Vec<_> = &table.cols.iter()
-        .filter(|x| x.foreign)
+    let foreign_cols = || table.cols.iter().filter(|x| x.foreign);
+    let COL_TRACK_EVENTS: &Vec<_> = &foreign_cols()
         .map(|x| i(format!("track_{}_events", x.name)))
         .collect();
-    let COL_TRACK_ELEMENTS: &Vec<_> = &table.cols.iter()
-        .filter(|x| x.foreign)
+    let COL_TRACK_ELEMENTS: &Vec<_> = &foreign_cols()
         .map(|x| pp::ty_to_string(&*x.element))
         .map(i)
+        .collect();
+    let SORT_EVENTS: &Vec<bool> = &foreign_cols()
+        .map(|x| Some(x.name) == table.sort_key)
         .collect();
     out! { ["tracking"] {
         #(
@@ -1003,7 +1007,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(
                 let bx = Box::new(#COL_TRACK_EVENTS) as Box<Tracker + Sync + Send>;
                 type E = #COL_TRACK_ELEMENTS;
-                E::register_tracker(_universe, bx);
+                E::register_tracker(_universe, bx, #SORT_EVENTS);
             )*
         }
     }};

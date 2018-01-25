@@ -207,6 +207,7 @@ pub struct GenericTable {
     pub free: BTreeMap<usize, ()>,
     pub need_flush: bool,
     pub guarantee: Guarantee,
+    pub sort_events: bool,
 }
 #[doc(hidden)]
 #[derive(Default, Clone)]
@@ -230,7 +231,7 @@ impl GenericTable {
             cleared: false,
             free: BTreeMap::new(),
             need_flush: false,
-
+            sort_events: false,
         }
     }
 
@@ -250,6 +251,7 @@ impl GenericTable {
 
     /// Create a copy of this table with empty columns.
     pub fn prototype(&self) -> GenericTable {
+        // FIXME: Just use clone()?
         GenericTable {
             domain: self.domain,
             name: self.name,
@@ -264,6 +266,7 @@ impl GenericTable {
             free: BTreeMap::new(),
             cleared: false,
             need_flush: false,
+            sort_events: self.sort_events,
         }
     }
 
