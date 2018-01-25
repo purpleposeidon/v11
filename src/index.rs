@@ -324,6 +324,14 @@ impl<'a, T: LockedTable> CheckedIter<'a, T> {
             end: slice.end.to_raw(),
         }
     }
+
+    /// Convert to an iterator yielding `GenericRowId`s instead of `CheckedRowId`s.
+    pub fn uncheck(self) -> RowRange<GenericRowId<T::Row>> {
+        RowRange {
+            start: GenericRowId::new(self.i),
+            end: GenericRowId::new(self.end),
+        }
+    }
 }
 impl<'a, T: LockedTable> Iterator for CheckedIter<'a, T> {
     type Item = CheckedRowId<'a, T>;
