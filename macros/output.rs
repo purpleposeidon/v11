@@ -149,11 +149,32 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     let ROW_ID_TYPE = i(&table.row_id);
     out! { ["Indexing"] {
+        /// The internal index type, which also limits the maximum number of rows.
+        pub type RawType = #ROW_ID_TYPE;
+
         /// This is the type used to index into `#TABLE_NAME`'s columns.
         /// It is unique to the table.
         pub type RowId = GenericRowId<Row>;
-        /// The internal index type, which also limits the maximum number of rows.
-        pub type RawType = #ROW_ID_TYPE;
+
+        /// An index that is known to be valid for the lifetime of a read lock.
+        pub type CheckIdRead<'u> = CheckedRowId<'u, Read<'u>>;
+        /// An index that is known to be valid for the lifetime of a write lock.
+        pub type CheckIdWrite<'u> = CheckedRowId<'u, Write<'u>>;
+
+        /// This trait assists in converting between `RowId`, `CheckIdRead`, and `CheckIdWrite`.
+        ///
+        /// # Usage
+        ///
+        /// ```no_compile
+        /// fn my_table_method<C: my_table::CheckId>(table: &my_table::Write, mine: C) {
+        ///     let mine = mine.check(table);
+        ///     // ...
+        /// }
+        /// ```
+        pub trait CheckId: Checkable<Row = Row> {}
+        impl CheckId for RowId {}
+        impl<'u> CheckId for CheckIdRead<'u> {}
+        impl<'u> CheckId for CheckIdWrite<'u> {}
 
         /// A reference to the first row. Is invalid if there is no rows.
         pub const FIRST: RowId = RowId {
