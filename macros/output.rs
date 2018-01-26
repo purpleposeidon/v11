@@ -474,6 +474,35 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
+    let sorted_foreign = || table.cols.iter().filter(|x| Some(x.name) == table.sort_key && x.foreign);
+    let TRACKED_SORTED_COL: &Vec<_> = &sorted_foreign()
+        .map(|x| i(pp::ident_to_string(x.name)))
+        .collect();
+    let TRACK_SORTED_COL_EVENTS: &Vec<_> = &sorted_foreign()
+        .map(|x| i(format!("track_sorted_{}_removal", x.name)))
+        .collect();
+    out! { ["track sorted events"] {
+        impl<'u> Write<'u> {
+            #(
+                /// This is a table sorted by a foreign key. This function removes all the keys
+                /// listed in `remove`, which must also be sorted.
+                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, remove: &[usize]) {
+                    if remove.is_empty() || self.len() == 0 { return; }
+                    let mut core = JoinCore::new(remove.iter().map(|x| *x));
+                    self.merge0(move |me, rowid| {
+                        use std::iter::empty;
+                        let foreign = self.#TRACKED_SORTED_COL[rowid].to_usize();
+                        match core.cmp(&foreign) {
+                            Join::Match(_) => Action::Continue { remove: true, add: empty() },
+                            Join::Next => Action::Continue { remove: false, add: empty() },
+                            Join::Stop => Action::Break,
+                        }
+                    });
+                }
+            )*
+        }
+    }};
+
     out! {
         table.consistent => ["Extra drops"] {
             /// Prevent moving out to improve `RefA` safety.
@@ -629,6 +658,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         impl<'u> Write<'u> {
             /// Remove all rows for which the predicate returns `false`.
             pub fn retain<F: FnMut(&Self, RowId) -> bool>(&mut self, mut f: F) {
+                // FIXME: Retain, but w/ early exit.
                 self.merge0(|me, rowid| {
                     Action::Continue {
                         remove: !f(me, rowid),
@@ -987,7 +1017,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     let foreign_cols = || table.cols.iter().filter(|x| x.foreign);
     let COL_TRACK_EVENTS: &Vec<_> = &foreign_cols()
-        .map(|x| i(format!("track_{}_events", x.name)))
+        .map(|x| i(format!("track_{}_events", x.name))) // FIXME: Rename to `track_{}_removal`.
         .collect();
     let COL_TRACK_ELEMENTS: &Vec<_> = &foreign_cols()
         .map(|x| pp::ty_to_string(&*x.element))
