@@ -131,6 +131,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use self::v11::index::{CheckedIter, Checkable};
 
         #[allow(unused_imports)] use self::v11::storage::*; // A reasonable convenience for the user.
+        #[allow(unused_imports)] use self::v11::joincore::*;
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
         #[allow(unused_imports)] use self::v11::tracking::Tracker;
@@ -239,6 +240,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         // FIXME: Implement `struct RowMut`, would need to respect EditA.
     }};
 
+    out! { table.derive.clone => ["RowRef IntoOwned"] {
+        impl<'a> RowRef<'a> {
+            pub fn to_owned(&self) -> Row {
+                Row {
+                    #(#COL_NAME: self.#COL_NAME2.clone(),)*
+                }
+            }
+        }
+    };};
+
     let COL_MUT: &Vec<_> = &table.cols.iter()
         .map(|x| if x.indexed { "EditA" } else { "MutA" })
         .map(i)
@@ -281,12 +292,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
 
     let RW_FUNCTIONS_CONSISTENT = quote! {
-        /** Returns an iterator over each non-row in the table that is not marked for deletion.
-         * (R/W) */
-        pub fn iter(&self) -> ConsistentIter<Self> {
-            self.range(self.row_range())
-        }
-
         /** Iterate over a range of rows. (R/W) */
         pub fn range(&self, range: RowRange<RowId>) -> ConsistentIter<Self> {
             let checked_iter = CheckedIter::from(self, range);
@@ -296,6 +301,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         /** Returns true if `i` is a valid RowId. */
         pub fn contains(&self, index: RowId) -> bool {
             index.to_usize() < self.len() && !self._lock.free.contains_key(&index.to_usize())
+        }
+
+        /// Return an unchecked iterator that includes deleted rows.
+        pub fn iter_with_deleted(&self) -> UncheckedIter<Row> {
+            self.row_range().iter_slow()
         }
     };
     let DUMP = quote_if(table.derive.clone, quote! {
@@ -310,12 +320,25 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             ret
         }
     });
+    out! {
+        !table.consistent => ["inconsistent iterators"] {
+            impl<'u> Read<'u> {
+                /** Returns a pre-checking iterator over each row in the table. */
+                pub fn iter(&self) -> CheckedIter<Self> {
+                    self.range(self.row_range())
+                }
+            }
+        };
+        ["consistent iterators"] {
+            impl<'u> Read<'u> {
+                /// Returns an iterator over each non-row in the table that is not marked for deletion.
+                pub fn iter(&self) -> ConsistentIter<Self> {
+                    self.range(self.row_range())
+                }
+            }
+        };
+    };
     let RW_FUNCTIONS_INCONSISTENT = quote! {
-        /** Returns an iterator over each row in the table. (R/W) */
-        pub fn iter(&self) -> CheckedIter<Self> {
-            self.range(self.row_range())
-        }
-
         /** Iterate over a range of rows. (R/W) */
         pub fn range(&self, range: RowRange<RowId>) -> CheckedIter<Self> {
             CheckedIter::from(self, range)
@@ -345,7 +368,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             self.#COL0.deref().inner().len()
         }
 
-        pub fn row_range(&self) -> RowRange<RowId> {
+        fn row_range(&self) -> RowRange<RowId> {
             (RowId::new(0)..RowId::from_usize(self.len())).into()
         }
 
@@ -385,6 +408,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         impl<'u> Write<'u> {
             #RW_FUNCTIONS
             #RW_FUNCTIONS_BOTH
+
+            /// Returns post-checking iterator over each row in the table.
+            pub fn iter(&self) -> UncheckedIter<Row> {
+                self.row_range().iter_slow()
+            }
         }
     }};
 
@@ -491,7 +519,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     let mut core = JoinCore::new(remove.iter().map(|x| *x));
                     self.merge0(move |me, rowid| {
                         use std::iter::empty;
-                        let foreign = self.#TRACKED_SORTED_COL[rowid].to_usize();
+                        let foreign = me.#TRACKED_SORTED_COL[rowid].to_usize();
                         match core.cmp(&foreign) {
                             Join::Match(_) => Action::Continue { remove: true, add: empty() },
                             Join::Next => Action::Continue { remove: false, add: empty() },
