@@ -44,10 +44,7 @@ impl<IT: Iterator> JoinCore<IT> where IT::Item: ::std::fmt::Debug {
     }
 
     pub fn join<'a, 'b, L: Copy + 'b, Compare>(&'a mut self, left_item: L, cmp: Compare) -> Join<&IT::Item>
-        where Compare: for<'c> Fn(L, &'c IT::Item) -> Ordering,
-              L: ::std::fmt::Debug,
-              <IT as Iterator>::Item: ::std::fmt::Debug,
-              IT::Item: ::std::fmt::Debug,
+    where Compare: for<'c> Fn(L, &'c IT::Item) -> Ordering,
     {
         loop {
             // Contorted due to lack of NLL.
