@@ -43,7 +43,7 @@ impl<IT: Iterator> JoinCore<IT> where IT::Item: ::std::fmt::Debug {
         }
     }
 
-    pub fn join<'a, 'b, L: Copy + 'b, Compare>(&'a mut self, left_item: L, cmp: Compare) -> Join<IT::Item>
+    pub fn join<'a, 'b, L: Copy + 'b, Compare>(&'a mut self, left_item: L, cmp: Compare) -> Join<&IT::Item>
         where Compare: for<'c> Fn(L, &'c IT::Item) -> Ordering,
               L: ::std::fmt::Debug,
               <IT as Iterator>::Item: ::std::fmt::Debug,
@@ -61,7 +61,7 @@ impl<IT: Iterator> JoinCore<IT> where IT::Item: ::std::fmt::Debug {
                 // left_item needs to advance
                 Ordering::Less => Join::Next,
                 // a good join
-                Ordering::Equal => Join::Match(self.right.next().unwrap()),
+                Ordering::Equal => Join::Match(self.right.peek().unwrap()),
                 // the right side needs to advance
                 Ordering::Greater => {
                     self.right.next();
@@ -74,7 +74,7 @@ impl<IT: Iterator> JoinCore<IT> where IT::Item: ::std::fmt::Debug {
     }
 }
 impl<IT: Iterator> JoinCore<IT> where IT::Item: Ord, IT::Item: ::std::fmt::Debug {
-    pub fn cmp(&mut self, left_item: &IT::Item) -> Join<IT::Item> {
+    pub fn cmp(&mut self, left_item: &IT::Item) -> Join<&IT::Item> {
         self.join(left_item, IT::Item::cmp)
     }
 }
