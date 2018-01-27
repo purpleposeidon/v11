@@ -500,6 +500,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
         };
+        ["fake flush"] {
+            impl<'u> Write<'u> {
+                /// This table does not need to be flushed; this method is here as a
+                /// convenience for macros.
+                pub fn flush(self, universe: &Universe) {}
+            }
+        };
     }
 
     let sorted_foreign = || table.cols.iter().filter(|x| Some(x.name) == table.sort_key && x.foreign);
@@ -1093,7 +1100,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             impl<'u> Read<'u> {
                 /// Row-based encoding.
                 pub fn encode_rows<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
-                    if !self._lock.skip_flush() { panic!("Encoding unflushed table!"); }
+                    if !self._lock.skip_flush() {
+                        panic!("Encoding unflushed table!\n{}", self._lock.unflushed_summary());
+                    }
                     e.emit_struct(#TABLE_NAME_STR, 2, |e| {
                         e.emit_struct_field("free_list", 0, |e| self._lock.free.encode(e))?;
                         e.emit_struct_field("rows", 1, |e| e.emit_seq(self.len(), |e| {

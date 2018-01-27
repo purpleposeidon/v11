@@ -60,6 +60,8 @@ impl GenericFlush {
             }
             tracker.track(universe, &self.delete[..], &self.add[..]);
         }
+        self.delete.clear();
+        self.add.clear();
     }
 
     /// Return the Vecs to the GT to save on allocations. Best-effort.
@@ -76,6 +78,11 @@ impl GenericFlush {
 impl GenericTable {
     pub fn skip_flush(&self) -> bool {
         self.delete.is_empty() && self.add.is_empty() && !self.cleared && !self.need_flush
+    }
+
+    pub fn unflushed_summary(&self) -> String {
+        format!("delete: {}, add: {}, cleared: {}, need_flush: {}",
+                self.delete.len(), self.add.len(), self.cleared, self.need_flush)
     }
 
     pub fn acquire_flush(&mut self) -> GenericFlush {
