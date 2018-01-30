@@ -504,7 +504,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             impl<'u> Write<'u> {
                 /// This table does not need to be flushed; this method is here as a
                 /// convenience for macros.
-                pub fn flush(self, universe: &Universe) {}
+                pub fn flush(self, _universe: &Universe) {}
             }
         };
     }
@@ -850,11 +850,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
         !table.sorted => ["row pushing for unsorted tables"] {
             impl<'u> Write<'u> {
-                #[inline]
-                fn set_row_raw(&mut self, index: RowId, row: Row) {
-                    #(self.#COL_NAME.deref_mut()[index] = row.#COL_NAME2;)*
-                }
-
                 /** Populate the table with data from the provided iterator. */
                 pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
                     self.reserve(data.size_hint().0);
@@ -867,7 +862,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// Returns its RowId. This is not necessarily at the end of the table!
                 // In retrospect 'push' might have been a poor name.
                 #[inline]
-                pub fn push(&mut self, row: Row) -> RowId {
+                pub fn push(&mut self, mut row: Row) -> RowId {
                     let expect = if cfg!(test) {
                         Some(self.next_pushed())
                     } else {
@@ -879,7 +874,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         self.event_add(old);
                         let old = RowId::from_usize(old);
                         // This is a very simple implementation!
-                        self.set_row_raw(old, row);
+                        self.swap_out_row(old, &mut row);
                         old
                     } else {
                         self.push_end_unchecked(row)
