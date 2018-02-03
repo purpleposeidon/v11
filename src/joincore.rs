@@ -69,6 +69,33 @@ impl<IT: Iterator> JoinCore<IT> where IT::Item: ::std::fmt::Debug {
         }
         Join::Stop
     }
+
+    pub fn join_next<'a, 'b, L: Copy + 'b, Compare>(&'a mut self, left_item: L, cmp: Compare) -> Join<IT::Item>
+    where Compare: for<'c> Fn(L, &'c IT::Item) -> Ordering,
+    {
+        loop {
+            // Contorted due to lack of NLL.
+            let cmp = if let Some(right_item) = self.right.peek() {
+                let cmp = cmp(left_item, right_item);
+                cmp
+            } else {
+                break;
+            };
+            let r = match cmp {
+                // left_item needs to advance
+                Ordering::Less => Join::Next,
+                // a good join
+                Ordering::Equal => Join::Match(self.right.next().unwrap()),
+                // the right side needs to advance
+                Ordering::Greater => {
+                    self.right.next();
+                    continue;
+                },
+            };
+            return r;
+        }
+        Join::Stop
+    }
 }
 impl<IT: Iterator> JoinCore<IT> where IT::Item: Ord, IT::Item: ::std::fmt::Debug {
     pub fn cmp(&mut self, left_item: &IT::Item) -> Join<&IT::Item> {

@@ -538,6 +538,31 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }};
 
+    for col in &table.cols {
+        if !col.foreign_auto { continue; }
+        let TRACK_EVENTS = i(format!("track_{}_events", col.name));
+        let DELEGATE = i(if Some(col.name) == table.sort_key {
+            format!("track_sorted_{}_removal", col.name)
+        } else if col.indexed && table.sorted {
+            format!("track_{}_removal", col.name)
+        } else {
+            panic!("`#[foreign_auto]` can only be used on columns with `#[index]` or `#[sort_key]`.");
+        });
+        out! { ["foreign_auto for sorted column"] {
+            impl Tracker for #TRACK_EVENTS {
+                fn cleared(&mut self, universe: &Universe) {
+                    write(universe).clear();
+                }
+
+                fn track(&mut self, universe: &Universe, deleted_rows: &[usize], _added_rows: &[usize]) {
+                    if deleted_rows.is_empty() { return; }
+                    let mut lock = write(universe);
+                    lock.#DELEGATE(deleted_rows);
+                }
+            }
+        }};
+    }
+
     out! {
         table.consistent => ["Extra drops"] {
             /// Prevent moving out to improve `RefA` safety.
@@ -1100,7 +1125,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #(
             /// `Tracker` must be implemented on this struct to maintain consistency by responding to
             /// structural tables on the foreign table.
-            #[allow(non_camel_case_types)]
+            #[allow(non_camel_case_types)] // We do not want to guess at the capitalization.
             pub struct #COL_TRACK_EVENTS;
         )*
         fn register_foreign_trackers(_universe: &Universe) {
@@ -1121,7 +1146,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         impl<'u> Read<'u> {
             #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { read(universe) }
-            #[doc(hdiden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
+            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
         }
     }};
 

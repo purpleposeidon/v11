@@ -12,16 +12,20 @@ pub trait Tracker {
     ///
     /// If the column has an `#[index]`, you can call `$table.track_$col_events(deleted)`.
     /// `added` rows must be processed *after* deleted rows.
+    /// Or, if the table is `#[kind = "sorted"]` and has a `#[sort_key]` column, you can call
+    /// `$table.track_sorted_$col_events(deleted)`.
     ///
     /// Unfortunately `usize`s are passed instead of `$table::RowId`.
     /// They can be converted using `$table::RowId::from_usize`.
     /// This might be fixed in the future.
     ///
-    /// You may lock the foreign table for editing, but making structural changes would likely
+    /// You may lock the foreign table for editing, but making structural changes will likely
     /// cause you trouble.
     ///
     /// If the foreign key is `#[sort_key]`, then the events are sorted. Otherwise, the order is
     /// undefined.
+    ///
+    /// Ignoring `added` is very typical.
     fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]);
 
     // FIXME: usize instead of GenericRowId.
@@ -31,6 +35,7 @@ pub trait Tracker {
     // Might need to box a tracker container trait.
     // FIXME: Maybe separate 'track_delete' and 'track_add' fns? What about all three?
 }
+// FIXME: Derp, &mut on unit structs.
 
 use std::sync::{Arc, RwLock};
 use std::mem;

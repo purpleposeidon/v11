@@ -102,6 +102,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             // #[attrs] column_name: [ElementType; ColumnType<ElementType>],
             let mut indexed = false;
             let mut foreign = false;
+            let mut foreign_auto = false;
             let mut sort_key = false;
             let attrs = parser.parse_outer_attributes()?
                 .into_iter()
@@ -110,6 +111,10 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                     "index" => indexed = true,
                     "foreign" => foreign = true,
                     "sort_key" => sort_key = true,
+                    "foreign_auto" => {
+                        foreign = true;
+                        foreign_auto = true;
+                    },
                     _ => return true,
                 }
                 false
@@ -137,6 +142,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 colty,
                 indexed,
                 foreign,
+                foreign_auto: false,
             })
         })?
     };

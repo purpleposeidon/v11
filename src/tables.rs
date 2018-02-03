@@ -90,7 +90,7 @@ The 'kind' of a table selects what functions are generated and what guarantees a
 ## `#[kind = "consistent"]`
 Rows in consistent tables can be used as *foreign keys* in other tables.
 The main guarantee of the public table is that it is kept consistent with such tables:
-the main row and its linkages are (with some user-provided implementation!) deleted as a unit.
+the main row and references to it are deleted as a unit.
 
 Since maintaining consistency requires locking other tables,
 you must call `table.flush(universe)` instead of letting the table fall out of scope.
@@ -102,25 +102,30 @@ Rows in an "append" table can not be removed. Consistency is thus trivially guar
 ## `#[kind = "sorted"]`
 Guarantees the table is sorted. You must implement `Ord` for `$table::RowRef`.
 If you put `#[sort_key]` on a column, it will do this for you.
-Rows can be added with `merge`, and removed with `retain`.
 (The macro derives `Eq`, `PartialEq`, and `PartialOrd` on `$table::RowRef`, and those + `Ord` on `$table::Row`)
+
+Rows can be added with `merge`, and removed with `retain`.
 
 Sorted tables are good for `joincore`.
 
 ## `#[kind = "bag"]`
-NYI. (Internal order would be arbitrary and there would be no consistency guarantee.)
+NYI. (Row order would be arbitrary and there would be no consistency guarantee.)
+
+## `#[kind = "list"]`
+NYI. (Row order would remain intact, but there would be no consistency guarantee.)
 
 # Using the generated table
 
 A lock on the table must be obtained using `$tablename::read(universe)`.
 
-(FIXME: Link to `cargo doc` of a sample project. In the meantime, uh, check out `tests/tables.rs` I guess.)
+(FIXME: Link to `v11::example`)
 
 # Table Attributes
 
 ## `#[row_id = "usize"]`
 Sets what the (underlying) primitive is used for indexing the table. The default is `usize`.
 This is useful when this table is going to have foreign keys pointing at it.
+You may also want to set this to an explicitly sized integer if the table is to be serialized.
 
 ## `#[row_derive(Foo, Bar)]`
 Puts `#[derive(Foo, Bar)]` on the generated `Row` and `RowRef` structs.
@@ -132,6 +137,11 @@ A version number. The default is `0`.
 
 ## `#[foreign]`
 The row's element must be another table's RowId.
+This generates a `struct track_$COL_events`, for which `Tracker` must be implemented, to react to structural events on the foreign table.
+
+## `#[foreign_auto]`
+This automatically implements `Tracker`. Rows corresponding to deleted foreign rows will be removed.
+This requires `#[index]` or `#[sort_key]`.
 
 ## `#[index]`
 Creates an index of the column, using a `BTreeMap`.
