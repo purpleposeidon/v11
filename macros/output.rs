@@ -787,21 +787,56 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         !table.immutable && table.sorted && !table.consistent => ["row pushing for sorted tables"] {
             impl<'u> Write<'u> {
-                pub fn merge<IT: Iterator<Item=Row>, I: Into<AssertSorted<IT>>>(&mut self, rows: I)
+                /// Merge in a sorted (or sortable) Iterator of `Row`s.
+                pub fn merge<IT, I>(&mut self, rows: I)
+                where
+                    IT: Iterator<Item=Row>,
+                    I: Into<AssertSorted<IT>>,
+                {
+                    self.merge_logged(rows, |_, _| ());
+                }
+
+                /// Merge in a Row, and return its RowId.
+                /// This is an O(n) operation; so calling this in a loop will be O(n²).
+                /// (The obnoxiously long name is to dissuade you from doing this.)
+                pub fn merge_in_a_single_row(&mut self, row: Row) -> RowId {
+                    let mut got = None;
+                    self.merge_logged(Some(row), |_self, id| {
+                        if got.is_none() {
+                            got = Some(id);
+                        } else {
+                            panic!("same row merged twice");
+                        }
+                    });
+                    got.expect("row not merged")
+                }
+
+                /// `log` will be called with the new RowId of each new row.
+                pub fn merge_logged<IT, I, L>(&mut self, rows: I, mut log: L)
+                where
+                    IT: Iterator<Item=Row>,
+                    I: Into<AssertSorted<IT>>,
+                    L: FnMut(&Self, RowId),
                 {
                     // This is actually a three-way merge. Joy!
                     // We have three things: the table, the rug, and the iter.
                     // We get 'next' by merging the rug and the iter.
                     // Whenever something gets bumped off the table, it is pushed onto the rug.
                     // The rug is sorted because the table is sorted.
-                    let mut rug = VecDeque::new();
+                    #[derive(Copy, Clone)]
+                    enum Side { Rug, Iter }
+                    // The log needs to know if a Row is new or not.
+                    let mut rug: VecDeque<(Side, Row)> = VecDeque::new();
                     let mut iter = rows.into().into_iter().peekable();
                     let mut i = FIRST;
                     self.reserve(iter.size_hint().0);
                     loop {
-                        enum Side { Rug, Iter }
                         let side = {
-                            let (next, side) = match (rug.back().map(Row::as_ref), iter.peek().map(Row::as_ref)) {
+                            let rug_back = rug.back()
+                                .map(|&(ref _side, ref row)| row.as_ref());
+                            let iter_peek = iter.peek()
+                                .map(Row::as_ref);
+                            let (next, side) = match (rug_back, iter_peek) {
                                 (None, None) => break,
                                 (None, Some(il)) => (il, Side::Iter),
                                 (Some(rl), None) => (rl, Side::Rug),
@@ -813,6 +848,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                     }
                                 },
                             };
+                            // So, "why do use rug.back()?" Because the rug is already the table's
+                            // contents, just temporarily displaced.
                             if i.to_usize() < self.len() && self.get_row_ref(i) <= next {
                                 None
                             } else {
@@ -821,10 +858,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         };
                         // { Some(Rug), Some(Iter), None } × { more table, table finished }
                         if let Some(side) = side {
-                            let mut next = match side {
-                                Side::Rug => rug.pop_front(),
-                                Side::Iter => iter.next(),
-                            }.unwrap();
+                            let (src, mut next) = match side {
+                                Side::Rug => rug.pop_front().unwrap(),
+                                Side::Iter => (Side::Iter, iter.next().unwrap()),
+                            };
                             if i.to_usize() < self.len() {
                                 // swap the row
                                 self.swap_out_row(i, &mut next);
@@ -834,13 +871,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                     // Well, we never arrive at that situation.
                                     // ALWAYS: primary[i] < rug.front() && primary[i] < iter.peek()
                                     if let Some(rug_front) = rug.front() {
-                                        assert!(next.as_ref() >= rug_front.as_ref());
-                                        assert!(next.as_ref() >= rug.back().unwrap().as_ref());
+                                        assert!(next.as_ref() >= rug_front.1.as_ref());
+                                        assert!(next.as_ref() >= rug.back().unwrap().1.as_ref());
                                     }
                                 }
-                                rug.push_back(next);
+                                rug.push_back((src, next));
                             } else {
                                 self.push_end_unchecked(next);
+                            }
+                            if let Side::Iter = src {
+                                log(self, i);
                             }
                         } // else: no change
                         i = i.next();
