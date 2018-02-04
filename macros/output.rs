@@ -1157,11 +1157,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             pub struct #COL_TRACK_EVENTS;
         )*
         fn register_foreign_trackers(_universe: &Universe) {
-            #(
+            #({
                 let bx = Box::new(#COL_TRACK_EVENTS) as Box<Tracker + Sync + Send>;
                 type E = #COL_TRACK_ELEMENTS;
                 E::register_tracker(_universe, bx, #SORT_EVENTS);
-            )*
+            })*
         }
     }};
 
