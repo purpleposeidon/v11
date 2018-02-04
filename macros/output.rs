@@ -548,7 +548,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         } else {
             panic!("`#[foreign_auto]` can only be used on columns with `#[index]` or `#[sort_key]`.");
         });
-        out! { ["foreign_auto for sorted column"] {
+        out! { ["foreign_auto"] {
             impl Tracker for #TRACK_EVENTS {
                 fn cleared(&mut self, universe: &Universe) {
                     write(universe).clear();
@@ -561,6 +561,34 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
         }};
+    }
+    for col in &table.cols {
+        let COLUMN = i(pp::ident_to_string(col.name));
+        let FIND = i(format!("find_{}", col.name));
+        let ELEMENT = i(pp::ty_to_string(&col.element));
+        out! {
+            col.indexed => [""] {
+                impl<'u> Read<'u> {
+                    fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
+                        self.#COLUMN.deref().inner().find(e).next()
+                    }
+                }
+                impl<'u> Write<'u> {
+                    fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
+                        self.as_read().#FIND(e)
+                    }
+                }
+            };
+            // FIXME: Binary search
+            // FIXME: It'd be better to do `mytable.column.find(blah)`.
+            /*if col.sort_key => [""] {
+                impl<'u> Read<'u> {
+                    fn #FIND(&self, e: &#ELEMENT) -> Option<RowId> {
+                    }
+                }
+            };*/
+            [""] {};
+        }
     }
 
     out! {
