@@ -569,12 +569,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         out! {
             col.indexed => [""] {
                 impl<'u> Read<'u> {
-                    fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
+                    pub fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
                         self.#COLUMN.deref().inner().find(e).next()
                     }
                 }
                 impl<'u> Write<'u> {
-                    fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
+                    pub fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
                         self.as_read().#FIND(e)
                     }
                 }
