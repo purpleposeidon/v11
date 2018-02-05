@@ -107,18 +107,18 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             let attrs = parser.parse_outer_attributes()?
                 .into_iter()
                 .filter(|attr| {
-                match format!("{}", attr.value.name).as_str() {
-                    "index" => indexed = true,
-                    "foreign" => foreign = true,
-                    "sort_key" => sort_key = true,
-                    "foreign_auto" => {
-                        foreign = true;
-                        foreign_auto = true;
-                    },
-                    _ => return true,
-                }
-                false
-            }).collect();
+                    match format!("{}", attr.value.name).as_str() {
+                        "index" => indexed = true,
+                        "foreign" => foreign = true,
+                        "sort_key" => sort_key = true,
+                        "foreign_auto" => {
+                            foreign = true;
+                            foreign_auto = true;
+                        },
+                        _ => return true,
+                    }
+                    false
+                }).collect();
             let name = parser.parse_ident()?;
             parser.expect(&Token::Colon)?;
             parser.expect(&Token::OpenDelim(DelimToken::Bracket))?;
@@ -142,7 +142,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 colty,
                 indexed,
                 foreign,
-                foreign_auto: false,
+                foreign_auto,
             })
         })?
     };

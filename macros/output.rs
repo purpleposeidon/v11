@@ -355,6 +355,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         /** Retrieves a structure containing a clone of the value in each column. (R/W) */
         pub fn get_row<R: Checkable<Row=Row>>(&self, index: R) -> Row where Row: Clone {
             let index = index.check(self);
+            self.get_row_raw(index)
+        }
+
+        fn get_row_raw(&self, index: CheckedRowId<Self>) -> Row where Row: Clone {
             Row {
                 #(#COL_NAME: self.#COL_NAME2[index].clone(),)*
             }
@@ -459,11 +463,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 pub fn delete(&mut self, row: RowId) {
                     unsafe {
                         let i = row.check(self).to_usize();
-                        #(
-                            self.#COL_NAME.deref_mut().inner_mut().deleted(i);
-                        )*
+                        self.delete_raw(i);
                         self.event_delete(i);
                     }
+                }
+
+                unsafe fn delete_raw(&mut self, i: usize) {
+                    #(
+                        self.#COL_NAME.deref_mut().inner_mut().deleted(i);
+                    )*
                 }
 
                 #(
@@ -505,6 +513,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// This table does not need to be flushed; this method is here as a
                 /// convenience for macros.
                 pub fn flush(self, _universe: &Universe) {}
+
+                // "shouldn't" get called; could happen if the table kind changes between
+                // serializations. This is a stub.
+                unsafe fn delete_raw(&mut self, _i: usize) {
+                    panic!("Unexpected call to delete_raw");
+                }
             }
         };
     }
@@ -543,7 +557,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         let TRACK_EVENTS = i(format!("track_{}_events", col.name));
         let DELEGATE = i(if Some(col.name) == table.sort_key {
             format!("track_sorted_{}_removal", col.name)
-        } else if col.indexed && table.sorted {
+        } else if col.indexed {
             format!("track_{}_removal", col.name)
         } else {
             panic!("`#[foreign_auto]` can only be used on columns with `#[index]` or `#[sort_key]`.");
@@ -1194,8 +1208,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     e.emit_struct(#TABLE_NAME_STR, 2, |e| {
                         e.emit_struct_field("free_list", 0, |e| self._lock.free.encode(e))?;
                         e.emit_struct_field("rows", 1, |e| e.emit_seq(self.len(), |e| {
-                            for i in self.iter() {
-                                let row = self.get_row(i);
+                            for i in self.row_range().iter_slow() {
+                                let i = unsafe { CheckedRowId::fab(i.to_raw(), self) };
+                                let row = self.get_row_raw(i);
                                 // FIXME: This requires clone. Column-based easily would not.
                                 e.emit_seq_elt(i.to_usize(), |e| row.encode(e))?;
                             }
@@ -1224,6 +1239,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     });
                     if caught.is_err() {
                         self.clear();
+                    }
+                    // De-index deleted things.
+                    // Bit lame.
+                    let to_free: Vec<_> = self._lock.free.keys().map(|i| *i).collect();
+                    for free in to_free.into_iter() {
+                        unsafe {
+                            assert!(free < self.len());
+                            self.delete_raw(free);
+                        }
                     }
                     caught
                 }
