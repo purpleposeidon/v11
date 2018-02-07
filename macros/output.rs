@@ -303,7 +303,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             index.to_usize() < self.len() && !self._lock.free.contains_key(&index.to_usize())
         }
 
-        /// Return an unchecked iterator that includes deleted rows.
+        /// Return an unchecked iterator that includes deleted rows. (R/W)
         pub fn iter_with_deleted(&self) -> UncheckedIter<Row> {
             self.row_range().iter_slow()
         }
@@ -323,7 +323,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         !table.consistent => ["inconsistent iterators"] {
             impl<'u> Read<'u> {
-                /** Returns a pre-checking iterator over each row in the table. */
+                /// Returns a pre-checking iterator over each row in the table.
                 pub fn iter(&self) -> CheckedIter<Self> {
                     self.range(self.row_range())
                 }
@@ -413,10 +413,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #RW_FUNCTIONS
             #RW_FUNCTIONS_BOTH
 
-            /// Returns post-checking iterator over each row in the table.
-            pub fn iter(&self) -> UncheckedIter<Row> {
-                self.row_range().iter_slow()
-            }
+            // FIXME: add `fn iter()` that returns an iterator yielding MaybeDeleted things.
         }
     }};
 
