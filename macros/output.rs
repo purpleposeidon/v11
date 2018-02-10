@@ -10,6 +10,12 @@ fn i<S: AsRef<str>>(s: S) -> Ident {
     Ident::new(s.as_ref())
 }
 
+/// Convert a `Vec` of strings into a vec of quote `Ident`s.
+fn str2i(v: &Vec<String>) -> Vec<Ident> {
+    v.iter().map(i).collect()
+}
+
+/// Possibly change `q` into an empty set of `Tokens`.
 fn quote_if(b: bool, q: Tokens) -> Tokens {
     if b { q } else { quote! {} }
 }
@@ -58,13 +64,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }
 
-    // Info
+    // Info. It can get pretty long!
     writeln!(out, "// Table config:")?;
     for line in format!("{:#?}", table).split('\n') {
         writeln!(out, "//   {}", line)?;
     }
-
-    let str2i = |v: &Vec<String>| -> Vec<Ident> { v.iter().map(i).collect() };
 
     // "name": ["element"; "col_type"],
     use ::table::Col;
@@ -255,7 +259,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         .map(i)
         .collect();
 
-    let DELETED_ROW = quote_if(table.consistent, quote! {
+    let LOCKED_TABLE_DELETED_ROW = quote_if(table.consistent, quote! {
         fn is_deleted(&self, idx: GenericRowId<Row>) -> bool {
             self._lock.free.get(&idx.to_usize()).is_some()
         }
@@ -278,15 +282,57 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(pub #COL_NAME: #COL_MUT<'u, #COL_TYPE>,)*
         }
 
+        /// The table, borrowed from a `Write` lock, that forbids structural changes.
+        pub struct Edit<'u, 'w> where 'u: 'w {
+            _inner: &'w Write<'u>,
+            #(pub #COL_NAME: &'w mut #COL_MUT<'u, #COL_TYPE>,)*
+        }
+        impl<'u> Write<'u> {
+            /// Divides this lock into two parts.
+            ///
+            /// 1. An `Edit`, which allows modifying rows, but not making structural modifications
+            ///    to the table,
+            /// 2. An `EditIter`, which allows iteration over the table, while skipping deleted
+            ///    rows.
+            pub fn editing<'w>(&'w mut self) -> (Edit<'u, 'w>, EditIter<'w, Row>)
+            where 'u: 'w
+            {
+                unsafe {
+                    // This is conceptually/morally equivalent to `slice::split_at_mut`.
+                    // It's like splitting `Write` into `(&Structural, &mut Edit)`.
+                    // See the `Deref` implementation.
+                    use std::mem;
+                    let me1: &Self = mem::transmute(self as *const Self);
+                    let me2: &mut Self = mem::transmute(self as *mut Self);
+                    let me3 = self;
+                    (Edit {
+                        _inner: me1,
+                        #(#COL_NAME: &mut me2.#COL_NAME2,)*
+                    }, EditIter::new(me3.row_range(), me3._lock.free.keys()))
+                }
+            }
+        }
+        // By good fortune this is safe. Implementing DerefMut would *not* be safe.
+        // Suppose we use Deref to call `Write::get_row_ref(edit)`. Can we mutably alias
+        // the returned reference with `edit.col`? No, because RowRef is borrowing edit.
+        // Because the `Write` is immutable, no structural changes can modify
+        // `EditIter.deleted`. It would be unsafe to implement `DerefMut`.
+        impl<'u, 'w> ::std::ops::Deref for Edit<'u, 'w> where 'u: 'w {
+            type Target = Write<'u>;
+            fn deref(&self) -> &Write<'u> {
+                self._inner
+            }
+        }
+
         impl<'u> LockedTable for Read<'u> {
             type Row = Row;
             fn len(&self) -> usize { self.len() }
-            #DELETED_ROW
+            #LOCKED_TABLE_DELETED_ROW
         }
         impl<'u> LockedTable for Write<'u> {
             type Row = Row;
             fn len(&self) -> usize { self.len() }
-            #DELETED_ROW
+            #LOCKED_TABLE_DELETED_ROW
         }
     }};
 
@@ -301,11 +347,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         /** Returns true if `i` is a valid RowId. */
         pub fn contains(&self, index: RowId) -> bool {
             index.to_usize() < self.len() && !self._lock.free.contains_key(&index.to_usize())
-        }
-
-        /// Return an unchecked iterator that includes deleted rows. (R/W)
-        pub fn iter_with_deleted(&self) -> UncheckedIter<Row> {
-            self.row_range().iter_slow()
         }
     };
     let DUMP = quote_if(table.derive.clone, quote! {
@@ -328,10 +369,25 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     self.range(self.row_range())
                 }
             }
+            impl<'u> Write<'u> {
+                /// Returns a pre-checking iterator over each row in the table.
+                pub fn iter(&self) -> CheckedIter<Self> {
+                    self.range(self.row_range())
+                }
+            }
         };
         ["consistent iterators"] {
             impl<'u> Read<'u> {
-                /// Returns an iterator over each non-row in the table that is not marked for deletion.
+                /// Iterate over every non-deleted row.
+                ///
+                /// (Use `Write::editing` to iterate over a `Write` lock.)
+                pub fn iter(&self) -> ConsistentIter<Self> {
+                    self.range(self.row_range())
+                }
+            }
+            impl<'u> Write<'u> {
+                /// Iterate over every non-deleted row. Note that this is an immutable iterator;
+                /// use `editing` to get at an editable iterator.
                 pub fn iter(&self) -> ConsistentIter<Self> {
                     self.range(self.row_range())
                 }
@@ -372,6 +428,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             self.#COL0.deref().inner().len()
         }
 
+        /// Equivalent to `0..len()`. (R/W)
+        ///
+        /// Be careful calling this on consistent tables; it may include deleted rows. You can use 
         fn row_range(&self) -> RowRange<RowId> {
             (RowId::new(0)..RowId::from_usize(self.len())).into()
         }
@@ -604,18 +663,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     out! {
         table.consistent => ["Extra drops"] {
-            /// Prevent moving out to improve `RefA` safety.
+            /// Prevent moving out columns to improve `RefA` safety.
             impl<'u> Drop for Read<'u> {
                 fn drop(&mut self) {}
             }
         };
         ["Extra drops"] {
-            /// Prevent moving out to improve `RefA` safety.
+            /// Prevent moving out columns to improve `RefA` safety.
             impl<'u> Drop for Read<'u> {
                 fn drop(&mut self) {}
             }
 
-            /// Prevent moving out to improve `MutA` safety.
+            /// Prevent moving out columns to improve `MutA` safety.
             impl<'u> Drop for Write<'u> {
                 fn drop(&mut self) {}
             }

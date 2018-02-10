@@ -18,6 +18,7 @@ table! {
         foo: [i32; SegCol<i32>],
     }
 }
+
 table! {
     #[kind = "append"]
     [TEST/no_debug] {

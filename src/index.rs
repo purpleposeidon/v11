@@ -308,6 +308,7 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
     }
 }
 
+
 #[derive(Debug, Clone)]
 pub struct CheckedIter<'a, T: LockedTable + 'a> {
     table: &'a T,
@@ -430,10 +431,12 @@ impl<'a, T: LockedTable + 'a> Checkable for CheckedRowId<'a, T> {
 
 use ::joincore::{JoinCore, Join};
 use std::collections::btree_map;
+use ::tables::FreeKeys;
+
 /// A `CheckedIter` that skips rows marked for deletion.
 pub struct ConsistentIter<'a, T: LockedTable + 'a> {
     rows: CheckedIter<'a, T>,
-    deleted: JoinCore<btree_map::Keys<'a, usize, ()>>,
+    deleted: JoinCore<FreeKeys<'a>>,
 }
 impl<'a, T: LockedTable + 'a> ConsistentIter<'a, T> {
     pub fn new(rows: CheckedIter<'a, T>, deleted: &'a btree_map::BTreeMap<usize, ()>) -> Self {
@@ -448,6 +451,34 @@ impl<'a, T: LockedTable + 'a> Iterator for ConsistentIter<'a, T> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(row) = self.rows.next() {
+            match self.deleted.join(row.to_usize(), |l, r| l.cmp(r)) {
+                // This join is a bit backwards.
+                Join::Next | Join::Stop => return Some(row),
+                Join::Match(_) => continue,
+            }
+        }
+        None
+    }
+}
+
+
+
+pub struct EditIter<'w, T: GetTableName> {
+    range: UncheckedIter<T>,
+    deleted: JoinCore<FreeKeys<'w>>,
+}
+impl<'w, T: GetTableName> EditIter<'w, T> {
+    pub fn new(range: RowRange<GenericRowId<T>>, free_keys: FreeKeys<'w>) -> Self {
+        EditIter {
+            range: range.iter_slow(),
+            deleted: JoinCore::new(free_keys),
+        }
+    }
+}
+impl<'w, T: GetTableName> Iterator for EditIter<'w, T> {
+    type Item = GenericRowId<T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(row) = self.range.next() {
             match self.deleted.join(row.to_usize(), |l, r| l.cmp(r)) {
                 // This join is a bit backwards.
                 Join::Next | Join::Stop => return Some(row),

@@ -198,8 +198,11 @@ impl Universe {
 
 type Prototyper = fn() -> PBox;
 
-use std::collections::BTreeMap;
+use std::collections::btree_map;
 use tracking::Tracker;
+
+pub(crate) type FreeList = btree_map::BTreeMap<usize, ()>;
+pub(crate) type FreeKeys<'a> = btree_map::Keys<'a, usize, ()>;
 
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 #[doc(hidden)]
@@ -208,13 +211,14 @@ pub struct GenericTable {
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
     init_fns: Vec<fn(&Universe)>,
-    // All the other fields don't need locks, but this one does because it can out-last.
+    // All the other fields don't need locks, but this one does because we need to continue holding
+    // it after releasing the lock on `GenericTable`.
     pub trackers: Arc<RwLock<Vec<Box<Tracker + Send + Sync>>>>,
     pub(crate) no_trackers: bool,
     pub(crate) delete: Vec<usize>,
     pub(crate) add: Vec<usize>,
     pub cleared: bool,
-    pub free: BTreeMap<usize, ()>,
+    pub free: FreeList,
     pub need_flush: bool,
     pub guarantee: Guarantee,
     pub sort_events: bool,
@@ -239,7 +243,7 @@ impl GenericTable {
             delete: Vec::new(),
             add: Vec::new(),
             cleared: false,
-            free: BTreeMap::new(),
+            free: Default::default(),
             need_flush: false,
             sort_events: false,
         }
@@ -273,7 +277,7 @@ impl GenericTable {
 
             delete: Vec::new(),
             add: Vec::new(),
-            free: BTreeMap::new(),
+            free: Default::default(),
             cleared: false,
             need_flush: false,
             sort_events: self.sort_events,

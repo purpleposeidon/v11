@@ -91,11 +91,15 @@ fn test() {
             ship: lusitania,
             name: "Carol",
         });
-        for ship in ships.iter() {
-            println!("{:?}", ships.get_row(ship));
-        }
-        for sailor in sailors.iter() {
-            println!("{:?}", sailors.get_row_ref(sailor));
+        {
+            let (mut ships, ship_iter) = ships.editing();
+            for ship in ship_iter {
+                println!("{:?}", ships.get_row(ship));
+            }
+            let (mut sailors, sailors_iter) = sailors.editing();
+            for sailor in sailors_iter {
+                println!("{:?}", sailors.get_row_ref(sailor));
+            }
         }
         assert_eq!(ships.len(), 4);
         assert_eq!(sailors.len(), 6);
