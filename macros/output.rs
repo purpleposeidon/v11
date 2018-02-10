@@ -524,7 +524,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     flush.restore(&mut gt);
                 }
 
-                pub fn delete(&mut self, row: RowId) {
+                pub fn delete<I: CheckId>(&mut self, row: I) {
                     unsafe {
                         let i = row.check(self).to_usize();
                         self.delete_raw(i);
