@@ -399,6 +399,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 pub fn iter(&self) -> ConsistentIter<Self> {
                     self.range(self.row_range())
                 }
+
+                /// Iterate over *all* rows, including deleted ones.
+                pub fn iter_del(&self) -> UncheckedIter<Row> {
+                    self.row_range().iter_slow()
+                }
             }
         };
     };
