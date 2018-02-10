@@ -374,6 +374,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 pub fn iter(&self) -> CheckedIter<Self> {
                     self.range(self.row_range())
                 }
+
+                /// Returns an iterator over each row in the table. The `RowId`s are not
+                /// pre-checked; you should consider calling `row_id.check($table)`, particularly
+                /// if you will be indexing many columns.
+                pub fn iter_mut(&mut self) -> UncheckedIter<Row> {
+                    // Well, the `&mut self` isn't actually necessary.
+                    self.row_range().iter_slow()
+                }
             }
         };
         ["consistent iterators"] {
