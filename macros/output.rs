@@ -971,11 +971,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     self.reserve(iter.size_hint().0);
                     loop {
                         let side = {
-                            let rug_back = rug.back()
+                            let rug_front = rug.front()
                                 .map(|&(ref _side, ref row)| row.as_ref());
                             let iter_peek = iter.peek()
                                 .map(Row::as_ref);
-                            let (next, side) = match (rug_back, iter_peek) {
+                            let (next, side) = match (rug_front, iter_peek) {
                                 (None, None) => break,
                                 (None, Some(il)) => (il, Side::Iter),
                                 (Some(rl), None) => (rl, Side::Rug),

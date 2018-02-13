@@ -2,6 +2,7 @@
 extern crate v11;
 #[macro_use]
 extern crate v11_macros;
+extern crate rand;
 
 use v11::Universe;
 
@@ -67,5 +68,42 @@ fn is_sortable() {
         println!("{:?}", sorted.get_row(row));
         assert!(prev <= sorted.key[row]);
         prev = sorted.key[row];
+    }
+}
+
+#[test]
+fn test_sort_thoroughly() {
+    let universe = &make_universe();
+    use rand::*;
+    let mut rng = XorShiftRng::from_seed([2, 9, 293, 2]);
+    for n in 0..100 {
+        println!("round {}", n);
+        let mut new = Vec::new();
+        for _ in 0..rng.gen_range(1, 20) {
+            new.push(sorted::Row {
+                key: rng.gen(),
+                val: "meh",
+            });
+        }
+        new.sort();
+        println!("{:?}", new);
+        let mut sorted = sorted::write(universe);
+        sorted.merge(new);
+        sorted.assert_sorted();
+    }
+}
+
+impl<'u> sorted::Write<'u> {
+    pub fn assert_sorted(&self) {
+        for i in self.iter() {
+            println!("{}", self.key[i]);
+        }
+        if self.len() < 2 { return; }
+        let mut prev = self.key[sorted::FIRST];
+        for i in self.iter().skip(1) {
+            let here = self.key[i];
+            assert!(prev <= here);
+            prev = here;
+        }
     }
 }
