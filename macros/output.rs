@@ -634,13 +634,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         out! { ["foreign_auto"] {
             impl Tracker for #TRACK_EVENTS {
                 fn cleared(&mut self, universe: &Universe) {
-                    write(universe).clear();
+                    let mut lock = write(universe);
+                    lock.clear();
+                    lock.flush(universe);
                 }
 
                 fn track(&mut self, universe: &Universe, deleted_rows: &[usize], _added_rows: &[usize]) {
                     if deleted_rows.is_empty() { return; }
                     let mut lock = write(universe);
                     lock.#DELEGATE(deleted_rows);
+                    lock.flush(universe);
                 }
             }
         }};
