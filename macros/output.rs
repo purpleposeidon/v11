@@ -269,6 +269,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * The table, locked for reading.
          * */
         pub struct Read<'u> {
+            #[doc(hidden)]
             _lock: BiRef<::std::sync::RwLockReadGuard<'u, GenericTable>, &'u GenericTable, GenericTable>,
             #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
         }
@@ -277,6 +278,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * The table, locked for writing.
          * */
         pub struct Write<'u> {
+            #[doc(hidden)]
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
             // '#COL_MUT' is either MutA or EditA
             #(pub #COL_NAME: #COL_MUT<'u, #COL_TYPE>,)*
@@ -284,6 +286,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// The table, borrowed from a `Write` lock, that forbids structural changes.
         pub struct Edit<'u, 'w> where 'u: 'w {
+            #[doc(hidden)]
             _inner: &'w Write<'u>,
             #(pub #COL_NAME: &'w mut #COL_MUT<'u, #COL_TYPE>,)*
         }
@@ -647,34 +650,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
         }};
-    }
-    for col in &table.cols {
-        let COLUMN = i(pp::ident_to_string(col.name));
-        let FIND = i(format!("find_{}", col.name));
-        let ELEMENT = i(pp::ty_to_string(&col.element));
-        out! {
-            col.indexed => [""] {
-                impl<'u> Read<'u> {
-                    pub fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
-                        self.#COLUMN.deref().inner().find(e).next()
-                    }
-                }
-                impl<'u> Write<'u> {
-                    pub fn #FIND(&self, e: #ELEMENT) -> Option<RowId> {
-                        self.as_read().#FIND(e)
-                    }
-                }
-            };
-            // FIXME: Binary search
-            // FIXME: It'd be better to do `mytable.column.find(blah)`.
-            /*if col.sort_key => [""] {
-                impl<'u> Read<'u> {
-                    fn #FIND(&self, e: &#ELEMENT) -> Option<RowId> {
-                    }
-                }
-            };*/
-            [""] {};
-        }
     }
 
     out! {

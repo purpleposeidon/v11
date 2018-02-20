@@ -139,3 +139,30 @@ impl<'a, I, T: Index<I> + 'a> Index<I> for EditA<'a, T> {
 impl<'a, I, T: IndexMut<I> + 'a> IndexMut<I> for MutA<'a, T> {
     fn index_mut(&mut self, i: I) -> &mut T::Output { &mut self.0[i] }
 }
+
+mod searching {
+    use super::*;
+    use std::hash::Hash;
+    use map_index::{Indexes, BTreeIndex};
+
+    macro_rules! search_on {
+        ($ty:ident) => {
+            impl<'a, C, T> $ty<'a, Col<BTreeIndex<C, T>, T>>
+            where
+                C: TCol + 'a,
+                T: GetTableName,
+                C::Element: Hash + Ord + Copy,
+            {
+                pub fn find<'b>(&'a self, e: C::Element) -> Indexes<'b, C, T>
+                where 'a: 'b
+                {
+                    self.deref().inner().find(e)
+                }
+            }
+        };
+    }
+
+    search_on!(RefA);
+    search_on!(MutA);
+    search_on!(EditA);
+}
