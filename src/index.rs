@@ -258,6 +258,7 @@ impl<R> From<Range<R>> for RowRange<R> {
     }
 }
 impl<T: GetTableName> RowRange<GenericRowId<T>> {
+    #[inline]
     pub fn empty() -> Self {
         RowRange {
             start: GenericRowId::default(),
@@ -266,6 +267,7 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
     }
 
     /// Return the `n`th row after the start, if it is within the range.
+    #[inline]
     pub fn offset(&self, n: T::Idx) -> Option<GenericRowId<T>> {
         use num_traits::CheckedAdd;
         let at = self.start.to_raw().checked_add(&n);
@@ -282,16 +284,30 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
     }
 
     /// Return how many rows are in this range.
+    #[inline]
     pub fn len(&self) -> usize {
         self.end.to_usize() - self.start.to_usize()
     }
 
     /// Return `true` if the given row is within this range.
+    #[inline]
     pub fn contains(&self, o: GenericRowId<T>) -> bool {
         self.start <= o && o < self.end
     }
 
+    /// Return `true` if this range overlaps with another.
+    #[inline]
+    pub fn intersects(&self, other: Self) -> bool {
+        // If we're not intersecting, then one is to the right of the other.
+        // <-- (a.0, a.1) -- (b.0, b.1) -->
+        // <-- (b.0, b.1) -- (a.0, a.1) -->
+        debug_assert!(self.start <= self.end);
+        debug_assert!(other.start <= other.end);
+        !(self.end < other.start || other.end < self.start)
+    }
+
     /// If the given row is within this RowRange, return its offset from the beginning.
+    #[inline]
     pub fn inner_index(&self, o: GenericRowId<T>) -> Option<T::Idx> {
         if self.contains(o) {
             Some(o.to_raw() - self.start.to_raw())
@@ -300,6 +316,7 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
         }
     }
 
+    #[inline]
     pub fn iter_slow(&self) -> UncheckedIter<T> {
         UncheckedIter {
             i: self.start.to_raw(),
