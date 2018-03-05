@@ -266,6 +266,15 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
         }
     }
 
+    /// Create a `RowRange` over a single element.
+    #[inline]
+    pub fn on(i: GenericRowId<T>) -> Self {
+        RowRange {
+            start: i,
+            end: i.next(),
+        }
+    }
+
     /// Return the `n`th row after the start, if it is within the range.
     #[inline]
     pub fn offset(&self, n: T::Idx) -> Option<GenericRowId<T>> {
