@@ -312,7 +312,8 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
         // <-- (b.0, b.1) -- (a.0, a.1) -->
         debug_assert!(self.start <= self.end);
         debug_assert!(other.start <= other.end);
-        !(self.end < other.start || other.end < self.start)
+        // This usual pattern is for inclusive ranges, but this is an exclusive range.
+        !(self.end <= other.start || other.end <= self.start)
     }
 
     /// If the given row is within this RowRange, return its offset from the beginning.
@@ -331,6 +332,42 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
             i: self.start.to_raw(),
             end: self.end.to_raw(),
         }
+    }
+}
+
+#[cfg(test)]
+mod row_range_test {
+    use super::*;
+    use tables::TableName;
+    use domain::DomainName;
+    struct TestTable;
+    impl GetTableName for TestTable {
+        type Idx = usize;
+        fn get_domain() -> DomainName { DomainName("TEST_DOMAIN") }
+        fn get_name() -> TableName { TableName("test_table") }
+    }
+    type RR = RowRange<GenericRowId<TestTable>>;
+
+    fn new(start: usize, end: usize) -> RR {
+        RR {
+            start: GenericRowId::new(start),
+            end: GenericRowId::new(end),
+        }
+    }
+
+    #[test]
+    fn intersection() {
+        let right = new(8, 9);
+        let left = new(0, 8);
+        assert!(right.intersects(right));
+        assert!(left.intersects(left));
+        assert!(!right.intersects(left));
+        assert!(!left.intersects(right));
+        let mid = new(3, 5);
+        assert!(left.intersects(mid));
+        assert!(mid.intersects(left));
+        assert!(!right.intersects(mid));
+        assert!(!mid.intersects(right));
     }
 }
 
