@@ -43,6 +43,7 @@ fn test() {
         for blah in saveme.iter() {
             println!("{:?}", saveme.get_row_ref(blah));
         }
+        saveme.flush(universe);
     }
     use rustc_serialize::json;
     let mut j = String::new();
@@ -53,6 +54,11 @@ fn test() {
     }
     println!("{}", j);
     {
+        {
+            let mut saveme = saveme::write(universe);
+            saveme.clear();
+            saveme.flush(universe);
+        }
         let mut saveme = saveme::write(universe);
         let j = json::Json::from_str(&j).unwrap();
         let mut inp = json::Decoder::new(j);

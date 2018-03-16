@@ -404,6 +404,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
 
                 /// Iterate over *all* rows, including deleted ones.
+                /// See: `$table.contains()`
                 pub fn iter_del(&self) -> UncheckedIter<Row> {
                     self.row_range().iter_slow()
                 }
@@ -530,6 +531,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     flush.flush(universe);
                     let mut gt = Row::get_generic_table(universe).write().unwrap();
                     flush.restore(&mut gt);
+                }
+
+                pub fn skip_flush(&mut self) {
+                    self._lock.need_flush = false;
                 }
 
                 pub fn delete<I: CheckId>(&mut self, row: I) {
@@ -1271,8 +1276,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// Row-based decoding. Clears the table before reading, and clears the table if
                 /// there is an error.
                 pub fn decode_rows<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
+                    if self.len() > 0 {
+                        // If you actually do want to do this sort of thing, create a new Universe
+                        // & copy the rows over.
+                        panic!("Decoding rows into non-empty table!");
+                    }
+                    self.decode_rows_append(d)
+                }
+
+                pub fn decode_rows_append<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
                     if !self._lock.skip_flush() { panic!("Decoding unflushed table!"); }
-                    self.clear();
                     let caught = d.read_struct(#TABLE_NAME_STR, 2, |d| {
                         self._lock.free = d.read_struct_field("free_list", 0, ::std::collections::BTreeMap::decode)?;
                         d.read_struct_field("rows", 1, |d| d.read_seq(|e, count| {
