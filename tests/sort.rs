@@ -72,26 +72,72 @@ fn is_sortable() {
 }
 
 #[test]
-fn test_sort_thoroughly() {
+fn test_merge_thoroughly() {
     let universe = &make_universe();
     use rand::*;
-    let mut rng = XorShiftRng::from_seed([2, 9, 293, 2]);
-    for n in 0..100 {
-        println!("round {}", n);
-        let mut new = Vec::new();
-        for _ in 0..rng.gen_range(1, 20) {
+    for seed in 2..20 {
+        let mut rng = XorShiftRng::from_seed([2, 9, 293, seed]);
+        let mut sorted = sorted::write(universe);
+        for n in 0..rng.gen_range(1, 20) {
+            println!("round {}", n);
+            let mut new = Vec::new();
+            for _ in 0..rng.gen_range(1, 20) {
+                new.push(sorted::Row {
+                    key: rng.gen(),
+                    val: "meh",
+                });
+            }
+            new.sort();
+            println!("{:?}", new);
+            sorted.merge(new);
+            sorted.assert_sorted();
+        }
+        sorted.clear();
+    }
+}
+
+#[test]
+fn merge_singles() {
+    let universe = &make_universe();
+    let mut sorted = sorted::write(universe);
+    sorted.assert_sorted();
+    sorted.merge_in_a_single_row(sorted::Row {
+        key: 10,
+        val: "ok",
+    });
+    sorted.assert_sorted();
+    sorted.merge_in_a_single_row(sorted::Row {
+        key: 5,
+        val: "ok",
+    });
+    sorted.assert_sorted();
+    sorted.merge_in_a_single_row(sorted::Row {
+        key: 7,
+        val: "ok",
+    });
+    sorted.assert_sorted();
+    sorted.flush(universe);
+
+    for seed in 3..20 {
+        use rand::*;
+        let mut rng = XorShiftRng::from_seed([3, 10, 294, seed]);
+        let mut sorted = sorted::write(universe);
+        for n in 0..30 {
+            println!("round {}", n);
+            let mut new = Vec::new();
             new.push(sorted::Row {
                 key: rng.gen(),
                 val: "meh",
             });
+            new.sort();
+            println!("{:?}", new);
+            sorted.merge(new);
+            sorted.assert_sorted();
         }
-        new.sort();
-        println!("{:?}", new);
-        let mut sorted = sorted::write(universe);
-        sorted.merge(new);
-        sorted.assert_sorted();
+        sorted.clear();
     }
 }
+
 
 impl<'u> sorted::Write<'u> {
     pub fn assert_sorted(&self) {
