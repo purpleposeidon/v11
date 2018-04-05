@@ -930,79 +930,85 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     got.expect("row not merged")
                 }
 
-                /// `log` will be called with the new RowId of each new row.
+                /// Merge in a sorted iterator of `Row`s.
+                /// `log` will be called with the new RowId of each row.
+                ///
+                /// # Caveats
+                /// The table will not be flushed before calls to `log`; if this is a problem you
+                /// should collect the rows, call flush, and then act.
                 pub fn merge_logged<IT, I, L>(&mut self, rows: I, mut log: L)
                 where
                     IT: Iterator<Item=Row>,
                     I: Into<AssertSorted<IT>>,
                     L: FnMut(&Self, RowId),
                 {
-                    // This is actually a three-way merge. Joy!
-                    // We have three things: the table, the rug, and the iter.
-                    // We get 'next' by merging the rug and the iter.
-                    // Whenever something gets bumped off the table, it is pushed onto the rug.
-                    // The rug is sorted because the table is sorted.
-                    #[derive(Copy, Clone)]
-                    enum Side { Rug, Iter }
-                    // The log needs to know if a Row is new or not.
-                    let mut rug: VecDeque<(Side, Row)> = VecDeque::new();
-                    let mut iter = rows.into().into_iter().peekable();
-                    let mut i = FIRST;
-                    self.reserve(iter.size_hint().0);
-                    loop {
-                        let side = {
-                            let rug_front = rug.front()
-                                .map(|&(ref _side, ref row)| row.as_ref());
-                            let iter_peek = iter.peek()
-                                .map(Row::as_ref);
-                            let (next, side) = match (rug_front, iter_peek) {
-                                (None, None) => break,
-                                (None, Some(il)) => (il, Side::Iter),
-                                (Some(rl), None) => (rl, Side::Rug),
-                                (Some(rl), Some(il)) => {
-                                    if rl <= il {
-                                        (rl, Side::Rug) // '<=', not '<', for sort stability
-                                    } else {
-                                        (il, Side::Iter)
-                                    }
-                                },
-                            };
-                            // So, "why do use rug.back()?" Because the rug is already the table's
-                            // contents, just temporarily displaced.
-                            if i.to_usize() < self.len() && self.get_row_ref(i) <= next {
-                                None
-                            } else {
-                                Some(side)
-                            }
+                    use std::iter::Peekable;
+
+                    // This algorithm has three stages.
+                    // NB: You'll probably want to simulate this with legos.
+                    let mut cursor = FIRST;
+                    let mut iter: Peekable<IT> = rows.into().into_iter().peekable();
+                    let mut rug = VecDeque::<Row>::new();
+                    {
+                        // Stage 1
+                        // Figure out where we need to start inserting from the iterator.
+                        let first = if let Some(first) = iter.peek() {
+                            first.as_ref()
+                        } else {
+                            return; // do-nothing
                         };
-                        // { Some(Rug), Some(Iter), None } × { more table, table finished }
-                        if let Some(side) = side {
-                            let (src, mut next) = match side {
-                                Side::Rug => rug.pop_front().unwrap(),
-                                Side::Iter => (Side::Iter, iter.next().unwrap()),
-                            };
-                            if i.to_usize() < self.len() {
-                                // swap the row
-                                self.swap_out_row(i, &mut next);
-                                if cfg!(debug) {
-                                    // We know that `rug` is sorted.
-                                    // But what if `next < rug.front()`? We'd break the ordering!
-                                    // Well, we never arrive at that situation.
-                                    // ALWAYS: primary[i] < rug.front() && primary[i] < iter.peek()
-                                    if let Some(rug_front) = rug.front() {
-                                        assert!(next.as_ref() >= rug_front.1.as_ref());
-                                        assert!(next.as_ref() >= rug.back().unwrap().1.as_ref());
-                                    }
-                                }
-                                rug.push_back((src, next));
-                            } else {
-                                self.push_end_unchecked(next);
+                        while cursor.to_usize() < self.len() && self.get_row_ref(cursor) < first {
+                            cursor = cursor.next();
+                        }
+                    }
+
+                    // fn for choosing the lower
+                    enum Side { Rug, Iter }
+                    let choose = |rug: &VecDeque<Row>, iter: &mut Peekable<IT>| -> Option<Side> {
+                        let rug = rug.front().map(Row::as_ref);
+                        let iter = iter.peek().map(Row::as_ref);
+                        // #[allow(formatting)] // table makes logic obvious
+                        Some(match (rug, iter) {
+                            (None, None)                 => return None,
+                            (None, Some(_))              => Side::Iter,
+                            (Some(_), None)              => Side::Rug,
+                            (Some(ref r), Some(ref i)) if r <= i => Side::Rug, // '<=', not '<', for sort stability
+                            (Some(_), Some(_))           => Side::Iter,
+                        })
+                    };
+
+
+                    let rest: RowRange<RowId> = (cursor..RowId::from_usize(self.len())).into();
+                    for cursor in rest.iter_slow() {
+                        // Stage 2
+                        // pop lowest (iter, rug_front) -> bump to table -> bump to rug's back
+
+                        let side = choose(&rug, &mut iter).expect("rug & iter ran out before end of table!?");
+                        let mut val = if let Side::Rug = side {
+                            rug.pop_front()
+                        } else {
+                            iter.next()
+                        }.unwrap();
+                        self.swap_out_row(cursor, &mut val);
+                        if let Side::Iter = side {
+                            log(self, cursor);
+                        }
+                        rug.push_back(val);
+                    }
+                    {
+                        // Stage 3
+                        // We're at the end of the table; flush the rest.
+                        self.reserve(iter.size_hint().0 + rug.len());
+                        while let Some(side) = choose(&rug, &mut iter) {
+                            let val = match side {
+                                Side::Rug => rug.pop_front(),
+                                Side::Iter => iter.next(),
+                            }.unwrap();
+                            let cursor = self.push_end_unchecked(val);
+                            if let Side::Iter = side {
+                                log(self, cursor);
                             }
-                            if let Side::Iter = src {
-                                log(self, i);
-                            }
-                        } // else: no change
-                        i = i.next();
+                        }
                     }
                 }
             }
