@@ -4,7 +4,6 @@
 //! Before being added to a universe, the domain must be registered using `DOMAIN.register()`.
 //! Domains are created using the `domain!` macro.
 
-#![macro_use]
 use std::fmt;
 use std::collections::HashMap;
 use std::sync::{RwLock, Arc};

@@ -1,5 +1,3 @@
-#![macro_use]
-
 use std::any::Any;
 use std::sync::*;
 use std::fmt;
