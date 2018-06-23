@@ -99,6 +99,7 @@ pub struct RefA<'a, T: 'a>(&'a T);
 pub struct MutA<'a, T: 'a>(&'a mut T);
 /// A `EditA` is a column that can be `Index`ed.
 /// (And is secretly mutable by v11.)
+/// Elements of such a column can be mutated, but no structural modifications are allowed.
 ///
 /// `RefA`, `MutA`, and `EditA` are wrappers that expose one interface to the world, but have a
 /// hidden interface for `table!` to use.
