@@ -7,7 +7,7 @@
 //!
 //! - Calling `register()` functions on domains, properties and tables. This should only be done from the
 //! main thread, before any `Universe`s have been created.
-//! - Doing strange things with the references in a table lock. (Namely, `mem::swap`.)
+//! - Doing strange things with the references in a table lock. (&'static strly, `mem::swap`.)
 //! - Using `pub` items that are marked `#[doc(hidden)]`. These should only be used by
 //! macro-generated code.
 //!
@@ -89,6 +89,7 @@ use domain::{DomainName, MaybeDomain};
  * */
 pub struct Universe {
     #[doc(hidden)] pub domains: Vec<MaybeDomain>,
+    event_handlers: Vec<tracking::FallbackEventHandler>,
 }
 
 /// Universe manipulation methods.
@@ -97,6 +98,7 @@ impl Universe {
     pub fn new(domains: &[DomainName]) -> Universe {
         let mut ret = Universe {
             domains: Self::get_domains(domains),
+            event_handlers: vec![tracking::invalid_event_handler],
         };
         for domain in domains {
             ret.init_domain(*domain);

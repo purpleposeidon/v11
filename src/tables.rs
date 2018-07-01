@@ -197,29 +197,49 @@ impl Universe {
 type Prototyper = fn() -> PBox;
 
 use std::collections::btree_map;
-use tracking::Tracker;
+use tracking::{Event, TrackInfo};
 
 pub(crate) type FreeList = btree_map::BTreeMap<usize, ()>;
 pub(crate) type FreeKeys<'a> = btree_map::Keys<'a, usize, ()>;
 
+pub trait DynTable: Send + Sync + 'static {
+    fn flush(&self, universe: &Universe, add: Event, del: Event);
+/*
+    let flush = table.acquire_flush();
+    flush.flush(universe, event::INVALID_EVENT, event);
+
+*/
+    /// Clones, but into a `Box<DynTable>`. Unfortunately, there doesn't seem to be a way to
+    /// automatically implement this.
+    fn clone(&self) -> Box<DynTable>;
+    fn clear(&self);
+    fn remove_rows(&self, universe: &Universe, event: Event, rows: &mut Iterator<Item=usize>);
+    //fn encode_columns(&self, universe: &Universe, event: Event, rows: &mut Iterator<Item=usize>, out: &mut ::rustc_serialize::Encoder<Error=()>);
+    //fn decode_columns(&self, universe: &Universe, event: Event, inp: &mut ::rustc_serialize::Decoder<Error=()>);
+}
+
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 #[doc(hidden)]
 pub struct GenericTable {
+    // Rename to... I dunno, TableAttributes?
     pub domain: DomainName,
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
     init_fns: Vec<fn(&Universe)>,
+
     // All the other fields don't need locks, but this one does because we need to continue holding
     // it after releasing the lock on `GenericTable`.
-    pub trackers: Arc<RwLock<Vec<Box<Tracker + Send + Sync>>>>,
-    pub(crate) no_trackers: bool,
-    pub(crate) delete: Vec<usize>,
-    pub(crate) add: Vec<usize>,
-    pub cleared: bool,
+    pub trackers: Arc<RwLock<Vec<Box<Any + Send + Sync + 'static /* Tracker has an associated type. */>>>>,
+    // This field is related, but has some hangups:
+    // - It should be trivially accessible from $table._lock
+    // - It needs to stick around during a flush.
+    // We accomplish this by using a mem::swap. It'd be nicer to somehow get trackers in there,
+    // but that can't happen.
+    pub tracking_info: TrackInfo,
     pub free: FreeList,
-    pub need_flush: bool,
+
     pub guarantee: Guarantee,
-    pub sort_events: bool,
+    pub dyn_table: Box<DynTable>,
 }
 #[doc(hidden)]
 #[derive(Default, Clone)]
@@ -227,23 +247,20 @@ pub struct Guarantee {
     pub consistent: bool,
 }
 impl GenericTable {
-    pub fn new(domain: DomainName, name: TableName, guarantee: Guarantee) -> GenericTable {
+    pub fn new(domain: DomainName, name: TableName, guarantee: Guarantee, dyn_table: Box<DynTable>) -> GenericTable {
         intern::check_name(name.0);
         GenericTable {
-            domain: domain,
-            name: name,
+            domain,
+            name,
             columns: Vec::new(),
-            trackers: Default::default(),
-            no_trackers: true,
             init_fns: Vec::new(),
-            guarantee,
 
-            delete: Vec::new(),
-            add: Vec::new(),
-            cleared: false,
+            trackers: Default::default(),
+            tracking_info: Default::default(),
+
             free: Default::default(),
-            need_flush: false,
-            sort_events: false,
+            guarantee,
+            dyn_table,
         }
     }
 
@@ -262,23 +279,20 @@ impl GenericTable {
     }
 
     /// Create a copy of this table with empty columns.
+    /// This is different from a clone! The data doesn't come along.
     pub fn prototype(&self) -> GenericTable {
-        // FIXME: Just use clone()?
         GenericTable {
             domain: self.domain,
             name: self.name,
             columns: self.columns.iter().map(GenericColumn::prototype).collect(),
-            trackers: Arc::clone(&self.trackers),
-            no_trackers: self.no_trackers,
             init_fns: self.init_fns.clone(),
-            guarantee: self.guarantee.clone(),
 
-            delete: Vec::new(),
-            add: Vec::new(),
+            trackers: Arc::clone(&self.trackers),
+            tracking_info: self.tracking_info.prototype(),
             free: Default::default(),
-            cleared: false,
-            need_flush: false,
-            sort_events: self.sort_events,
+
+            guarantee: self.guarantee.clone(),
+            dyn_table: self.dyn_table.clone(),
         }
     }
 
@@ -380,9 +394,8 @@ impl fmt::Debug for GenericTable {
 pub struct GenericColumn {
     name: &'static str,
     stored_type_name: &'static str,
-    // "FIXME: PBox here is lame." -- What? No it isn't.
-    data: PBox,
     prototyper: Prototyper,
+    data: PBox,
 }
 impl fmt::Debug for GenericColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -394,8 +407,8 @@ impl GenericColumn {
         GenericColumn {
             name: self.name,
             stored_type_name: self.stored_type_name,
-            data: (self.prototyper)(),
             prototyper: self.prototyper,
+            data: (self.prototyper)(),
         }
     }
 }
@@ -410,7 +423,7 @@ impl fmt::Display for TableName {
 }
 
 #[doc(hidden)]
-pub trait GetTableName {
+pub trait TableRow {
     type Idx: ::num_traits::PrimInt + fmt::Display + fmt::Debug + ::std::hash::Hash + Copy;
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;
@@ -418,7 +431,7 @@ pub trait GetTableName {
 
 #[doc(hidden)]
 pub trait LockedTable: Sized {
-    type Row: GetTableName;
+    type Row: TableRow;
     fn len(&self) -> usize;
     fn is_deleted(&self, _idx: GenericRowId<Self::Row>) -> bool { false }
 }

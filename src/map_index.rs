@@ -8,14 +8,14 @@ use std::hash::Hash;
 use num_traits::NumCast;
 
 use columns::TCol;
-use tables::GetTableName;
+use tables::TableRow;
 use index::GenericRowId;
 
 /// An iterator over the rows containing a searched-for element.
-pub struct Indexes<'a, C: TCol + 'a, T: GetTableName + 'a> {
+pub struct Indexes<'a, C: TCol + 'a, T: TableRow + 'a> {
     range: btree_map::Range<'a, (C::Element, T::Idx), ()>,
 }
-impl<'a, C: TCol + 'a, T: GetTableName + 'a> Iterator for Indexes<'a, C, T> {
+impl<'a, C: TCol + 'a, T: TableRow + 'a> Iterator for Indexes<'a, C, T> {
     type Item = GenericRowId<T>;
     fn next(&mut self) -> Option<Self::Item> {
         self.range
@@ -26,7 +26,7 @@ impl<'a, C: TCol + 'a, T: GetTableName + 'a> Iterator for Indexes<'a, C, T> {
 }
 
 /// A `TCol` wrapper that does indexing. The element must be Ord.
-pub struct BTreeIndex<C: TCol, T: GetTableName>
+pub struct BTreeIndex<C: TCol, T: TableRow>
 where C::Element: Hash + Ord + Copy
 {
     inner: C,
@@ -34,7 +34,7 @@ where C::Element: Hash + Ord + Copy
     /// limited allocation.
     index: BTreeMap<(C::Element, T::Idx), ()>,
 }
-impl<C: TCol, T: GetTableName> BTreeIndex<C, T>
+impl<C: TCol, T: TableRow> BTreeIndex<C, T>
 where C::Element: Hash + Ord + Copy
 {
     /// Returns an iterator yielding the rows containing `key`.
@@ -48,7 +48,7 @@ where C::Element: Hash + Ord + Copy
         }
     }
 }
-impl<C: TCol, T: GetTableName> TCol for BTreeIndex<C, T>
+impl<C: TCol, T: TableRow> TCol for BTreeIndex<C, T>
 where C::Element: Hash + Ord + Copy
 {
     type Element = C::Element;

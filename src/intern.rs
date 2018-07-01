@@ -21,7 +21,7 @@ pub fn check_name(name: &str) {
 
 // FIXME: mopa?
 use std::any::Any;
-pub type PBox = Box<Any + Send + Sync>;
+pub type PBox = Box<Any + Send + Sync + 'static>;
 
 
 pub struct VoidIter<I>(I);

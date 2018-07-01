@@ -5,23 +5,23 @@
 use std::marker::PhantomData;
 use std::fmt;
 use std::cmp::Ordering;
-use tables::{GetTableName, LockedTable};
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
 
 use Universe;
-use tracking::Tracker;
+use tables::{TableRow, LockedTable};
+use intern::PBox;
 
 /// Index to a row on some table.
 /// You can call `row_index.check(&table)` to pre-check the index.
 // #[derive] nothing; stupid phantom data...
-pub struct GenericRowId<T: GetTableName> {
+pub struct GenericRowId<T: TableRow> {
     #[doc(hidden)]
     pub i: T::Idx,
     #[doc(hidden)]
     pub t: PhantomData<T>,
 }
-impl<T: GetTableName> GenericRowId<T> {
+impl<T: TableRow> GenericRowId<T> {
     pub fn new(i: T::Idx) -> Self {
         GenericRowId {
             i,
@@ -43,7 +43,7 @@ impl<T: GetTableName> GenericRowId<T> {
         Self::new(self.i - T::Idx::one())
     }
 
-    pub fn register_tracker(universe: &Universe, t: Box<Tracker + Send + Sync>, sort_events: bool) {
+    pub fn register_tracker(universe: &Universe, t: PBox, sort_events: bool) {
         let gt = universe.get_generic_table(T::get_domain().get_id(), T::get_name());
         let mut gt = gt.write().unwrap();
         gt.add_tracker(t, sort_events);
@@ -52,7 +52,7 @@ impl<T: GetTableName> GenericRowId<T> {
     pub fn get_domain() -> ::domain::DomainName { T::get_domain() }
     pub fn get_name() -> ::tables::TableName { T::get_name() }
 }
-impl<T: GetTableName> Default for GenericRowId<T> {
+impl<T: TableRow> Default for GenericRowId<T> {
     fn default() -> Self {
         GenericRowId {
             i: T::Idx::max_value() /* UNDEFINED_INDEX */,
@@ -60,14 +60,14 @@ impl<T: GetTableName> Default for GenericRowId<T> {
         }
     }
 }
-impl<T: GetTableName> Clone for GenericRowId<T> {
+impl<T: TableRow> Clone for GenericRowId<T> {
     fn clone(&self) -> Self {
         Self::new(self.i)
     }
 }
-impl<T: GetTableName> Copy for GenericRowId<T> { }
+impl<T: TableRow> Copy for GenericRowId<T> { }
 
-impl<T: GetTableName> fmt::Debug for GenericRowId<T>
+impl<T: TableRow> fmt::Debug for GenericRowId<T>
 where T::Idx: fmt::Display
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -80,27 +80,27 @@ where T::Idx: fmt::Display
 /// It has already been checked.
 #[derive(Hash, PartialOrd, Ord, Eq, PartialEq)]
 pub struct CheckedRowId<'a, T: LockedTable + 'a> {
-    i: <T::Row as GetTableName>::Idx,
+    i: <T::Row as TableRow>::Idx,
     // FIXME: This should be a PhantomData. NBD since these things are short-lived.
     table: &'a T,
 }
-impl<'a, T: LockedTable + 'a> Clone for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {
+impl<'a, T: LockedTable + 'a> Clone for CheckedRowId<'a, T> where <T::Row as TableRow>::Idx: Copy {
     fn clone(&self) -> Self {
         Self { i: self.i, table: self.table }
     }
 }
-impl<'a, T: LockedTable + 'a> Copy for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {}
+impl<'a, T: LockedTable + 'a> Copy for CheckedRowId<'a, T> where <T::Row as TableRow>::Idx: Copy {}
 impl<'a, T: LockedTable + 'a> CheckedRowId<'a, T> {
     /// Create a `CheckedRowId` without actually checking.
-    pub unsafe fn fab(i: <T::Row as GetTableName>::Idx, table: &'a T) -> Self {
+    pub unsafe fn fab(i: <T::Row as TableRow>::Idx, table: &'a T) -> Self {
         Self { i, table }
     }
     pub fn to_usize(&self) -> usize { self.i.to_usize().unwrap() }
-    pub fn to_raw(&self) -> <T::Row as GetTableName>::Idx { self.i }
+    pub fn to_raw(&self) -> <T::Row as TableRow>::Idx { self.i }
     pub fn next(self) -> GenericRowId<T::Row> { self.uncheck().next() }
 }
 impl<'a, T: LockedTable + 'a> fmt::Debug for CheckedRowId<'a, T>
-where <T::Row as GetTableName>::Idx: fmt::Debug
+where <T::Row as TableRow>::Idx: fmt::Debug
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}[{}]", T::Row::get_name().0, self.i)
@@ -135,7 +135,7 @@ mod test {
     use domain::DomainName;
 
     struct TestName;
-    impl GetTableName for TestName {
+    impl TableRow for TestName {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("test_domain") }
         fn get_name() -> TableName { TableName("test_table") }
@@ -188,28 +188,28 @@ mod test {
 
 
 use std::cmp::{Eq, PartialEq, PartialOrd, Ord};
-impl<T: GetTableName> PartialEq for GenericRowId<T> {
+impl<T: TableRow> PartialEq for GenericRowId<T> {
     fn eq(&self, other: &GenericRowId<T>) -> bool {
         self.i.eq(&other.i)
     }
 }
-impl<T: GetTableName> PartialOrd for GenericRowId<T> {
+impl<T: TableRow> PartialOrd for GenericRowId<T> {
     fn partial_cmp(&self, other: &GenericRowId<T>) -> Option<Ordering> {
         self.i.partial_cmp(&other.i)
     }
 }
-impl<T: GetTableName> Ord for GenericRowId<T> {
+impl<T: TableRow> Ord for GenericRowId<T> {
     fn cmp(&self, other: &GenericRowId<T>) -> Ordering {
         self.i.cmp(&other.i)
     }
 }
 
-impl<T: GetTableName> Eq for GenericRowId<T> {}
+impl<T: TableRow> Eq for GenericRowId<T> {}
 
 // Things get displeasingly manual due to the PhantomData.
 // CheckedRowId can derive hash, and is unserializable.
 use std::hash::{Hash, Hasher};
-impl<T: GetTableName> Hash for GenericRowId<T>
+impl<T: TableRow> Hash for GenericRowId<T>
 where T::Idx: Hash
 {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
@@ -218,7 +218,7 @@ where T::Idx: Hash
 }
 
 use rustc_serialize::{Encoder, Encodable, Decoder, Decodable};
-impl<T: GetTableName> Encodable for GenericRowId<T>
+impl<T: TableRow> Encodable for GenericRowId<T>
 where T::Idx: Encodable
 {
     fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
@@ -226,7 +226,7 @@ where T::Idx: Encodable
     }
 }
 
-impl<T: GetTableName> Decodable for GenericRowId<T>
+impl<T: TableRow> Decodable for GenericRowId<T>
 where T::Idx: Decodable
 {
     fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
@@ -257,7 +257,7 @@ impl<R> From<Range<R>> for RowRange<R> {
         }
     }
 }
-impl<T: GetTableName> RowRange<GenericRowId<T>> {
+impl<T: TableRow> RowRange<GenericRowId<T>> {
     #[inline]
     pub fn empty() -> Self {
         RowRange {
@@ -341,7 +341,7 @@ mod row_range_test {
     use tables::TableName;
     use domain::DomainName;
     struct TestTable;
-    impl GetTableName for TestTable {
+    impl TableRow for TestTable {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("TEST_DOMAIN") }
         fn get_name() -> TableName { TableName("test_table") }
@@ -375,8 +375,8 @@ mod row_range_test {
 #[derive(Debug, Clone)]
 pub struct CheckedIter<'a, T: LockedTable + 'a> {
     table: &'a T,
-    i: <T::Row as GetTableName>::Idx,
-    end: <T::Row as GetTableName>::Idx,
+    i: <T::Row as TableRow>::Idx,
+    end: <T::Row as TableRow>::Idx,
 }
 impl<'a, T: LockedTable> CheckedIter<'a, T> {
     pub fn from(table: &'a T, slice: RowRange<GenericRowId<T::Row>>) -> Self {
@@ -419,11 +419,11 @@ impl<'a, T: LockedTable> Iterator for CheckedIter<'a, T> {
     }
 }
 
-pub struct UncheckedIter<T: GetTableName> {
+pub struct UncheckedIter<T: TableRow> {
     i: T::Idx,
     end: T::Idx,
 }
-impl<T: GetTableName> Iterator for UncheckedIter<T> {
+impl<T: TableRow> Iterator for UncheckedIter<T> {
     type Item = GenericRowId<T>;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -449,12 +449,12 @@ impl<T: GetTableName> Iterator for UncheckedIter<T> {
 
 
 pub trait Checkable {
-    type Row: GetTableName;
+    type Row: TableRow;
     fn check<'a, L>(self, table: &'a L) -> CheckedRowId<'a, L>
     where L: LockedTable<Row=Self::Row>;
     fn uncheck(self) -> GenericRowId<Self::Row>;
 }
-impl<T: GetTableName> Checkable for GenericRowId<T> {
+impl<T: TableRow> Checkable for GenericRowId<T> {
     type Row = T;
     fn check<L>(self, table: &L) -> CheckedRowId<L>
     where L: LockedTable<Row=Self::Row>
@@ -526,11 +526,11 @@ impl<'a, T: LockedTable + 'a> Iterator for ConsistentIter<'a, T> {
 
 
 
-pub struct EditIter<'w, T: GetTableName> {
+pub struct EditIter<'w, T: TableRow> {
     range: UncheckedIter<T>,
     deleted: JoinCore<FreeKeys<'w>>,
 }
-impl<'w, T: GetTableName> EditIter<'w, T> {
+impl<'w, T: TableRow> EditIter<'w, T> {
     pub fn new(range: RowRange<GenericRowId<T>>, free_keys: FreeKeys<'w>) -> Self {
         EditIter {
             range: range.iter_slow(),
@@ -538,7 +538,7 @@ impl<'w, T: GetTableName> EditIter<'w, T> {
         }
     }
 }
-impl<'w, T: GetTableName> Iterator for EditIter<'w, T> {
+impl<'w, T: TableRow> Iterator for EditIter<'w, T> {
     type Item = GenericRowId<T>;
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(row) = self.range.next() {

@@ -219,7 +219,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub struct Row {
             #(#COL_ATTR pub #COL_NAME: #COL_ELEMENT,)*
         }
-        impl GetTableName for Row {
+        impl TableRow for Row {
             type Idx = RawType;
             fn get_domain() -> DomainName { TABLE_DOMAIN }
             fn get_name() -> TableName { TABLE_NAME }
@@ -265,18 +265,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     });
     out! { ["Table locks"] {
-        /**
-         * The table, locked for reading.
-         * */
+        /// The table, locked for reading.
         pub struct Read<'u> {
             #[doc(hidden)]
             _lock: BiRef<::std::sync::RwLockReadGuard<'u, GenericTable>, &'u GenericTable, GenericTable>,
             #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
         }
 
-        /**
-         * The table, locked for writing.
-         * */
+        /// The table, locked for writing.
         pub struct Write<'u> {
             #[doc(hidden)]
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
@@ -517,24 +513,66 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
 
             impl<'a> Write<'a> {
-                /// Allow the `Write` lock to be closed without flushing changes. Be careful!
-                /// The changes need to be flushed eventually!
-                pub fn no_flush(mut self) {
-                    self._lock.need_flush = false;
-                }
-
                 /// Propagate all changes
-                pub fn flush(mut self, universe: &Universe) {
-                    if self._lock.skip_flush() { return; }
+                pub fn flush(mut self, universe: &Universe, add_event: Event, del_event: Event) {
+                    if !self._lock.need_flush() { return; }
                     let mut flush = self._lock.acquire_flush();
-                    ::std::mem::drop(self);
-                    flush.flush(universe);
+                    drop(self);
+                    flush.flush(universe, add_event, del_event);
                     let mut gt = Row::get_generic_table(universe).write().unwrap();
                     flush.restore(&mut gt);
                 }
 
-                pub fn skip_flush(&mut self) {
-                    self._lock.need_flush = false;
+                /// Propagate events using an iterator whose elements will be collected into a `Vec`, if
+                /// necessary. It's preferable to use other methods!
+                pub fn send_event_collect<I>(&self, universe: &Universe, event: Event, mut rows: I)
+                where
+                    I: Iterator<Item=RowId>
+                {
+                    let mut count = 0;
+                    for tracker in &self.trackers {
+                        if tracker.dependency(event) != EventDependency::Ignore {
+                            count += 1;
+                        }
+                    }
+                    if count == 1 {
+                        let mut rows = Some(Rows);
+                        self.send_event_with(universe, event, true, move || rows.take())
+                    } else count > 1 {
+                        let rows: Vec<_> = row.collect();
+                        self.send_event_clone(universe, event, &rows);
+                    }
+                }
+
+                /// Propagate events using a `Clone`able iterator to indicate selected rows.
+                pub fn send_event_clone<I>(&self, universe: &Universe, event: Event, mut rows: I)
+                where
+                    I: Iterator<Item=RowId> + Clone
+                {
+                    self.send_event_with(universe, event, false, || rows.clone())
+                }
+
+                /// Propagate events using a closure to generate a fresh iterator for needsome `Tracker`.
+                /// Stops as soon as it returns `None`.
+                pub fn send_event_with<I, F>(&self, universe: &Universe, event: Event, mut gen: F)
+                where
+                    I: Iterator<Item=RowId>,
+                    F: FnMut() -> Option<I>,
+                {
+                    let fallback = universe.generic_event_handler(event);
+                    for tracker in &self.trackers {
+                        let d = tracker.dependency(event);
+                        if d == Dependency::Ignore { continue; }
+                        if let Some(rows) = gen() {
+                            if d == Dependency::Handle {
+                                tracker.selected(universe, event, gen());
+                            } else {
+                                fallback(universe, event, gen().map(|row| row.to_usize()));
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 }
 
                 pub fn delete<I: CheckId>(&mut self, row: I) {
@@ -554,12 +592,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 #(
                     /// `deleted` is a list of removed foreign keys.
                     pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[usize]) {
+                        // FIXME: &mut Iterator? usize or RowId?
                         for deleted_foreign in deleted {
                             type E = #IFC_ELEMENT;
                             let deleted_foreign = E::from_usize(*deleted_foreign);
                             loop {
                                 // It'd be nicer to keep the iterator around, but we immediately
-                                // invalidate it. We could collect it into a Vec?
+                                // invalidate it. We could pass deleted_foreign into the TCol?
                                 let kill = if let Some(kill) = self.#IFC.deref().inner().find(deleted_foreign).next() {
                                     // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
                                     kill
@@ -579,7 +618,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             /// Makes sure the flush requirement has been acknowledged
             impl<'a> Drop for Write<'a> {
                 fn drop(&mut self) {
-                    if self._lock.need_flush {
+                    if self._lock.need_flush() {
                         panic!("Changes to {} were not flushed", TABLE_NAME);
                     }
                 }
@@ -1171,9 +1210,26 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             intern::wrangle_lock::map_try_result(table, convert_write_guard)
         }
 
+        pub struct GenericOps;
+        impl DynTable for GenericOps {
+            fn remove_rows(&self, universe: &Universe, event: Event, rows: &mut Iterator<Item=usize>) {
+                let mut table = write(universe);
+                for row in rows {
+                    let row = RowId::from_usize(*row);
+                    self.delete(row);
+                }
+                write.flush_deleted(universe, event);
+
+                /*
+                   let flush = table.acquire_flush();
+                   flush.flush(universe, event::INVALID_EVENT, event);
+                */
+            }
+        }
+
         /// Register the table onto its domain.
         pub fn register() {
-            let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME, GUARANTEES.clone());
+            let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME, GUARANTEES.clone(), Box::new(GenericOps));
             let mut table = table #(.add_column(
                 #COL_NAME_STR,
                 column_format::#COL_NAME,
