@@ -244,16 +244,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         // FIXME: Implement `struct RowMut`, would need to respect EditA.
     }};
     out! { ["The `Table` struct"] {
+        use std::collections::btree_map;
+        type FreeList = btree_map::BTreeMap<RowId, ()>;
+        type FreeKeys<'a> = btree_map::Keys<'a, RowId, ()>;
+        #[derive(Default)]
         pub struct Table {
+            free: FreeList,
         }
         impl TTable for Table {
             fn new() -> Self where Self: Sized {
-                Table { }
+                Default::default()
             }
             fn domain() -> DomainName where Self: Sized { TABLE_DOMAIN }
             fn name() -> TableName where Self: Sized { TABLE_NAME }
             fn guarantee() -> Guarantee where Self: Sized { GUARANTEES }
-            fn prototype(&self) -> Box<TTable> { Box::new(Table {}) }
+            fn prototype(&self) -> Box<TTable> { Box::new(Self::new()) }
         }
     }};
 
@@ -282,8 +287,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * The table, locked for reading.
          * */
         pub struct Read<'u> {
-            #[doc(hidden)]
             _lock: BiRef<::std::sync::RwLockReadGuard<'u, GenericTable>, &'u GenericTable, GenericTable>,
+            _table: &'u Table,
             #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
         }
 
@@ -291,15 +296,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * The table, locked for writing.
          * */
         pub struct Write<'u> {
-            #[doc(hidden)]
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
+            _table: &'u Table,
             // '#COL_MUT' is either MutA or EditA
             #(pub #COL_NAME: #COL_MUT<'u, #COL_TYPE>,)*
         }
 
         /// The table, borrowed from a `Write` lock, that forbids structural changes.
         pub struct Edit<'u, 'w> where 'u: 'w {
-            #[doc(hidden)]
             _inner: &'w Write<'u>,
             #(pub #COL_NAME: &'w mut #COL_MUT<'u, #COL_TYPE>,)*
         }
@@ -1130,8 +1134,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 // If mem::swap becomes a problem, we could switch to OwningRef<Rc<RWLGuard>, &column>.
                 // This does require heap allocation tho...
             };)*
+            let _table = {
+                let _table: &Table = _lock.table.downcast_ref::<Table>().expect("Table downcast failed");
+                // FIXME: Audit this unsafety. This might be easy to another thing? Or
+                // GenericTable'll fall out somehow. Maybe they could co-own?
+                unsafe { transmute(_table) }
+            };
             Read {
                 _lock: BiRef::Left(_lock),
+                _table,
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -1161,10 +1172,17 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 unsafe {
                     #COL_MUT::new(transmute(got))
                     // See comment about transmute in `convert_read_guard()`.
+                    // FIXME: Actually the comment should go on this one, since mut is harder.
                 }
             };)*
+            let _table = {
+                let _table: &Table = _lock.table.downcast_mut::<Table>().expect("Table downcast failed");
+                // See comment about transmute in `convert_read_guard()`.
+                unsafe { transmute(_table) }
+            };
             Write {
                 _lock,
+                _table,
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -1214,6 +1232,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             {
                 Read {
                     _lock: BiRef::Right(&*self._lock),
+                    _table: &self._table,
                     #(
                         #COL_NAME: RefA::new(self.#COL_NAME2.deref()),
                     )*

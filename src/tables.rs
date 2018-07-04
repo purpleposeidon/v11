@@ -196,20 +196,23 @@ impl Universe {
 
 type Prototyper = fn() -> PBox;
 
-use std::collections::btree_map;
 use tracking::Tracker;
 
 
 pub trait TTable: ::mopa::Any + Send + Sync {
+    // A slightly annoying thing is that this trait can't have any parameters.
+    // But this isn't so bad; the impl bakes them in.
+
     fn new() -> Self where Self: Sized;
     fn domain() -> DomainName where Self: Sized;
     fn name() -> TableName where Self: Sized;
     fn guarantee() -> Guarantee where Self: Sized;
 
-    fn prototype(&self) -> Box<TTable>; // Can't implement this the obvious way. :|
+    fn prototype(&self) -> Box<TTable>;
 }
 mopafy!(TTable);
 
+use std::collections::btree_map;
 pub(crate) type FreeList = btree_map::BTreeMap<usize, ()>;
 pub(crate) type FreeKeys<'a> = btree_map::Keys<'a, usize, ()>;
 
