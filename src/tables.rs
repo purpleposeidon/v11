@@ -199,6 +199,17 @@ type Prototyper = fn() -> PBox;
 use std::collections::btree_map;
 use tracking::Tracker;
 
+
+pub trait TTable: ::mopa::Any + Send + Sync {
+    fn new() -> Self where Self: Sized;
+    fn domain() -> DomainName where Self: Sized;
+    fn name() -> TableName where Self: Sized;
+    fn guarantee() -> Guarantee where Self: Sized;
+
+    fn prototype(&self) -> Box<TTable>; // Can't implement this the obvious way. :|
+}
+mopafy!(TTable);
+
 pub(crate) type FreeList = btree_map::BTreeMap<usize, ()>;
 pub(crate) type FreeKeys<'a> = btree_map::Keys<'a, usize, ()>;
 
@@ -220,6 +231,7 @@ pub struct GenericTable {
     pub need_flush: bool,
     pub guarantee: Guarantee,
     pub sort_events: bool,
+    pub table: Box<TTable>,
 }
 #[doc(hidden)]
 #[derive(Default, Clone)]
@@ -227,11 +239,14 @@ pub struct Guarantee {
     pub consistent: bool,
 }
 impl GenericTable {
-    pub fn new(domain: DomainName, name: TableName, guarantee: Guarantee) -> GenericTable {
+    pub fn new<T: TTable>(table: T) -> GenericTable {
+        let domain = T::domain();
+        let name = T::name();
+        let guarantee = T::guarantee();
         intern::check_name(name.0);
         GenericTable {
-            domain: domain,
-            name: name,
+            domain,
+            name,
             columns: Vec::new(),
             trackers: Default::default(),
             no_trackers: true,
@@ -244,6 +259,7 @@ impl GenericTable {
             free: Default::default(),
             need_flush: false,
             sort_events: false,
+            table: Box::new(table),
         }
     }
 
@@ -279,6 +295,7 @@ impl GenericTable {
             cleared: false,
             need_flush: false,
             sort_events: self.sort_events,
+            table: self.table.prototype(),
         }
     }
 

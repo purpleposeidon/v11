@@ -27,6 +27,8 @@ extern crate bit_vec_mut as bit_vec;
 pub extern crate num_traits;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate mopa;
 
 use std::sync::*;
 

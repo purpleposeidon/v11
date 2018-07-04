@@ -243,6 +243,19 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         // FIXME: Implement `struct RowMut`, would need to respect EditA.
     }};
+    out! { ["The `Table` struct"] {
+        pub struct Table {
+        }
+        impl TTable for Table {
+            fn new() -> Self where Self: Sized {
+                Table { }
+            }
+            fn domain() -> DomainName where Self: Sized { TABLE_DOMAIN }
+            fn name() -> TableName where Self: Sized { TABLE_NAME }
+            fn guarantee() -> Guarantee where Self: Sized { GUARANTEES }
+            fn prototype(&self) -> Box<TTable> { Box::new(Table {}) }
+        }
+    }};
 
     out! { table.derive.clone => ["RowRef IntoOwned"] {
         impl<'a> RowRef<'a> {
@@ -1173,7 +1186,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// Register the table onto its domain.
         pub fn register() {
-            let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME, GUARANTEES.clone());
+            let table = GenericTable::new(Table::new());
             let mut table = table #(.add_column(
                 #COL_NAME_STR,
                 column_format::#COL_NAME,
