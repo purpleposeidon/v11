@@ -11,6 +11,8 @@ pub(crate) fn invalid_event_handler(_: &Universe, _: &mut GenericTable, _: Event
 /// The indicated rows are deleted.
 pub fn deletion_event_handler(universe: &Universe, table: &mut GenericTable, event: Event, rows: EventHandlerInput) {
     table.dyn_table.remove_rows(universe, event, rows);
+    let flush = table.acquire_flush();
+    flush.flush(universe, event::INVALID_EVENT, event);
 }
 
 impl Universe {
@@ -78,6 +80,7 @@ pub mod event {
 
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum Dependency {
     Handle,
     Ignore,

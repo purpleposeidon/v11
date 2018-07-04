@@ -203,6 +203,8 @@ pub(crate) type FreeList = btree_map::BTreeMap<usize, ()>;
 pub(crate) type FreeKeys<'a> = btree_map::Keys<'a, usize, ()>;
 
 pub trait DynTable: Send + Sync + 'static {
+    type Row: TableRow;
+
     fn flush(&self, universe: &Universe, add: Event, del: Event);
 /*
     let flush = table.acquire_flush();
@@ -423,7 +425,7 @@ impl fmt::Display for TableName {
 }
 
 #[doc(hidden)]
-pub trait TableRow {
+pub trait TableRow: Sized {
     type Idx: ::num_traits::PrimInt + fmt::Display + fmt::Debug + ::std::hash::Hash + Copy;
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;
