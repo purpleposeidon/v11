@@ -13,7 +13,7 @@ define_invoke_proc_macro!(__v11_invoke_table);
 This macro generates a column-based data table.
 (It is currently implemented using the procedural-masquerade hack.)
 
-The syntax for this macro is:
+The general syntax for this macro is
 
 ```ignored
 table! {
@@ -82,20 +82,13 @@ fn main() {
 }
 ```
 
-# Table kinds and Guarantees
+# Table `kind`s, Consistency, and Guarantees
 The 'kind' of a table selects what functions are generated and what guarantees are upheld.
 
-## `#[kind = "consistent"]`
-Rows in consistent tables can be used as *foreign keys* in other tables.
-The main guarantee of the public table is that it is kept consistent with such tables:
-the main row and references to it are deleted as a unit.
-
-Since maintaining consistency requires locking other tables,
-you must call `table.flush(universe)` instead of letting the table fall out of scope.
-You also may call `table.no_flush()` to let someone else deal with it.
-
 ## `#[kind = "append"]`
-Rows in an "append" table can not be removed. Consistency is thus trivially guaranteed.
+This is the simplest kind.
+Rows in an "append" table can not be removed.
+Consistency is thus trivially guaranteed.
 
 ## `#[kind = "sorted"]`
 Guarantees the table is sorted. You must implement `Ord` for `$table::RowRef`.
@@ -106,11 +99,22 @@ Rows can be added with `merge`, and removed with `retain`.
 
 Sorted tables are good for `joincore`.
 
+## `#[kind = "consistent"]`
+Rows in consistent tables can be used as *foreign keys* in other tables.
+The main guarantee of the public table is that it is kept consistent with such tables:
+the main row and references to it are deleted as a unit.
+
+Since maintaining consistency requires locking other tables,
+you must call `table.flush(universe)` instead of letting the table drop.
+
 ## `#[kind = "bag"]`
 NYI. (Row order would be arbitrary and there would be no consistency guarantee.)
 
 ## `#[kind = "list"]`
 NYI. (Row order would remain intact, but there would be no consistency guarantee.)
+
+## `#[kind = "indirect"]`
+NYI. (There would be a table of handles introducing a layer of indirection, but making it easy to implement certain guarantees.)
 
 # Using the generated table
 
@@ -120,18 +124,41 @@ A lock on the table must be obtained using `$tablename::read(universe)`.
 
 # Table Attributes
 
+This works like so:
+
+```no_compile
+table! {
+    #[kind = "…"]
+    #[table_attribute_1]
+    #[table_attribute_2]
+    [DOMAIN/table] {
+        …
+    }
+}
+```
+
 ## `#[row_id = "usize"]`
 Sets what the (underlying) primitive is used for indexing the table. The default is `usize`.
 This is useful when this table is going to have foreign keys pointing at it.
-You may also want to set this to an explicitly sized integer if the table is to be serialized.
 
 ## `#[row_derive(Foo, Bar)]`
 Puts `#[derive(Foo, Bar)]` on the generated `Row` and `RowRef` structs.
 
 ## `#[version = "0"]`
-A version number. The default is `0`.
+A version number for the table. The default is `0`.
 
 # Column Attributes
+
+```no_compile
+table! {
+    #[kind = "…"]
+    pub [MY_DOMAIN/my_table] {
+        #[column_attribute_1]
+        #[column_attribute_2]
+        my_int: [i32; VecCol<i32>],
+    }
+}
+```
 
 ## `#[foreign]`
 The row's element must be another table's RowId.
@@ -139,11 +166,11 @@ This generates a `struct track_$COL_events`, for which `Tracker` must be impleme
 
 ## `#[foreign_auto]`
 This automatically implements `Tracker`. Rows corresponding to deleted foreign rows will be removed.
-This requires `#[index]` or `#[sort_key]`.
+This requires `#[index]` or `#[sort_key]` on the local table.
 
 ## `#[index]`
 Creates an index of the column, using a `BTreeMap`.
-Indexed elements are immutable.
+Indexed elements are immutable, and are duplicated.
 
 ## `#[sort_key]`
 Use the element's comparision order to derive `Ord` for `RowRef`.
@@ -196,8 +223,6 @@ impl Universe {
 
 type Prototyper = fn() -> PBox;
 
-use tracking::Tracker;
-
 
 pub trait TTable: ::mopa::Any + Send + Sync {
     // A slightly annoying thing is that this trait can't have any parameters.
@@ -207,14 +232,12 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     fn domain() -> DomainName where Self: Sized;
     fn name() -> TableName where Self: Sized;
     fn guarantee() -> Guarantee where Self: Sized;
+    // Do associated const parameters count as 'trait paramters'?
 
     fn prototype(&self) -> Box<TTable>;
+    fn get_flush(&mut self) -> &mut Any;
 }
 mopafy!(TTable);
-
-use std::collections::btree_map;
-pub(crate) type FreeList = btree_map::BTreeMap<usize, ()>;
-pub(crate) type FreeKeys<'a> = btree_map::Keys<'a, usize, ()>;
 
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 #[doc(hidden)]
@@ -223,17 +246,7 @@ pub struct GenericTable {
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
     init_fns: Vec<fn(&Universe)>,
-    // All the other fields don't need locks, but this one does because we need to continue holding
-    // it after releasing the lock on `GenericTable`.
-    pub trackers: Arc<RwLock<Vec<Box<Tracker + Send + Sync>>>>,
-    pub(crate) no_trackers: bool,
-    pub(crate) delete: Vec<usize>,
-    pub(crate) add: Vec<usize>,
-    pub cleared: bool,
-    pub free: FreeList,
-    pub need_flush: bool,
     pub guarantee: Guarantee,
-    pub sort_events: bool,
     pub table: Box<TTable>,
 }
 #[doc(hidden)]
@@ -251,17 +264,9 @@ impl GenericTable {
             domain,
             name,
             columns: Vec::new(),
-            trackers: Default::default(),
-            no_trackers: true,
             init_fns: Vec::new(),
             guarantee,
 
-            delete: Vec::new(),
-            add: Vec::new(),
-            cleared: false,
-            free: Default::default(),
-            need_flush: false,
-            sort_events: false,
             table: Box::new(table),
         }
     }
@@ -287,17 +292,9 @@ impl GenericTable {
             domain: self.domain,
             name: self.name,
             columns: self.columns.iter().map(GenericColumn::prototype).collect(),
-            trackers: Arc::clone(&self.trackers),
-            no_trackers: self.no_trackers,
             init_fns: self.init_fns.clone(),
             guarantee: self.guarantee.clone(),
 
-            delete: Vec::new(),
-            add: Vec::new(),
-            free: Default::default(),
-            cleared: false,
-            need_flush: false,
-            sort_events: self.sort_events,
             table: self.table.prototype(),
         }
     }
@@ -429,11 +426,17 @@ impl fmt::Display for TableName {
     }
 }
 
+// FIXME: Rename. `TableRowId`?
 #[doc(hidden)]
 pub trait GetTableName {
-    type Idx: ::num_traits::PrimInt + fmt::Display + fmt::Debug + ::std::hash::Hash + Copy;
+    type Idx:
+        ::num_traits::PrimInt +
+        fmt::Display + fmt::Debug +
+        ::std::hash::Hash + Copy + Ord;
+
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;
+    fn get_guarantee() -> Guarantee;
 }
 
 #[doc(hidden)]
@@ -443,5 +446,6 @@ pub trait LockedTable: Sized {
     fn is_deleted(&self, _idx: GenericRowId<Self::Row>) -> bool { false }
 }
 
+// FIXME: Why?
 pub use ::assert_sorted::AssertSorted;
 pub use ::index::*;

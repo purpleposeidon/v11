@@ -1,31 +1,32 @@
 //! `GenericRowId`, `CheckedRowId`, and `RowRange`.
 // FIXME: Need https://github.com/rust-lang/rust/issues/38078 to ditch obnoxious verbosity
 // FIXME: s/GenericRowId/FutureCheckRowId? s/UncheckedRowId/PastCheckRowId ?
+// FIXME: This should be several sub-modules.
 
-use std::marker::PhantomData;
 use std::fmt;
-use std::cmp::Ordering;
-use tables::{GetTableName, LockedTable};
+use std::marker::PhantomData;
+use std::cmp::{Ordering, Eq, PartialEq, PartialOrd, Ord};
+
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
 
-use Universe;
-use tracking::Tracker;
+use tables::{GetTableName, LockedTable};
+
 
 /// Index to a row on some table.
-/// You can call `row_index.check(&table)` to pre-check the index.
-// #[derive] nothing; stupid phantom data...
+/// You can call `row_index.check(&table)` to pre-check the index,
+/// which you should do if you will be accessing multiple columns.
 pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
     pub i: T::Idx,
     #[doc(hidden)]
-    pub t: PhantomData<T>,
+    pub table: PhantomData<T>,
 }
 impl<T: GetTableName> GenericRowId<T> {
     pub fn new(i: T::Idx) -> Self {
         GenericRowId {
             i,
-            t: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -43,53 +44,19 @@ impl<T: GetTableName> GenericRowId<T> {
         Self::new(self.i - T::Idx::one())
     }
 
-    pub fn register_tracker(universe: &Universe, t: Box<Tracker + Send + Sync>, sort_events: bool) {
-        let gt = universe.get_generic_table(T::get_domain().get_id(), T::get_name());
-        let mut gt = gt.write().unwrap();
-        gt.add_tracker(t, sort_events);
-    }
-
     pub fn get_domain() -> ::domain::DomainName { T::get_domain() }
     pub fn get_name() -> ::tables::TableName { T::get_name() }
 }
-impl<T: GetTableName> Default for GenericRowId<T> {
-    fn default() -> Self {
-        GenericRowId {
-            i: T::Idx::max_value() /* UNDEFINED_INDEX */,
-            t: PhantomData,
-        }
-    }
-}
-impl<T: GetTableName> Clone for GenericRowId<T> {
-    fn clone(&self) -> Self {
-        Self::new(self.i)
-    }
-}
-impl<T: GetTableName> Copy for GenericRowId<T> { }
 
-impl<T: GetTableName> fmt::Debug for GenericRowId<T>
-where T::Idx: fmt::Display
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}[{}]", T::get_name().0, self.i)
-    }
-}
 
 /// This value can be used to index into table columns.
 /// It borrows the table to ensure that it is a valid index.
-/// It has already been checked.
-#[derive(Hash, PartialOrd, Ord, Eq, PartialEq)]
+#[derive(Hash)]
 pub struct CheckedRowId<'a, T: LockedTable + 'a> {
     i: <T::Row as GetTableName>::Idx,
     // FIXME: This should be a PhantomData. NBD since these things are short-lived.
     table: &'a T,
 }
-impl<'a, T: LockedTable + 'a> Clone for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {
-    fn clone(&self) -> Self {
-        Self { i: self.i, table: self.table }
-    }
-}
-impl<'a, T: LockedTable + 'a> Copy for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {}
 impl<'a, T: LockedTable + 'a> CheckedRowId<'a, T> {
     /// Create a `CheckedRowId` without actually checking.
     pub unsafe fn fab(i: <T::Row as GetTableName>::Idx, table: &'a T) -> Self {
@@ -99,115 +66,77 @@ impl<'a, T: LockedTable + 'a> CheckedRowId<'a, T> {
     pub fn to_raw(&self) -> <T::Row as GetTableName>::Idx { self.i }
     pub fn next(self) -> GenericRowId<T::Row> { self.uncheck().next() }
 }
-impl<'a, T: LockedTable + 'a> fmt::Debug for CheckedRowId<'a, T>
-where <T::Row as GetTableName>::Idx: fmt::Debug
-{
+
+
+
+
+
+// Easy, right? WRONG!
+// We `#[derive]`d nothing! f$cking phantom data!
+
+
+impl<T: GetTableName> Default for GenericRowId<T> {
+    fn default() -> Self {
+        GenericRowId {
+            i: T::Idx::max_value() /* UNDEFINED_INDEX */,
+            table: PhantomData,
+        }
+    }
+}
+// `Checked: Default` is unsound.
+
+
+impl<T: GetTableName> Clone for GenericRowId<T> {
+    fn clone(&self) -> Self {
+        Self { i: self.i, table: self.table }
+    }
+}
+impl<'a, T: LockedTable + 'a> Clone for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {
+    fn clone(&self) -> Self {
+        Self { i: self.i, table: self.table }
+    }
+}
+
+
+impl<T: GetTableName> Copy for GenericRowId<T> {}
+impl<'a, T: LockedTable + 'a> Copy for CheckedRowId<'a, T> where <T::Row as GetTableName>::Idx: Copy {}
+
+
+impl<T: GetTableName> fmt::Debug for GenericRowId<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}[{}]", T::get_name().0, self.i)
+    }
+}
+impl<'a, T: LockedTable + 'a> fmt::Debug for CheckedRowId<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}[{}]", T::Row::get_name().0, self.i)
     }
 }
 
-// Implement comparisons between Checked & Unchecked
-macro_rules! cmp {
-    ($a:ty, $b:ty) => {
-        cmp!(impl, $a, $b);
-        cmp!(impl, $b, $a);
-    };
-    (impl, $left:ty, $right:ty) => {
-        impl<'a, T: LockedTable + 'a> PartialEq<$right> for $left {
-            fn eq(&self, rhs: &$right) -> bool {
-                self.i == rhs.i
+macro_rules! dispatch {
+    ($($Trait:ident => $fn:ident -> $ret:ty,)*) => {$(
+        impl<T: GetTableName> $Trait for GenericRowId<T> {
+            fn $fn(&self, other: &Self) -> $ret {
+                self.i.$fn(&other.i)
             }
         }
-        impl<'a, T: LockedTable + 'a> PartialOrd<$right> for $left {
-            fn partial_cmp(&self, rhs: &$right) -> Option<Ordering> {
-                Some(self.i.cmp(&rhs.i))
+        impl<'a, T: LockedTable + 'a> $Trait for CheckedRowId<'a, T> {
+            fn $fn(&self, other: &Self) -> $ret {
+                self.i.$fn(&other.i)
             }
         }
-    };
+    )*};
 }
-cmp!(CheckedRowId<'a, T>, GenericRowId<T::Row>);
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use tables::{TableName, LockedTable};
-    use domain::DomainName;
-
-    struct TestName;
-    impl GetTableName for TestName {
-        type Idx = usize;
-        fn get_domain() -> DomainName { DomainName("test_domain") }
-        fn get_name() -> TableName { TableName("test_table") }
-    }
-    struct TestTable;
-    impl LockedTable for TestTable {
-        type Row = TestName;
-        fn len(&self) -> usize { 14 }
-    }
-
-    #[test]
-    fn test_formatting() {
-        let gen: GenericRowId<TestName> = GenericRowId {
-            i: 23,
-            t: ::std::marker::PhantomData,
-        };
-        assert_eq!("test_table[23]", format!("{:?}", gen));
-    }
-
-    #[test]
-    fn eq() {
-        let my_table = TestTable;
-        let checked = CheckedRowId {
-            i: 10,
-            table: &my_table,
-        };
-        let unchecked = GenericRowId {
-            i: 10,
-            t: PhantomData,
-        };
-        assert_eq!(checked, unchecked);
-        assert_eq!(unchecked, checked);
-    }
-
-    #[test]
-    fn cmp() {
-        let my_table = TestTable;
-        let checked = CheckedRowId {
-            i: 3,
-            table: &my_table,
-        };
-        let unchecked = GenericRowId {
-            i: 10,
-            t: PhantomData,
-        };
-        assert!(checked < unchecked);
-        assert!(unchecked >= checked);
-    }
-}
-
-
-use std::cmp::{Eq, PartialEq, PartialOrd, Ord};
-impl<T: GetTableName> PartialEq for GenericRowId<T> {
-    fn eq(&self, other: &GenericRowId<T>) -> bool {
-        self.i.eq(&other.i)
-    }
-}
-impl<T: GetTableName> PartialOrd for GenericRowId<T> {
-    fn partial_cmp(&self, other: &GenericRowId<T>) -> Option<Ordering> {
-        self.i.partial_cmp(&other.i)
-    }
-}
-impl<T: GetTableName> Ord for GenericRowId<T> {
-    fn cmp(&self, other: &GenericRowId<T>) -> Ordering {
-        self.i.cmp(&other.i)
-    }
+dispatch! {
+    PartialEq => eq -> bool,
+    PartialOrd => partial_cmp -> Option<Ordering>,
+    Ord => cmp -> Ordering,
 }
 
 impl<T: GetTableName> Eq for GenericRowId<T> {}
+impl<'a, T: LockedTable + 'a> Eq for CheckedRowId<'a, T> {}
 
-// Things get displeasingly manual due to the PhantomData.
-// CheckedRowId can derive hash, and is unserializable.
+
 use std::hash::{Hash, Hasher};
 impl<T: GetTableName> Hash for GenericRowId<T>
 where T::Idx: Hash
@@ -233,6 +162,97 @@ where T::Idx: Decodable
         Ok(Self::new(T::Idx::decode(d)?))
     }
 }
+
+
+
+
+
+// We've escaped that particular hell.
+// Now we implement comparisons between Checked & Unchecked.
+macro_rules! cmp {
+    ($a:ty, $b:ty) => {
+        cmp!(impl, $a, $b);
+        cmp!(impl, $b, $a);
+    };
+    (impl, $left:ty, $right:ty) => {
+        // $right goes on the $left, natch.
+        // (It's actually not too bad, since it's got the `Rhs` label)
+        impl<'a, T: LockedTable + 'a> PartialEq<$right> for $left {
+            fn eq(&self, rhs: &$right) -> bool {
+                self.i == rhs.i
+            }
+        }
+        impl<'a, T: LockedTable + 'a> PartialOrd<$right> for $left {
+            fn partial_cmp(&self, rhs: &$right) -> Option<Ordering> {
+                Some(self.i.cmp(&rhs.i))
+            }
+        }
+    };
+}
+cmp!(CheckedRowId<'a, T>, GenericRowId<T::Row>);
+
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use tables::{TableName, LockedTable, Guarantee};
+    use domain::DomainName;
+
+    struct TestName;
+    impl GetTableName for TestName {
+        type Idx = usize;
+        fn get_domain() -> DomainName { DomainName("test_domain") }
+        fn get_name() -> TableName { TableName("test_table") }
+        fn get_guarantee() -> Guarantee { Guarantee { consistent: false } }
+    }
+    struct TestTable;
+    impl LockedTable for TestTable {
+        type Row = TestName;
+        fn len(&self) -> usize { 14 }
+    }
+
+    #[test]
+    fn test_formatting() {
+        let gen: GenericRowId<TestName> = GenericRowId {
+            i: 23,
+            table: ::std::marker::PhantomData,
+        };
+        assert_eq!("test_table[23]", format!("{:?}", gen));
+    }
+
+    #[test]
+    fn eq() {
+        let my_table = TestTable;
+        let checked = CheckedRowId {
+            i: 10,
+            table: &my_table,
+        };
+        let unchecked = GenericRowId {
+            i: 10,
+            table: PhantomData,
+        };
+        assert_eq!(checked, unchecked);
+        assert_eq!(unchecked, checked);
+    }
+
+    #[test]
+    fn cmp() {
+        let my_table = TestTable;
+        let checked = CheckedRowId {
+            i: 3,
+            table: &my_table,
+        };
+        let unchecked = GenericRowId {
+            i: 10,
+            table: PhantomData,
+        };
+        assert!(checked < unchecked);
+        assert!(unchecked >= checked);
+    }
+}
+
+
 
 
 
@@ -338,13 +358,14 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
 #[cfg(test)]
 mod row_range_test {
     use super::*;
-    use tables::TableName;
+    use tables::{TableName, Guarantee};
     use domain::DomainName;
     struct TestTable;
     impl GetTableName for TestTable {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("TEST_DOMAIN") }
         fn get_name() -> TableName { TableName("test_table") }
+        fn get_guarantee() -> Guarantee { Guarantee { consistent: false } }
     }
     type RR = RowRange<GenericRowId<TestTable>>;
 
@@ -432,7 +453,7 @@ impl<T: GetTableName> Iterator for UncheckedIter<T> {
         } else {
             let ret = GenericRowId {
                 i: self.i,
-                t: PhantomData,
+                table: PhantomData,
             };
             self.i = ret.next().i;
             Some(ret)
@@ -494,15 +515,17 @@ impl<'a, T: LockedTable + 'a> Checkable for CheckedRowId<'a, T> {
 
 use ::joincore::{JoinCore, Join};
 use std::collections::btree_map;
-use ::tables::FreeKeys;
 
-/// A `CheckedIter` that skips rows marked for deletion.
+pub type FreeList<T> = btree_map::BTreeMap<GenericRowId<T>, ()>;
+pub type FreeKeys<'a, T> = btree_map::Keys<'a, GenericRowId<T>, ()>;
+
+/// A `CheckedIter` that skips deleted rows.
 pub struct ConsistentIter<'a, T: LockedTable + 'a> {
     rows: CheckedIter<'a, T>,
-    deleted: JoinCore<FreeKeys<'a>>,
+    deleted: JoinCore<FreeKeys<'a, T::Row>>,
 }
 impl<'a, T: LockedTable + 'a> ConsistentIter<'a, T> {
-    pub fn new(rows: CheckedIter<'a, T>, deleted: &'a btree_map::BTreeMap<usize, ()>) -> Self {
+    pub fn new(rows: CheckedIter<'a, T>, deleted: &'a FreeList<T::Row>) -> Self {
         Self {
             rows,
             deleted: JoinCore::new(deleted.keys()),
@@ -514,7 +537,7 @@ impl<'a, T: LockedTable + 'a> Iterator for ConsistentIter<'a, T> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(row) = self.rows.next() {
-            match self.deleted.join(row.to_usize(), |l, r| l.cmp(r)) {
+            match self.deleted.join(row, |l, r| l.uncheck().cmp(*r)) {
                 // This join is a bit backwards.
                 Join::Next | Join::Stop => return Some(row),
                 Join::Match(_) => continue,
@@ -526,23 +549,24 @@ impl<'a, T: LockedTable + 'a> Iterator for ConsistentIter<'a, T> {
 
 
 
-pub struct EditIter<'w, T: GetTableName> {
+/// An [`UncheckedIter`] used for making non-structural edits to the table's data.
+pub struct EditIter<'w, T: GetTableName + 'w> {
     range: UncheckedIter<T>,
-    deleted: JoinCore<FreeKeys<'w>>,
+    deleted: JoinCore<FreeKeys<'w, T>>,
 }
-impl<'w, T: GetTableName> EditIter<'w, T> {
-    pub fn new(range: RowRange<GenericRowId<T>>, free_keys: FreeKeys<'w>) -> Self {
+impl<'w, T: GetTableName + 'w> EditIter<'w, T> {
+    pub fn new(range: RowRange<GenericRowId<T>>, free_keys: FreeKeys<'w, T>) -> Self {
         EditIter {
             range: range.iter_slow(),
             deleted: JoinCore::new(free_keys),
         }
     }
 }
-impl<'w, T: GetTableName> Iterator for EditIter<'w, T> {
+impl<'w, T: GetTableName + 'w> Iterator for EditIter<'w, T> {
     type Item = GenericRowId<T>;
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(row) = self.range.next() {
-            match self.deleted.join(row.to_usize(), |l, r| l.cmp(r)) {
+            match self.deleted.join(row, |l, r| l.cmp(r)) {
                 // This join is a bit backwards.
                 Join::Next | Join::Stop => return Some(row),
                 Join::Match(_) => continue,

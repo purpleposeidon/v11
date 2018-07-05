@@ -1,6 +1,6 @@
 //! Table indexing is strongly typed.
 //! Each table has its own index type (`GenericRowId`),
-//! which may be converted to a 'post-checked' form (`CheckedRowId`).
+//! which may be converted to an 'already checked' form (`CheckedRowId`).
 // FIXME: RowIdPreCheck, RowIdPostCheck?
 
 use std::ops::{Index, IndexMut};
@@ -28,7 +28,6 @@ pub trait TCol {
     /// Callback for when an element is deleted.
     unsafe fn deleted(&mut self, _i: usize) {}
 }
-// FIXME: Should the whole trait be unsafe?
 
 /// It's not possible to do a blanket implementation of indexing on `TCol`s due to orphan rules,
 /// so this is a wrapper.

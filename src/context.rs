@@ -1,4 +1,6 @@
-//! `v11` code involving many table locks can encounter two problems.
+//! Ergonomics for juggling multiple locks.
+//!
+//! `v11` code involving many table locks can encounter two problems:
 //!
 //! 1. A higher function may have a write lock, and some lower function also needs a write locking,
 //!    resulting in a dead-lock.
@@ -6,7 +8,10 @@
 //!
 //! You could create context structs manually, but this is labor-intensive, especially when you
 //! start needing to combine them.
+//!
+//! This module introduces [`context!`] to help with this.
 use std::os::raw::c_void;
+
 
 #[doc(hidden)]
 pub trait ReleaseFields {
@@ -18,15 +23,16 @@ pub trait ReleaseFields {
     where F: FnMut(&'static str) -> (*mut c_void, usize);
 }
 
-/// Creates a struct that holds many table locks. This is useful for efficiently passing
-/// whole lock contexts to other functions. It is possible to 'transfer' one context into another
-/// using `NewContext::from(universe, oldContext)`. Any unused locks will be dropped, and any new
-/// locks will be acquired.
+/// Creates a struct that holds many table locks.
+/// This is useful for ergonomically passing multiple locks to other functions.
+/// It is possible to 'transfer' one context into another using `NewContext::from(universe, oldContext)`.
+/// Any unused locks will be dropped, and any new locks will be acquired.
 ///
 /// The locks are duck-typed: any type with functions
 /// `fn lock<'a>(&'a Universe) -> Self where Self: 'a` and
-/// `fn name() -> &'static str`
+/// `fn lock_name() -> &'static str`
 /// can be used.
+// FIXME: Replace duck-typing with an unsafe trait. Two different ducks could swap names!
 ///
 /// Tuples of up to three contexts can be combined. Try nesting the tuples if you need more.
 ///
@@ -42,12 +48,15 @@ pub trait ReleaseFields {
 ///     }
 /// }
 /// ```
+///
+/// You might consider implementing convenience functions on the context struct.
 // This macro is Wildly Exciting.
 #[macro_export]
 macro_rules! context {
     (pub struct $name:ident {
         $(pub $i:ident: $lock:path,)*
     }) => {
+        // It's a shame there isn't some kind of identifier concatenation macro.
         #[allow(non_snake_case)]
         pub mod context_module {
             use std::mem;
@@ -83,6 +92,7 @@ macro_rules! context {
                 unsafe fn release_fields<F>(self, mut field_for: F)
                 where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize)
                 {
+                    // FIXME: Why c_void? Why not... T?
                     $({
                         let mut field = self.$i;
                         let (swap_to, size) = field_for($i::Lock::lock_name());
@@ -124,7 +134,8 @@ macro_rules! context {
                             // FIXME: Why not just Option?
                         )*
                         old.release_fields(|name| {
-                            $(if name == $i::Lock::lock_name() {
+                            if false {}
+                            $(else if name == $i::Lock::lock_name() {
                                 return if $i.0 {
                                     // This case is likely a combined table. release_fields' contract
                                     // requires dead memory, so this test is necessary.

@@ -1,3 +1,5 @@
+//! Data structures for storing columnar elements.
+
 use Storable;
 use columns::TCol;
 

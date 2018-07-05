@@ -56,7 +56,7 @@ pub trait ToPropRef<V: Sync>: Sync {
 
 
 /**
- * Generate a property.
+ * Generates a property, which is a singleton value accessed via the [`Universe`].
  *
  * # Usage
  *

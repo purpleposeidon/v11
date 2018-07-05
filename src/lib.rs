@@ -13,6 +13,8 @@
 //!
 //!
 //! [dod]: http://www.dataorienteddesign.com/dodmain/
+// FIXME: Change `References` to [`References`].
+// FIXME: Could use some hefty reorganization.
 
 #[allow(unused_imports)]
 #[macro_use]
@@ -57,7 +59,7 @@ mod assert_sorted;
 pub mod examples;
 
 #[cfg(not(feature = "doc"))]
-/// Run `cargo doc --feature doc` to see example macro output.
+/// Run `cargo doc --features doc --open` to get documentation on example macro output.
 pub mod examples {}
 
 #[cfg(feature = "doc")]
@@ -70,14 +72,23 @@ pub mod v11 {
 }
 
 
-/**
- * Trait describing bounds that all storable types must satisfy.
- *
- * Types that implement this trait also shouldn't implement `Drop`,
- * however this can not yet be expressed.
- * */
+/// Trait describing bounds that all storable types must satisfy.
+///
+/// Types that implement this trait shouldn't implement `Drop`,
+/// and they shouldn't be `mem::needs_drop`.
+/// However this can not yet be expressed... and actually isn't even required yet.
+///
+/// There are additional requirements not expressed by this type.
 // FIXME: !Drop
-pub trait Storable: Sync + Sized /* + !Drop */ {}
+pub trait Storable: Sync + Sized /* + !Drop */ {
+    #[doc(hidden)]
+    fn assert_no_drop() {
+        // FIXME: Call me, maybe.
+        if ::std::mem::needs_drop::<Self>() {
+            panic!("Column element needs_drop");
+        }
+    }
+}
 impl<T> Storable for T where T: Sync + Sized /* + !Drop */ {}
 
 
@@ -106,12 +117,11 @@ impl Universe {
         ret
     }
 
+    /// Converts to a form shareable with other threads.
     pub fn guard(self) -> GuardedUniverse { Arc::new(RwLock::new(self)) }
 
-    /**
-     * Returns a string describing all the tables in the Universe.
-     * (This does not include their contents.)
-     * */
+    /// Returns a string describing all the tables in the Universe.
+    /// (This does not include their contents.)
     pub fn info(&self) -> String {
         let mut out = "".to_owned();
         for domain in &self.domains {
