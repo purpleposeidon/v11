@@ -124,39 +124,33 @@ macro_rules! context {
                     // `old`'s. Since the macro doesn't actually know what fields `old` has, we need to
                     // track which of our own fields we've initialized.
                     // (FIXME: LLVM w/ --release should make this 0-cost; does it?)
-                    // FIXME: What if there's a panic?
                     $(
-                        let mut $i: (bool, $i::Lock<'a>);
+                        let mut $i: Option<$i::Lock<'a>> = None;
                     )*
                     unsafe {
-                        $(
-                            $i = (false, mem::zeroed());
-                            // FIXME: Why not just Option?
-                        )*
                         old.release_fields(|name| {
                             if false {}
                             $(else if name == $i::Lock::lock_name() {
-                                return if $i.0 {
+                                return if $i.is_some() {
                                     // This case is likely a combined table. release_fields' contract
                                     // requires dead memory, so this test is necessary.
                                     (null_mut(), 0)
                                 } else {
-                                    $i.0 = true;
-                                    (mem::transmute(&mut $i.1), mem::size_of::<$i::Lock>())
+                                    $i = Some(mem::zeroed());
+                                    let ptr = $i.as_mut().unwrap();
+                                    (mem::transmute(ptr), mem::size_of::<$i::Lock>())
                                 };
                             })*
                             (null_mut(), 0)
                         });
                         $(
-                            if !$i.0 {
-                                let mut new = $i::Lock::<'a>::lock(universe);
-                                mem::swap(&mut new, &mut $i.1);
-                                mem::forget(new);
+                            if $i.is_none() {
+                                $i = Some($i::Lock::<'a>::lock(universe));
                             }
                         )*
                     }
                     Self {
-                        $($i: $i.1),*
+                        $($i: $i.unwrap()),*
                     }
                 }
             }
