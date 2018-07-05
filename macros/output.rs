@@ -591,7 +591,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// Such trackers are added to every instance of the table; this only adds the
                 /// tracker to this specific instance.
                 pub fn register_tracker<R: Tracker>(&mut self, tracker: R, sort_events: bool) {
-                    self._table.flush.register_tracker::<Row, R>(tracker, sort_events);
+                    self._table.flush.register_tracker::<Row, R>(FIRST.table, tracker, sort_events);
                 }
 
                 /// Try to remove an instance of your tracker.
@@ -1268,15 +1268,22 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         )*
         fn register_foreign_trackers(_universe: &Universe) {
             // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
+            use std::marker::PhantomData;
+            use std::any::Any;
+            fn unify<K: GetTableName + 'static>(_t: PhantomData<K>, flush: &mut Any) -> &mut Flush<K> {
+                // The 'static req is weird. It... probably won't mess up anything?
+                flush.downcast_mut().expect("wrong foreign table type")
+            }
+
             #({
                 type E = #COL_TRACK_ELEMENTS;
                 let gt = _universe.get_generic_table(E::get_domain().get_id(), E::get_name());
-                let gt = gt.write().unwrap();
+                let mut gt = gt.write().unwrap();
                 let flush = gt.table.get_flush();
-                let flush: &mut Flush<E> = flush.downcast_mut().expect("wrong foreign table type");
-                type Tracker = #COL_TRACK_EVENTS;
-                let bx = Box::new(Tracker) as Box<Tracker>;
-                flush.register_tracker::<E, Tracker>(bx, #SORT_EVENTS);
+                // An *actual* use of PhantomData! o_O 👻👻👻
+                let phantom = E::from_usize(0).table;
+                let flush = unify(phantom, flush);
+                flush.register_tracker(phantom, #COL_TRACK_EVENTS, #SORT_EVENTS);
             })*
         }
     }};

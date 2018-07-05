@@ -1,5 +1,6 @@
-use std::sync::{Arc, RwLock};
 use std::mem;
+use std::sync::{Arc, RwLock};
+use std::marker::PhantomData;
 use Universe;
 use tables::GetTableName;
 use index::GenericRowId;
@@ -140,7 +141,7 @@ impl<I: GetTableName> Flush<I> {
                 self.del.len(), self.add.len(), self.cleared)
     }
 
-    pub fn register_tracker<T, R>(&mut self, tracker: R, sort_events: bool)
+    pub fn register_tracker<T, R>(&mut self, _table: PhantomData<T>, tracker: R, sort_events: bool)
     where
         T: GetTableName,
         R: Tracker,
