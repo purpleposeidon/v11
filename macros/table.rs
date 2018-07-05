@@ -43,6 +43,16 @@ pub struct Table {
     pub secret: bool,
 }
 impl Table {
+    pub(crate) fn hash_names(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hasher, Hash};
+        let mut h = DefaultHasher::new();
+        for col in &self.cols {
+            col.name.to_string().hash(&mut h);
+        }
+        h.finish()
+    }
+
     pub(crate) fn set_kind(&mut self, kind: TableKind) {
         if self.kind.is_some() { panic!("table kind already set"); }
         self.kind = Some(kind);

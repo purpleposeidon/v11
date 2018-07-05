@@ -11,6 +11,7 @@
 //!
 //! This module introduces [`context!`] to help with this.
 use std::os::raw::c_void;
+use Universe;
 
 
 #[doc(hidden)]
@@ -23,16 +24,19 @@ pub trait ReleaseFields {
     where F: FnMut(&'static str) -> (*mut c_void, usize);
 }
 
-/// Creates a struct that holds many table locks.
+/// This trait indicates a type that can be locked by `context!`.
+pub unsafe trait Lockable<'u> {
+    /// It is very important that this name be unique per-type!
+    /// It is relied upon to be unique per-type.
+    const TYPE_NAME: &'static str;
+    fn lock(&'u Universe) -> Self where Self: 'u;
+    // What if we got a vtable? Each type should have a unique one...
+}
+
+/// Creates a struct that holds many table locks that implement `Lockable`.
 /// This is useful for ergonomically passing multiple locks to other functions.
 /// It is possible to 'transfer' one context into another using `NewContext::from(universe, oldContext)`.
 /// Any unused locks will be dropped, and any new locks will be acquired.
-///
-/// The locks are duck-typed: any type with functions
-/// `fn lock<'a>(&'a Universe) -> Self where Self: 'a` and
-/// `fn lock_name() -> &'static str`
-/// can be used.
-// FIXME: Replace duck-typing with an unsafe trait. Two different ducks could swap names!
 ///
 /// Tuples of up to three contexts can be combined. Try nesting the tuples if you need more.
 ///
@@ -61,6 +65,7 @@ macro_rules! context {
         pub mod context_module {
             use std::mem;
             use std::ptr::null_mut;
+            use $crate::context::Lockable;
 
             $(mod $i {
                 #[allow(unused)]
@@ -95,13 +100,15 @@ macro_rules! context {
                     // FIXME: Why c_void? Why not... T?
                     $({
                         let mut field = self.$i;
-                        let (swap_to, size) = field_for($i::Lock::lock_name());
+                        const TYPE_NAME: &'static str = <self::$i::Lock as Lockable>::TYPE_NAME;
+                        let (swap_to, size) = field_for(TYPE_NAME);
                         if swap_to.is_null() {
                             mem::drop(field);
                         } else {
                             let expect_size = mem::size_of::<$i::Lock>();
                             if size != expect_size {
-                                panic!("sizes of {} did not match! {} vs {}", $i::Lock::lock_name(), size, expect_size);
+                                panic!("sizes of {} did not match! {} vs {}",
+                                       <self::$i::Lock as Lockable>::TYPE_NAME, size, expect_size);
                             }
                             // swap_to points at invalid memory
                             let swap_to = &mut *(swap_to as *mut $i::Lock);
@@ -129,28 +136,32 @@ macro_rules! context {
                     )*
                     unsafe {
                         old.release_fields(|name| {
-                            if false {}
-                            $(else if name == $i::Lock::lock_name() {
-                                return if $i.is_some() {
-                                    // This case is likely a combined table. release_fields' contract
-                                    // requires dead memory, so this test is necessary.
-                                    (null_mut(), 0)
-                                } else {
-                                    $i = Some(mem::zeroed());
-                                    let ptr = $i.as_mut().unwrap();
-                                    (mem::transmute(ptr), mem::size_of::<$i::Lock>())
-                                };
-                            })*
-                            (null_mut(), 0)
+                            match name {
+                                $(<self::$i::Lock as Lockable>::TYPE_NAME => {
+                                    if $i.is_some() {
+                                        // This case is likely a combined table. release_fields' contract
+                                        // requires dead memory, so this test is necessary.
+                                        (null_mut(), 0)
+                                    } else {
+                                        $i = Some(mem::zeroed());
+                                        let ptr = $i.as_mut().unwrap();
+                                        (mem::transmute(ptr), mem::size_of::<$i::Lock>())
+                                    }
+                                },)*
+                                _ => (null_mut(), 0),
+                            }
                         });
                         $(
                             if $i.is_none() {
-                                $i = Some($i::Lock::<'a>::lock(universe));
+                                let l = <self::$i::Lock as Lockable>::lock(universe);
+                                $i = Some(l);
                             }
                         )*
                     }
                     Self {
-                        $($i: $i.unwrap()),*
+                        $(
+                            $i: $i.unwrap(),
+                        )*
                     }
                 }
             }

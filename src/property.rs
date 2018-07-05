@@ -141,6 +141,7 @@ macro_rules! property {
         use $crate::property::{unset, PropertyName, Prop, ToPropRef, PropertyIndex};
         use $crate::domain::DomainName;
         use $crate::Universe;
+        use $crate::context::Lockable;
         use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
         use std::ops::{Deref, DerefMut};
 
@@ -154,13 +155,10 @@ macro_rules! property {
 
         #[must_use]
         pub struct Read<'a>(RwLockReadGuard<'a, Type>);
-        impl<'a> Read<'a> {
-            pub fn lock(universe: &'a Universe) -> Self {
+        unsafe impl<'a> Lockable<'a> for Read<'a> {
+            const TYPE_NAME: &'static str = concat!("ref v11/property/", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE));
+            fn lock(universe: &'a Universe) -> Self {
                 Read(universe[&PropRef].read().unwrap())
-            }
-
-            pub fn lock_name() -> &'static str {
-                concat!("ref ", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE))
             }
         }
         impl<'a> Deref for Read<'a> {
@@ -172,12 +170,10 @@ macro_rules! property {
 
         #[must_use]
         pub struct Write<'a>(RwLockWriteGuard<'a, Type>);
-        impl<'a> Write<'a> {
-            pub fn lock(universe: &'a Universe) -> Self {
+        unsafe impl<'a> Lockable<'a> for Write<'a> {
+            const TYPE_NAME: &'static str = concat!("mut v11/property/", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE));
+            fn lock(universe: &'a Universe) -> Self {
                 Write(universe[&PropRef].write().unwrap())
-            }
-            pub fn lock_name() -> &'static str {
-                concat!("mut ", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE))
             }
         }
         impl<'a> Deref for Write<'a> {

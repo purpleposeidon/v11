@@ -113,6 +113,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     #[allow(unused)]
     let TABLE_VERSION = table.version;
     let TABLE_DOMAIN = i(table.domain.clone());
+    let TABLE_DOMAIN_STR = &table.domain;
     let GUARANTEES = {
         let CONSISTENT = table.consistent;
         quote! {
@@ -1289,16 +1290,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }};
 
+    let TABLE_PATH_STR = format!("{}/{} version={},cols={},#={}",
+        TABLE_DOMAIN_STR, TABLE_NAME_STR, table.version, table.cols.len(), table.hash_names());
     out! { ["`context!` duck-type implementation"] {
-        // Hidden because `$table::read()` is shorter than `$table::Read::lock()`.
-        impl<'u> Write<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { write(universe) }
-            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("mut ", #TABLE_NAME_STR) }
-        }
+        use self::v11::context::Lockable;
 
-        impl<'u> Read<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { read(universe) }
-            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
+        unsafe impl<'u> Lockable<'u> for Write<'u> {
+            const TYPE_NAME: &'static str = concat!("mut v11/table/", #TABLE_PATH_STR);
+            fn lock(universe: &'u Universe) -> Self { write(universe) }
+        }
+        unsafe impl<'u> Lockable<'u> for Read<'u> {
+            const TYPE_NAME: &'static str = concat!("ref v11/table/", #TABLE_PATH_STR);
+            fn lock(universe: &'u Universe) -> Self { read(universe) }
         }
 
         // Can't do Edit because it has multiple lifetimes :(
