@@ -77,7 +77,7 @@ fn test() {
         });
         sailors.push(sailors::Row {
             ship: boaty_mcboatface,
-            name: "Carol",
+            name: "Charles",
         });
         sailors.push(sailors::Row {
             ship: lusitania,
@@ -89,7 +89,7 @@ fn test() {
         });
         sailors.push(sailors::Row {
             ship: lusitania,
-            name: "Carol",
+            name: "Charles",
         });
         {
             let (mut ships, ship_iter) = ships.editing();
@@ -109,7 +109,7 @@ fn test() {
     };
     {
         let mut ships = ships::write(universe);
-        println!("oh no the Boaty McBoatface has sunk!!");
+        println!("The Boaty McBoatface is sinking! Oh, the humanity!");
         ships.delete(boaty_mcboatface);
         ships.flush(universe);
     }

@@ -38,6 +38,7 @@ impl<E: Storable> TCol for VecCol<E> {
 // FIXME: Implement. Mostly just need some kind of page_size allocator.
 pub type SegCol<E> = VecCol<E>;
 
+// FIXME: We're using a hacked up bit_vec for `IndexMut`, but we can do the hackup right here, ya?
 type BitVec = ::bit_vec::BitVec<u64>;
 
 /// Densely packed booleans.

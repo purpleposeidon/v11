@@ -553,6 +553,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         let i = row.check(self).uncheck();
                         self.delete_raw(i.to_usize());
                         self.event_del(i);
+                        self._table.free.insert(i, ());
                     }
                 }
 
