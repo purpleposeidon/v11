@@ -1,6 +1,5 @@
 use std::mem;
 use std::sync::{Arc, RwLock};
-use std::marker::PhantomData;
 use Universe;
 use tables::GetTableName;
 use index::GenericRowId;
@@ -12,7 +11,7 @@ use index::GenericRowId;
 // https://doc.rust-lang.org/beta/unstable-book/language-features/on-unimplemented.html
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
 // to structural changes in the `#[foreign]` table."]
-pub trait Tracker: ::mopa::Any + Send + Sync {
+pub trait Tracker: 'static + ::mopa::Any + Send + Sync {
     /// The foreign table was cleared. Clearing the local table is likely appropriate.
     fn cleared(&mut self, universe: &Universe);
 
@@ -141,7 +140,7 @@ impl<I: GetTableName> Flush<I> {
                 self.del.len(), self.add.len(), self.cleared)
     }
 
-    pub fn register_tracker<T, R>(&mut self, _table: PhantomData<T>, tracker: R, sort_events: bool)
+    pub fn register_tracker<T, R>(&mut self, tracker: R, sort_events: bool)
     where
         T: GetTableName,
         R: Tracker,

@@ -6,11 +6,13 @@
 use std::fmt;
 use std::marker::PhantomData;
 use std::cmp::{Ordering, Eq, PartialEq, PartialOrd, Ord};
+use std::sync::RwLock;
 
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
 
-use tables::{GetTableName, LockedTable};
+use Universe;
+use tables::{GetTableName, LockedTable, GenericTable};
 
 
 /// Index to a row on some table.
@@ -46,6 +48,10 @@ impl<T: GetTableName> GenericRowId<T> {
 
     pub fn get_domain() -> ::domain::DomainName { T::get_domain() }
     pub fn get_name() -> ::tables::TableName { T::get_name() }
+    pub fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
+        let domain_id = Self::get_domain().get_id();
+        universe.get_generic_table(domain_id, Self::get_name())
+    }
 }
 
 
@@ -205,6 +211,7 @@ mod test {
         fn get_domain() -> DomainName { DomainName("test_domain") }
         fn get_name() -> TableName { TableName("test_table") }
         fn get_guarantee() -> Guarantee { Guarantee { consistent: false } }
+        fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
     }
     struct TestTable;
     impl LockedTable for TestTable {
@@ -366,6 +373,7 @@ mod row_range_test {
         fn get_domain() -> DomainName { DomainName("TEST_DOMAIN") }
         fn get_name() -> TableName { TableName("test_table") }
         fn get_guarantee() -> Guarantee { Guarantee { consistent: false } }
+        fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
     }
     type RR = RowRange<GenericRowId<TestTable>>;
 

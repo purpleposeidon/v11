@@ -428,7 +428,7 @@ impl fmt::Display for TableName {
 
 // FIXME: Rename. `TableRowId`?
 #[doc(hidden)]
-pub trait GetTableName {
+pub trait GetTableName: 'static {
     type Idx:
         ::num_traits::PrimInt +
         fmt::Display + fmt::Debug +
@@ -437,6 +437,7 @@ pub trait GetTableName {
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;
     fn get_guarantee() -> Guarantee;
+    fn get_generic_table(&Universe) -> &RwLock<GenericTable>;
 }
 
 #[doc(hidden)]

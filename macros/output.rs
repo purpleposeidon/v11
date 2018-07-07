@@ -216,6 +216,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }).collect();
 
     out! { ["The `Row` struct"] {
+        use std::sync::RwLock;
         /**
          * A structure holding a copy of each column's data. This is used to pass entire rows around through methods;
          * the actual table is column-based, so eg `read.column[index]` is the standard method of accessing rows.
@@ -229,6 +230,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             fn get_domain() -> DomainName { TABLE_DOMAIN }
             fn get_name() -> TableName { TABLE_NAME }
             fn get_guarantee() -> Guarantee { GUARANTEES }
+            fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
+                RowId::get_generic_table(universe)
+            }
         }
 
         /// A row of a reference to each element.
@@ -593,7 +597,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 /// Such trackers are added to every instance of the table; this only adds the
                 /// tracker to this specific instance.
                 pub fn register_tracker<R: Tracker>(&mut self, tracker: R, sort_events: bool) {
-                    self._table.flush.register_tracker::<Row, R>(FIRST.table, tracker, sort_events);
+                    self._table.flush.register_tracker::<Row, R>(
+                        tracker,
+                        sort_events,
+                    );
                 }
 
                 /// Try to remove an instance of your tracker.
@@ -1114,14 +1121,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! { ["Lock & Load"] {
 
         use std::mem::transmute;
-        use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
-
-        impl Row {
-            pub fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
-                let domain_id = TABLE_DOMAIN.get_id();
-                universe.get_generic_table(domain_id, TABLE_NAME)
-            }
-        }
+        use std::sync::{RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
 
         fn convert_read_guard(_lock: RwLockReadGuard<GenericTable>) -> Read {
             #(let #COL_NAME = {
@@ -1163,12 +1163,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// This is equivalent to `RwLock::read`.
         pub fn read_result<'u>(universe: &'u Universe) -> LockResult<Read<'u>> {
-            let table = Row::get_generic_table(universe).read();
+            let table = RowId::get_generic_table(universe).read();
             intern::wrangle_lock::map_result(table, convert_read_guard)
         }
 
         pub fn try_read<'u>(universe: &'u Universe) -> TryLockResult<Read<'u>> {
-            let table = Row::get_generic_table(universe).try_read();
+            let table = RowId::get_generic_table(universe).try_read();
             intern::wrangle_lock::map_try_result(table, convert_read_guard)
         }
 
@@ -1201,12 +1201,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         pub fn write_result<'u>(universe: &'u Universe) -> LockResult<Write<'u>> {
-            let table = Row::get_generic_table(universe).write();
+            let table = RowId::get_generic_table(universe).write();
             intern::wrangle_lock::map_result(table, convert_write_guard)
         }
 
         pub fn try_write<'u>(universe: &'u Universe) -> TryLockResult<Write<'u>> {
-            let table = Row::get_generic_table(universe).try_write();
+            let table = RowId::get_generic_table(universe).try_write();
             intern::wrangle_lock::map_try_result(table, convert_write_guard)
         }
 
@@ -1261,34 +1261,69 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let SORT_EVENTS: &Vec<bool> = &foreign_cols()
         .map(|x| Some(x.name) == table.sort_key)
         .collect();
-    out! { ["tracking"] {
-        #(
-            /// You must implement `Tracker` on this struct to maintain consistency by responding to
-            /// structural changes on the foreign table.
-            #[allow(non_camel_case_types)] // We do not want to guess at the capitalization.
-            pub struct #COL_TRACK_EVENTS;
-        )*
-        fn register_foreign_trackers(_universe: &Universe) {
-            // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
-            use std::marker::PhantomData;
-            use std::any::Any;
-            fn unify<K: GetTableName + 'static>(_t: PhantomData<K>, flush: &mut Any) -> &mut Flush<K> {
-                // The 'static req is weird. It... probably won't mess up anything?
-                flush.downcast_mut().expect("wrong foreign table type")
+    out! {
+        true || table.consistent => ["tracking"] {
+            #[deprecated = "Stopgate for until Tracker is parameterized"]
+            pub fn register_tracker_on<R, T>(
+                _phantom: ::std::marker::PhantomData<T>,
+                universe: &Universe,
+                tracker: R,
+                sort_events: bool,
+            )
+            where
+                R: Tracker,
+                T: GetTableName,
+            {
+                let mut gt = T::get_generic_table(universe).write().unwrap();
+                let flush = gt.table.get_flush();
+                let flush: &mut Flush<T> = flush.downcast_mut().expect("wrong foreign table type");
+                flush.register_tracker::<T, _>(tracker, sort_events)
             }
 
-            #({
-                type E = #COL_TRACK_ELEMENTS;
-                let gt = _universe.get_generic_table(E::get_domain().get_id(), E::get_name());
-                let mut gt = gt.write().unwrap();
-                let flush = gt.table.get_flush();
-                // An *actual* use of PhantomData! o_O 👻👻👻
-                let phantom = E::from_usize(0).table;
-                let flush = unify(phantom, flush);
-                flush.register_tracker(phantom, #COL_TRACK_EVENTS, #SORT_EVENTS);
-            })*
-        }
-    }};
+            /// Add a tracker. The tracker is only added to the particular table instance in the
+            /// [`Universe`], not to every table.
+            #[allow(deprecated)]
+            pub fn register_tracker<R, T>(universe: &Universe, tracker: R, sort_events: bool)
+            where
+                R: Tracker,
+                T: GetTableName,
+            {
+                // FIXME: `T` param goes away once Tracker is parameterized
+                let phantom = ::std::marker::PhantomData::<T>;
+                register_tracker_on(
+                    phantom, // An *actual* use of PhantomData! o_O 👻👻👻
+                    universe,
+                    tracker,
+                    sort_events,
+                )
+            }
+
+            #(
+                /// You must implement `Tracker` on this struct to maintain consistency by responding to
+                /// structural changes on the foreign table.
+                #[allow(non_camel_case_types)] // We do not want to guess at the capitalization.
+                pub struct #COL_TRACK_EVENTS;
+            )*
+            #[allow(deprecated)]
+            fn register_foreign_trackers(_universe: &Universe) {
+                // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
+                #({
+                    type E = #COL_TRACK_ELEMENTS;
+                    let phantom = E::from_usize(0).table;
+                    register_tracker_on(
+                        phantom,
+                        _universe,
+                        #COL_TRACK_EVENTS,
+                        #SORT_EVENTS,
+                    );
+                })*
+            }
+        };
+        /*["no tracking"] {
+            fn register_foreign_trackers(_universe: &Universe) {
+            }
+        }*/ // FIXME: Some of my stuff is registering trackers to tables that shouldn't have them? o_O But it works!?
+    };
 
     let TABLE_PATH_STR = format!("{}/{} version={},cols={},#={}",
         TABLE_DOMAIN_STR, TABLE_NAME_STR, table.version, table.cols.len(), table.hash_names());
