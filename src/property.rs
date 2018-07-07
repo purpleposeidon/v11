@@ -155,7 +155,7 @@ macro_rules! property {
 
         #[must_use]
         pub struct Read<'a>(RwLockReadGuard<'a, Type>);
-        unsafe impl<'a> Lockable<'a> for Read<'a> {
+        impl<'a> Lockable<'a> for Read<'a> {
             const TYPE_NAME: &'static str = concat!("ref v11/property/", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE));
             fn lock(universe: &'a Universe) -> Self {
                 Read(universe[&PropRef].read().unwrap())
@@ -170,7 +170,7 @@ macro_rules! property {
 
         #[must_use]
         pub struct Write<'a>(RwLockWriteGuard<'a, Type>);
-        unsafe impl<'a> Lockable<'a> for Write<'a> {
+        impl<'a> Lockable<'a> for Write<'a> {
             const TYPE_NAME: &'static str = concat!("mut v11/property/", stringify!($DOMAIN), "/", stringify!($NAME), ": ", stringify!($TYPE));
             fn lock(universe: &'a Universe) -> Self {
                 Write(universe[&PropRef].write().unwrap())

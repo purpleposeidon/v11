@@ -1330,11 +1330,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! { ["`context!` duck-type implementation"] {
         use self::v11::context::Lockable;
 
-        unsafe impl<'u> Lockable<'u> for Write<'u> {
+        impl<'u> Lockable<'u> for Write<'u> {
             const TYPE_NAME: &'static str = concat!("mut v11/table/", #TABLE_PATH_STR);
             fn lock(universe: &'u Universe) -> Self { write(universe) }
         }
-        unsafe impl<'u> Lockable<'u> for Read<'u> {
+        impl<'u> Lockable<'u> for Read<'u> {
             const TYPE_NAME: &'static str = concat!("ref v11/table/", #TABLE_PATH_STR);
             fn lock(universe: &'u Universe) -> Self { read(universe) }
         }
