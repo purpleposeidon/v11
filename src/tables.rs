@@ -226,7 +226,7 @@ type Prototyper = fn() -> PBox;
 
 pub trait TTable: ::mopa::Any + Send + Sync {
     // A slightly annoying thing is that this trait can't have any parameters.
-    // But this isn't so bad; the impl bakes them in.
+    // But this is okay. The impl bakes them in, and user code works with the concrete table.
 
     fn new() -> Self where Self: Sized;
     fn domain() -> DomainName where Self: Sized;

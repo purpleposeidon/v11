@@ -12,6 +12,8 @@ use index::GenericRowId;
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
 // to structural changes in the `#[foreign]` table."]
 pub trait Tracker: 'static + ::mopa::Any + Send + Sync {
+    type RowId: GenericRowId;
+
     /// The foreign table was cleared. Clearing the local table is likely appropriate.
     fn cleared(&mut self, universe: &Universe);
 
@@ -33,17 +35,10 @@ pub trait Tracker: 'static + ::mopa::Any + Send + Sync {
     /// undefined.
     ///
     /// Ignoring `added` is very typical.
-    fn track(&mut self, universe: &Universe, deleted: &[usize], added: &[usize]);
-
-    // FIXME: usize instead of GenericRowId.
-    // This'd break object safety tho... GenericTable has:
-    //  - deleted: Vec<usize>, 
-    //  - Vec<Box<Tracker>>
-    // Might need to box a tracker container trait.
-    // FIXME: Maybe separate 'track_delete' and 'track_add' fns? What about all three?
+    fn track(&mut self, universe: &Universe, deleted: &[Self::RowId], added: &[Self::RowId]);
 }
 mopafy!(Tracker);
-// FIXME: Derp, &mut on unit structs.
+// FIXME: Currently we use &mut, but I've only ever used a unit struct. It is *possibly* useful...
 
 
 #[doc(hidden)]
@@ -100,17 +95,7 @@ impl<I: GetTableName> Flush<I> {
             if self.cleared {
                 tracker.cleared(universe);
             }
-            //FIXME tracker.track(universe, &self.del[..], &self.add[..]);
-            {
-                // FIXME FIXME: Temporary during refactor!
-                let del = self.del.iter()
-                    .map(GenericRowId::to_usize)
-                    .collect::<Vec<usize>>();
-                let add = self.add.iter()
-                    .map(GenericRowId::to_usize)
-                    .collect::<Vec<usize>>();
-                tracker.track(universe, &del[..], &add[..]);
-            }
+            tracker.track(universe, &self.del[..], &self.add[..]);
         }
         self.del.clear();
         self.add.clear();
