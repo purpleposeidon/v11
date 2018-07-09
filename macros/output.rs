@@ -603,10 +603,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     );
                 }
 
+                /*
                 /// Try to remove an instance of your tracker.
                 pub fn remove_tracker<T: Tracker>(&mut self) -> Option<Box<Tracker>> {
                     self._table.flush.remove_tracker::<T>()
                 }
+                */
             }
 
             /// Makes sure the flush requirement has been acknowledged
@@ -674,13 +676,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         });
         out! { ["foreign_auto"] {
             impl Tracker for #TRACK_EVENTS {
+                type Table = Row;
+
                 fn cleared(&mut self, universe: &Universe) {
                     let mut lock = write(universe);
                     lock.clear();
                     lock.flush(universe);
                 }
 
-                fn track(&mut self, universe: &Universe, deleted_rows: &[usize], _added_rows: &[usize]) {
+                fn track(&mut self, universe: &Universe, deleted_rows: &[RowId], _added_rows: &[RowId]) {
                     if deleted_rows.is_empty() { return; }
                     let mut lock = write(universe);
                     lock.#DELEGATE(deleted_rows);

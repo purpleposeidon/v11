@@ -11,8 +11,8 @@ use index::GenericRowId;
 // https://doc.rust-lang.org/beta/unstable-book/language-features/on-unimplemented.html
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
 // to structural changes in the `#[foreign]` table."]
-pub trait Tracker: 'static + ::mopa::Any + Send + Sync {
-    type RowId: GenericRowId;
+pub trait Tracker: 'static + Send + Sync {
+    type Table: GetTableName;
 
     /// The foreign table was cleared. Clearing the local table is likely appropriate.
     fn cleared(&mut self, universe: &Universe);
@@ -35,9 +35,8 @@ pub trait Tracker: 'static + ::mopa::Any + Send + Sync {
     /// undefined.
     ///
     /// Ignoring `added` is very typical.
-    fn track(&mut self, universe: &Universe, deleted: &[Self::RowId], added: &[Self::RowId]);
+    fn track(&mut self, universe: &Universe, deleted: &[GenericRowId<Self::Table>], added: &[GenericRowId<Self::Table>]);
 }
-mopafy!(Tracker);
 // FIXME: Currently we use &mut, but I've only ever used a unit struct. It is *possibly* useful...
 
 
@@ -46,7 +45,7 @@ pub struct Flush<I: GetTableName> {
     // All the other fields don't need locks, but this one does because we need to continue holding
     // it after releasing the lock on `GenericTable`.
     // We manage borrowing on the other stuff via mem::swap
-    trackers: Arc<RwLock<Vec<Box<Tracker>>>>,
+    trackers: Arc<RwLock<Vec<Box<Tracker<Table=I>>>>>,
     trackers_is_empty: bool, // don't want to lock!
     sort_events: bool,
 
@@ -125,14 +124,10 @@ impl<I: GetTableName> Flush<I> {
                 self.del.len(), self.add.len(), self.cleared)
     }
 
-    pub fn register_tracker<T, R>(&mut self, tracker: R, sort_events: bool)
-    where
-        T: GetTableName,
-        R: Tracker,
-    {
-        if !T::get_guarantee().consistent {
+    pub fn register_tracker<R: Tracker<Table=I>>(&mut self, tracker: R, sort_events: bool) {
+        if !R::Table::get_guarantee().consistent {
             panic!("Tried to add tracker to inconsistent table, {}/{}",
-                   T::get_domain(), T::get_name());
+                   R::Table::get_domain(), R::Table::get_name());
         }
         let mut trackers = self.trackers.write().unwrap();
         trackers.push(Box::new(tracker));
@@ -140,14 +135,16 @@ impl<I: GetTableName> Flush<I> {
         self.sort_events |= sort_events;
     }
 
-    pub fn remove_tracker<T: Tracker>(&mut self) -> Option<Box<Tracker>> {
+    /*
+    pub fn remove_tracker<R: Tracker<Table=I>>(&mut self) -> Option<Box<R>> {
         let mut trackers = self.trackers.write().unwrap();
-        for i in 0..trackers.len() {
-            if trackers[i].downcast_ref::<T>().is_none() { continue; }
+        for i in (0..trackers.len()).rev() {
+            if trackers[i].downcast_ref::<R>().is_none() { continue; }
             return Some(trackers.remove(i));
         }
         None
     }
+    */
 
     pub fn trackers_is_empty(&self) -> bool { self.trackers_is_empty }
 }
