@@ -570,14 +570,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
                 #(
                     /// `deleted` is a list of removed foreign keys.
-                    pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[usize]) {
+                    pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[#IFC_ELEMENT]) {
                         for deleted_foreign in deleted {
-                            type E = #IFC_ELEMENT;
-                            let deleted_foreign = E::from_usize(*deleted_foreign);
                             loop {
                                 // It'd be nicer to keep the iterator around, but we immediately
                                 // invalidate it. We could collect it into a Vec?
-                                let kill = if let Some(kill) = self.#IFC.deref().inner().find(deleted_foreign).next() {
+                                let kill = if let Some(kill) = self.#IFC.deref().inner().find(*deleted_foreign).next() {
                                     // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
                                     kill
                                 } else {
@@ -592,20 +590,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     }
                 )*
 
-                /// Add a custom tracker. This is an odd function to use; typically you'll have a
-                /// `#[foreign]` column that provides a struct for you to implement your tracker on.
-                /// Such trackers are added to every instance of the table; this only adds the
-                /// tracker to this specific instance.
-                pub fn register_tracker<R: Tracker>(&mut self, tracker: R, sort_events: bool) {
-                    self._table.flush.register_tracker::<Row, R>(
-                        tracker,
-                        sort_events,
-                    );
-                }
-
                 /*
                 /// Try to remove an instance of your tracker.
-                pub fn remove_tracker<T: Tracker>(&mut self) -> Option<Box<Tracker>> {
+                pub fn remove_tracker<T: Tracker<Table=Row>>(&mut self) -> Option<Box<Tracker<Table=Row>>> {
                     self._table.flush.remove_tracker::<T>()
                 }
                 */
@@ -647,7 +634,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(
                 /// This is a table sorted by a foreign key. This function removes all the keys
                 /// listed in `remove`, which must also be sorted.
-                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, remove: &[usize]) {
+                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, remove: &[RowId]) {
                     if remove.is_empty() || self.len() == 0 { return; }
                     let mut core = JoinCore::new(remove.iter().map(|x| *x));
                     self.merge0(move |me, rowid| {
@@ -1267,55 +1254,40 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         .collect();
     out! {
         true || table.consistent => ["tracking"] {
-            #[deprecated = "Stopgate for until Tracker is parameterized"]
-            pub fn register_tracker_on<R, T>(
-                _phantom: ::std::marker::PhantomData<T>,
+            /// Add a custom tracker.
+            /// You'll typically use this to maintain consistentcy with non-table data structures.
+            /// For tables you'll generally use `#[foreign]` to be provided a struct to implement
+            /// [`Tracker`] on. Such trackers are automatically added to each table instance; this
+            /// function adds the tracker only to a particular instance.
+            pub fn register_tracker<R: Tracker>(
                 universe: &Universe,
                 tracker: R,
                 sort_events: bool,
-            )
-            where
-                R: Tracker,
-                T: GetTableName,
-            {
-                let mut gt = T::get_generic_table(universe).write().unwrap();
+            ) {
+                if Row::get_domain() == <R::Table as GetTableName>::get_domain()
+                    && Row::get_name() == <R::Table as GetTableName>::get_name()
+                {
+                    // Well it could, but we've got locking issues.
+                    panic!("Table can't track itself");
+                }
+                // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
+                let mut gt = <R::Table as GetTableName>::get_generic_table(universe).write().unwrap();
                 let flush = gt.table.get_flush();
-                let flush: &mut Flush<T> = flush.downcast_mut().expect("wrong foreign table type");
-                flush.register_tracker::<T, _>(tracker, sort_events)
-            }
-
-            /// Add a tracker. The tracker is only added to the particular table instance in the
-            /// [`Universe`], not to every table.
-            #[allow(deprecated)]
-            pub fn register_tracker<R, T>(universe: &Universe, tracker: R, sort_events: bool)
-            where
-                R: Tracker,
-                T: GetTableName,
-            {
-                // FIXME: `T` param goes away once Tracker is parameterized
-                let phantom = ::std::marker::PhantomData::<T>;
-                register_tracker_on(
-                    phantom, // An *actual* use of PhantomData! o_O 👻👻👻
-                    universe,
-                    tracker,
-                    sort_events,
-                )
+                let flush: &mut Flush<R::Table> = flush.downcast_mut().expect("wrong foreign table type");
+                flush.register_tracker(tracker, sort_events)
             }
 
             #(
-                /// You must implement `Tracker` on this struct to maintain consistency by responding to
+                /// You must implement [`Tracker`] on this struct to maintain consistency by responding to
                 /// structural changes on the foreign table.
                 #[allow(non_camel_case_types)] // We do not want to guess at the capitalization.
                 pub struct #COL_TRACK_EVENTS;
             )*
-            #[allow(deprecated)]
+
             fn register_foreign_trackers(_universe: &Universe) {
-                // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
                 #({
                     type E = #COL_TRACK_ELEMENTS;
-                    let phantom = E::from_usize(0).table;
-                    register_tracker_on(
-                        phantom,
+                    register_tracker(
                         _universe,
                         #COL_TRACK_EVENTS,
                         #SORT_EVENTS,

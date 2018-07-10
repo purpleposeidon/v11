@@ -34,10 +34,12 @@ table! {
 }
 
 impl Tracker for sailors::track_ship_events {
+    type Table = ships::Row;
+
     fn cleared(&mut self, universe: &Universe) {
         sailors::write(universe).clear();
     }
-    fn track(&mut self, universe: &Universe, deleted_ships: &[usize], _added: &[usize]) {
+    fn track(&mut self, universe: &Universe, deleted_ships: &[ships::RowId], _added: &[ships::RowId]) {
         println!("deleted: {:?}", deleted_ships);
         let mut sailors = sailors::write(universe);
         sailors.track_ship_removal(deleted_ships);

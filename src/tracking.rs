@@ -12,7 +12,7 @@ use index::GenericRowId;
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
 // to structural changes in the `#[foreign]` table."]
 pub trait Tracker: 'static + Send + Sync {
-    type Table: GetTableName;
+    type Table: GetTableName; // FIXME: Rename 'type ForeignRow'.
 
     /// The foreign table was cleared. Clearing the local table is likely appropriate.
     fn cleared(&mut self, universe: &Universe);

@@ -31,7 +31,6 @@ table! {
         blah: [Blah; VecCol<Blah>],
     }
 }
-
 table! {
     #[kind = "consistent"]
     #[row_derive(Clone)]
@@ -44,11 +43,14 @@ table! {
         range: [RowRange<elements::RowId>; VecCol<RowRange<elements::RowId>>],
     }
 }
+
 impl Tracker for arrays::track_range_start_events {
+    type Table = elements::Row;
+
     fn cleared(&mut self, universe: &Universe) {
         arrays::write(universe).clear();
     }
-    fn track(&mut self, universe: &Universe, deleted: &[usize], _added: &[usize]) {
+    fn track(&mut self, universe: &Universe, deleted: &[elements::RowId], _added: &[elements::RowId]) {
         let mut arrays = arrays::write(universe);
         arrays.track_range_start_removal(deleted);
     }

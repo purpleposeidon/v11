@@ -57,10 +57,12 @@ table! {
     }
 }
 impl Tracker for test_foreign::track_id_events {
+    type Table = easy::Row;
+
     fn cleared(&mut self, universe: &Universe) {
         test_foreign::write(universe).clear();
     }
-    fn track(&mut self, universe: &Universe, deleted: &[usize], _added: &[usize]) {
+    fn track(&mut self, universe: &Universe, deleted: &[easy::RowId], _added: &[easy::RowId]) {
         test_foreign::write(universe).track_id_removal(deleted);
     }
 }
