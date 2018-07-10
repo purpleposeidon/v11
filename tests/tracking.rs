@@ -34,7 +34,7 @@ table! {
 }
 
 impl Tracker for sailors::track_ship_events {
-    type Table = ships::Row;
+    type ForeignRow = ships::Row;
 
     fn cleared(&mut self, universe: &Universe) {
         sailors::write(universe).clear();

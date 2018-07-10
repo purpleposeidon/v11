@@ -1264,16 +1264,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 tracker: R,
                 sort_events: bool,
             ) {
-                if Row::get_domain() == <R::Table as GetTableName>::get_domain()
-                    && Row::get_name() == <R::Table as GetTableName>::get_name()
+                if Row::get_domain() == <R::ForeignRow as GetTableName>::get_domain()
+                    && Row::get_name() == <R::ForeignRow as GetTableName>::get_name()
                 {
                     // Well it could, but we've got locking issues.
                     panic!("Table can't track itself");
                 }
                 // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
-                let mut gt = <R::Table as GetTableName>::get_generic_table(universe).write().unwrap();
+                let mut gt = <R::ForeignRow as GetTableName>::get_generic_table(universe).write().unwrap();
                 let flush = gt.table.get_flush();
-                let flush: &mut Flush<R::Table> = flush.downcast_mut().expect("wrong foreign table type");
+                let flush: &mut Flush<R::ForeignRow> = flush.downcast_mut().expect("wrong foreign table type");
                 flush.register_tracker(tracker, sort_events)
             }
 
