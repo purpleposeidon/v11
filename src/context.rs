@@ -97,7 +97,9 @@ macro_rules! context {
                 unsafe fn release_fields<F>(self, mut field_for: F)
                 where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize)
                 {
-                    // FIXME: Why c_void? Why not... T?
+                    // Why c_void? Why not... T?
+                    // Because T can't be Any, because Any requires 'static,
+                    // and these are lock guards.
                     $({
                         let mut field = self.$i;
                         const TYPE_NAME: &'static str = <self::$i::Lock as Lockable>::TYPE_NAME;
