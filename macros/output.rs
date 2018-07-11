@@ -60,6 +60,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             // Fix docs.
             let buff = buff.replace("#TABLE_NAME", &table.name);
 
+            // It's very sweet that we don't have to pass this into the macro!
+            // A benefit of defining the macro within the function.
             out.write(buff.as_bytes())?;
         }
     }
@@ -520,21 +522,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }};
 
-    let ifcs = || table.cols.iter().filter(|x| x.indexed && x.foreign);
-
-    let IFC: Vec<_> = ifcs()
-        .map(|x| pp::ident_to_string(x.name))
-        .map(i)
-        .collect();
-    let TRACK_IFC_REMOVAL: Vec<_> = ifcs()
-        .map(|x| format!("track_{}_removal", x.name))
-        .map(i)
-        .collect();
-    let IFC_ELEMENT: Vec<_> = ifcs()
-        .map(|x| pp::ty_to_string(&*x.element))
-        .map(i)
-        .collect();
-
     out! {
         table.consistent => ["Change tracking"] {
             impl<'a> Write<'a> {
@@ -568,28 +555,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     )*
                 }
 
-                #(
-                    /// `deleted` is a list of removed foreign keys.
-                    pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[#IFC_ELEMENT]) {
-                        for deleted_foreign in deleted {
-                            loop {
-                                // It'd be nicer to keep the iterator around, but we immediately
-                                // invalidate it. We could collect it into a Vec?
-                                let kill = if let Some(kill) = self.#IFC.deref().inner().find(*deleted_foreign).next() {
-                                    // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
-                                    kill
-                                } else {
-                                    break;
-                                };
-                                self.delete(kill);
-                                if cfg!(test) && self.contains(kill) {
-                                    panic!("Deletion failed");
-                                }
-                            }
-                        }
-                    }
-                )*
-
                 /*
                 /// Try to remove an instance of your tracker.
                 pub fn remove_tracker<T: Tracker<Table=Row>>(&mut self) -> Option<Box<Tracker<Table=Row>>> {
@@ -622,6 +587,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
+    // 'ifc' = "indexed foreign column"
+    let ifcs = || table.cols.iter().filter(|x| x.indexed && x.foreign);
+    let IFC: Vec<_> = ifcs()
+        .map(|x| i(pp::ident_to_string(x.name)))
+        .collect();
+    let TRACK_IFC_REMOVAL: Vec<_> = ifcs()
+        .map(|x| i(format!("track_{}_removal", x.name)))
+        .collect();
+    let IFC_ELEMENT: Vec<_> = ifcs()
+        .map(|x| i(pp::ty_to_string(&*x.element)))
+        .collect();
+
     let sorted_foreign = || table.cols.iter().filter(|x| Some(x.name) == table.sort_key && x.foreign);
     let TRACKED_SORTED_COL: &Vec<_> = &sorted_foreign()
         .map(|x| i(pp::ident_to_string(x.name)))
@@ -629,12 +606,31 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let TRACK_SORTED_COL_EVENTS: &Vec<_> = &sorted_foreign()
         .map(|x| i(format!("track_sorted_{}_removal", x.name)))
         .collect();
-    out! { ["track sorted events"] {
+    let TRACK_SORTED_COL_ELEMENT: &Vec<_> = &sorted_foreign()
+        .map(|x| i(pp::ty_to_string(&*x.element)))
+        .collect();
+    out! { ["foreign row removal"] {
         impl<'u> Write<'u> {
+            #(
+                /// `deleted` is a list of removed foreign keys.
+                pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[#IFC_ELEMENT]) {
+                    for deleted_foreign in deleted {
+                        // It'd be nicer to keep the iterator around, but we immediately
+                        // invalidate it. We could collect it into a Vec?
+                        while let Some(kill) = self.#IFC.deref().inner().find(*deleted_foreign).next() {
+                            // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
+                            self.delete(kill);
+                            if cfg!(test) && self.contains(kill) {
+                                panic!("Deletion failed");
+                            }
+                        }
+                    }
+                }
+            )*
             #(
                 /// This is a table sorted by a foreign key. This function removes all the keys
                 /// listed in `remove`, which must also be sorted.
-                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, remove: &[RowId]) {
+                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, remove: &[#TRACK_SORTED_COL_ELEMENT]) {
                     if remove.is_empty() || self.len() == 0 { return; }
                     let mut core = JoinCore::new(remove.iter().map(|x| *x));
                     self.merge0(move |me, rowid| {
@@ -661,9 +657,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         } else {
             panic!("`#[foreign_auto]` can only be used on columns with `#[index]` or `#[sort_key]`.");
         });
+        let FOREIGN_ELEMENT = i(pp::ty_to_string(&*col.element));
         out! { ["foreign_auto"] {
             impl Tracker for #TRACK_EVENTS {
-                type Table = Row;
+                type ForeignRow = #FOREIGN_ELEMENT;
 
                 fn cleared(&mut self, universe: &Universe) {
                     let mut lock = write(universe);
@@ -671,7 +668,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     lock.flush(universe);
                 }
 
-                fn track(&mut self, universe: &Universe, deleted_rows: &[RowId], _added_rows: &[RowId]) {
+                fn track(&mut self, universe: &Universe, deleted_rows: &[#FOREIGN_ELEMENT], _added_rows: &[#FOREIGN_ELEMENT]) {
                     if deleted_rows.is_empty() { return; }
                     let mut lock = write(universe);
                     lock.#DELEGATE(deleted_rows);
@@ -1040,7 +1037,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
         !table.sorted => ["row pushing for unsorted tables"] {
             impl<'u> Write<'u> {
-                /** Populate the table with data from the provided iterator. */
+                /// Populate the table with data from the provided iterator.
                 pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
                     self.reserve(data.size_hint().0);
                     for row in data {
@@ -1085,7 +1082,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         .unwrap_or(RowId::from_usize(self.len()))
                 }
 
-                /// Push an 'array' of values. Contiguity guaranteed!
+                /// Push an 'array' of values. The return value is a contiguous range.
                 pub fn push_array<I>(&mut self, mut i: I) -> RowRange<RowId>
                 where I: ExactSizeIterator<Item=Row>
                 {
