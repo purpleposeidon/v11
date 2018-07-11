@@ -4,15 +4,20 @@ use Universe;
 use tables::GetTableName;
 use index::GenericRowId;
 
+/// Helper trait used to a parameter of a parameterized type.
+pub trait GetParam { type T; }
+impl<T: GetTableName> GetParam for GenericRowId<T> { type T = T; }
+
 
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
-/// guarantee, which is provided by `#[kind = "public"]`.
+/// guarantee on the foreign table, which is provided by `#[kind = "consistent"]`.
 // FIXME: https://github.com/rust-lang/rust/issues/29628
 // https://doc.rust-lang.org/beta/unstable-book/language-features/on-unimplemented.html
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
 // to structural changes in the `#[foreign]` table."]
 pub trait Tracker: 'static + Send + Sync {
-    type ForeignRow: GetTableName;
+    /// `$foreign::Row`.
+    type Foreign: GetTableName;
 
     /// The foreign table was cleared. Clearing the local table is likely appropriate.
     fn cleared(&mut self, universe: &Universe);
@@ -35,7 +40,7 @@ pub trait Tracker: 'static + Send + Sync {
     /// undefined.
     ///
     /// Ignoring `added` is very typical.
-    fn track(&mut self, universe: &Universe, deleted: &[GenericRowId<Self::ForeignRow>], added: &[GenericRowId<Self::ForeignRow>]);
+    fn track(&mut self, universe: &Universe, deleted: &[GenericRowId<Self::Foreign>], added: &[GenericRowId<Self::Foreign>]);
 }
 // FIXME: Currently we use &mut, but I've only ever used a unit struct. It is *possibly* useful...
 
@@ -45,7 +50,7 @@ pub struct Flush<I: GetTableName> {
     // All the other fields don't need locks, but this one does because we need to continue holding
     // it after releasing the lock on `GenericTable`.
     // We manage borrowing on the other stuff via mem::swap
-    trackers: Arc<RwLock<Vec<Box<Tracker<ForeignRow=I>>>>>,
+    trackers: Arc<RwLock<Vec<Box<Tracker<Foreign=I>>>>>,
     trackers_is_empty: bool, // don't want to lock!
     sort_events: bool,
 
@@ -124,10 +129,10 @@ impl<I: GetTableName> Flush<I> {
                 self.del.len(), self.add.len(), self.cleared)
     }
 
-    pub fn register_tracker<R: Tracker<ForeignRow=I>>(&mut self, tracker: R, sort_events: bool) {
-        if !R::ForeignRow::get_guarantee().consistent {
+    pub fn register_tracker<R: Tracker<Foreign=I>>(&mut self, tracker: R, sort_events: bool) {
+        if !R::Foreign::get_guarantee().consistent {
             panic!("Tried to add tracker to inconsistent table, {}/{}",
-                   R::ForeignRow::get_domain(), R::ForeignRow::get_name());
+                   R::Foreign::get_domain(), R::Foreign::get_name());
         }
         let mut trackers = self.trackers.write().unwrap();
         trackers.push(Box::new(tracker));

@@ -145,7 +145,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[allow(unused_imports)] use self::v11::joincore::*; // FIXME: Bleh!
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
-        #[allow(unused_imports)] use self::v11::tracking::Tracker;
+        #[allow(unused_imports)] use self::v11::tracking::{Tracker, GetParam};
         #[allow(unused_imports)] use std::collections::VecDeque;
         #[allow(unused_imports)] use std::cmp::Ordering;
 
@@ -635,7 +635,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     let mut core = JoinCore::new(remove.iter().map(|x| *x));
                     self.merge0(move |me, rowid| {
                         use std::iter::empty;
-                        let foreign = me.#TRACKED_SORTED_COL[rowid].to_usize();
+                        let foreign = me.#TRACKED_SORTED_COL[rowid];
                         match core.cmp(&foreign) {
                             Join::Match(_) => Action::Continue { remove: true, add: empty() },
                             Join::Next => Action::Continue { remove: false, add: empty() },
@@ -659,8 +659,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         });
         let FOREIGN_ELEMENT = i(pp::ty_to_string(&*col.element));
         out! { ["foreign_auto"] {
+            // #FOREIGN_ELEMENT is a GenericRowId<TableRow>.
+            // We need to get at the TableRow...
             impl Tracker for #TRACK_EVENTS {
-                type ForeignRow = #FOREIGN_ELEMENT;
+                type Foreign = <#FOREIGN_ELEMENT as GetParam>::T;
 
                 fn cleared(&mut self, universe: &Universe) {
                     let mut lock = write(universe);
@@ -1261,16 +1263,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 tracker: R,
                 sort_events: bool,
             ) {
-                if Row::get_domain() == <R::ForeignRow as GetTableName>::get_domain()
-                    && Row::get_name() == <R::ForeignRow as GetTableName>::get_name()
+                if Row::get_domain() == <R::Foreign as GetTableName>::get_domain()
+                    && Row::get_name() == <R::Foreign as GetTableName>::get_name()
                 {
                     // Well it could, but we've got locking issues.
                     panic!("Table can't track itself");
                 }
                 // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
-                let mut gt = <R::ForeignRow as GetTableName>::get_generic_table(universe).write().unwrap();
+                let mut gt = <R::Foreign as GetTableName>::get_generic_table(universe).write().unwrap();
                 let flush = gt.table.get_flush();
-                let flush: &mut Flush<R::ForeignRow> = flush.downcast_mut().expect("wrong foreign table type");
+                let flush: &mut Flush<R::Foreign> = flush.downcast_mut().expect("wrong foreign table type");
                 flush.register_tracker(tracker, sort_events)
             }
 

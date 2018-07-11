@@ -10,7 +10,6 @@ extern crate rustc_serialize;
 
 domain! { TEST }
 use v11::Universe;
-use v11::tracking::Tracker;
 
 type Name = &'static str;
 

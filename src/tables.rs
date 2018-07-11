@@ -429,6 +429,7 @@ impl fmt::Display for TableName {
 // FIXME: Rename. `TableRowId`?
 #[doc(hidden)]
 pub trait GetTableName: 'static {
+    /// The raw index, like `u32`.
     type Idx:
         ::num_traits::PrimInt +
         fmt::Display + fmt::Debug +

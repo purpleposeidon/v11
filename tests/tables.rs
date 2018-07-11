@@ -57,7 +57,7 @@ table! {
     }
 }
 impl Tracker for test_foreign::track_id_events {
-    type ForeignRow = easy::Row;
+    type Foreign = easy::Row;
 
     fn cleared(&mut self, universe: &Universe) {
         test_foreign::write(universe).clear();

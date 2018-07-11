@@ -45,7 +45,7 @@ table! {
 }
 
 impl Tracker for arrays::track_range_start_events {
-    type ForeignRow = elements::Row;
+    type Foreign = elements::Row;
 
     fn cleared(&mut self, universe: &Universe) {
         arrays::write(universe).clear();
