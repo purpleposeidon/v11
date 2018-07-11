@@ -1253,29 +1253,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         .collect();
     out! {
         true || table.consistent => ["tracking"] {
-            /// Add a custom tracker.
-            /// You'll typically use this to maintain consistentcy with non-table data structures.
-            /// For tables you'll generally use `#[foreign]` to be provided a struct to implement
-            /// [`Tracker`] on. Such trackers are automatically added to each table instance; this
-            /// function adds the tracker only to a particular instance.
-            pub fn register_tracker<R: Tracker>(
-                universe: &Universe,
-                tracker: R,
-                sort_events: bool,
-            ) {
-                if Row::get_domain() == <R::Foreign as GetTableName>::get_domain()
-                    && Row::get_name() == <R::Foreign as GetTableName>::get_name()
-                {
-                    // Well it could, but we've got locking issues.
-                    panic!("Table can't track itself");
-                }
-                // This is kind of tricky. We need to go from foreign::RowId to foreign.flush.
-                let mut gt = <R::Foreign as GetTableName>::get_generic_table(universe).write().unwrap();
-                let flush = gt.table.get_flush();
-                let flush: &mut Flush<R::Foreign> = flush.downcast_mut().expect("wrong foreign table type");
-                flush.register_tracker(tracker, sort_events)
-            }
-
             #(
                 /// You must implement [`Tracker`] on this struct to maintain consistency by responding to
                 /// structural changes on the foreign table.
@@ -1286,8 +1263,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             fn register_foreign_trackers(_universe: &Universe) {
                 #({
                     type E = #COL_TRACK_ELEMENTS;
-                    register_tracker(
-                        _universe,
+                    _universe.register_tracker(
                         #COL_TRACK_EVENTS,
                         #SORT_EVENTS,
                     );

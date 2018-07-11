@@ -171,3 +171,24 @@ impl<I: GetTableName> Flush<I> {
     #[inline] pub fn add_reserve(&mut self, n: usize) { self.add.reserve(n) }
     #[inline] pub fn del_reserve(&mut self, n: usize) { self.del.reserve(n) }
 }
+
+
+
+impl Universe {
+    /// Add a custom tracker.
+    /// You'll typically use this to maintain consistentcy with non-table data structures.
+    /// For tables you'll generally use `#[foreign]` to be provided a struct to implement
+    /// [`Tracker`] on. Such trackers are automatically added to each table instance; this
+    /// function adds the tracker only to a particular instance.
+    pub fn register_tracker<R: Tracker>(
+        &self,
+        tracker: R,
+        sort_events: bool,
+    ) {
+        let gt = <R::Foreign as GetTableName>::get_generic_table(self);
+        let mut gt = gt.write().unwrap();
+        let flush = gt.table.get_flush();
+        let flush: &mut Flush<R::Foreign> = flush.downcast_mut().expect("wrong foreign table type");
+        flush.register_tracker(tracker, sort_events)
+    }
+}
