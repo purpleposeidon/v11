@@ -36,18 +36,21 @@ define_proc_macros! {
         }
 
         use std::env::var as env;
-        let output_path = format!(
-            "{}/target/v11_dump/{}_{}.rs",
-            env("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"),
-            table.domain,
-            table.name,
-        ); // FIXME: There doesn't seem to be a proper way of doing this.
+        let output_path = env("V11_MACRO_DUMP_DIR").ok().unwrap_or_else(|| {
+            // FIXME: There doesn't seem to be a proper way of doing this.
+            format!(
+                "{}/target/v11_dump/{}_{}.rs",
+                env("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"),
+                table.domain,
+                table.name,
+            )
+        });
         let output_path = ::std::path::Path::new(&output_path);
         let dump = match env("V11_MACRO_DUMP").as_ref().map(String::as_str) {
             Ok("*") => true,
             Ok("0") | Ok("") => false,
             Ok(n) => n == table.name,
-            _ => true,
+            _ => false,
         };
         let mut ret = Vec::new();
         ::output::write_out(table, &mut ret).unwrap();
