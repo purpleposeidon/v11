@@ -50,6 +50,8 @@ events! {
     VIEW = 12, false, Delegate,
     DEBUG = 13, false, Delegate,
     CLONE = 14, false, Delegate,
+    SERIALIZE = 15, false, Delegate,
+    DESERIALIZE = 16, false, Delegate,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -111,6 +113,7 @@ impl Default for EventHandlers {
             fallbacks: (0..MAX_EVENT_TYPES)
                 .map(|i| {
                     if EVENT_LIST.get(i).map(|e| e.delegate) == Some(Ignore) {
+                        debug_assert!(EVENT_LIST[i].id as usize == i);
                         Box::new(NullHandler) as Box<FallbackHandler>
                     } else {
                         Box::new(InvalidHandler) as Box<FallbackHandler>
