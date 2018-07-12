@@ -7,8 +7,8 @@ extern crate v11_macros;
 extern crate rustc_serialize;
 
 use v11::*;
+use v11::tracking::prelude::*;
 use v11::tables::RowRange;
-use v11::tracking::Tracker;
 
 
 
@@ -46,13 +46,18 @@ table! {
 
 impl Tracker for arrays::track_range_start_events {
     type Foreign = elements::Row;
-
-    fn cleared(&mut self, universe: &Universe) {
-        arrays::write(universe).clear();
+    fn consider(&self, event: Event) -> Disposition {
+        if event.is_removal {
+            Disposition::Handle
+        } else {
+            Disposition::Delegate
+        }
     }
-    fn track(&mut self, universe: &Universe, deleted: &[elements::RowId], _added: &[elements::RowId]) {
+
+    fn handle(&mut self, universe: &Universe, event: Event, selected: SelectRows<Self::Foreign>) {
         let mut arrays = arrays::write(universe);
-        arrays.track_range_start_removal(deleted);
+        arrays.track_range_start_removal(selected);
+        arrays.flush(universe, event);
     }
 }
 
@@ -106,6 +111,6 @@ fn ranged() {
             println!("\t{}", e.bits[erow]);
         }
     }
-    a.flush(universe);
-    e.flush(universe);
+    a.flush(universe, event::CREATE);
+    e.flush(universe, event::CREATE);
 }

@@ -4,10 +4,55 @@ use Universe;
 use tables::GetTableName;
 use index::GenericRowId;
 
+/// Everything you need to define a [`Tracker`].
+pub mod prelude {
+    pub use ::Universe;
+    pub use ::tracking::{Tracker, SelectRows};
+    pub use ::event::{self, Event, Disposition};
+}
+
 /// Helper trait used to a parameter of a parameterized type.
 pub trait GetParam { type T; }
 impl<T: GetTableName> GetParam for GenericRowId<T> { type T = T; }
 
+/// Indicates whether all rows hae been selected, or only some of them.
+/// (No selection is indicated by not receiving a call.)
+#[derive(Debug, Clone)]
+pub enum Select<I> {
+    All,
+    These(I),
+}
+impl<I> Select<I> {
+    pub fn map<F, R>(self, f: F) -> Select<R>
+    where F: FnOnce(I) -> R
+    {
+        match self {
+            Select::All => Select::All,
+            Select::These(rows) => Select::These(f(rows)),
+        }
+    }
+
+    pub fn as_ref(&self) -> Select<&I> {
+        match self {
+            Select::All => Select::All,
+            Select::These(rows) => Select::These(rows),
+        }
+    }
+
+    pub fn as_mut(&mut self) -> Select<&mut I> {
+        match self {
+            Select::All => Select::All,
+            Select::These(rows) => Select::These(rows),
+        }
+    }
+}
+impl<'a, T: GetTableName> Select<&'a GenericRowId<T>> {
+    // FIXME: iter?
+}
+pub type SelectRows<'a, T> = Select<&'a [GenericRowId<T>]>;
+pub type SelectAny<'a> = Select<::any_slice::AnySliceRef<'a>>;
+
+use event::{Disposition, Event};
 
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
 /// guarantee on the foreign table, which is provided by `#[kind = "consistent"]`.
@@ -19,30 +64,37 @@ pub trait Tracker: 'static + Send + Sync {
     /// `$foreign::Row`.
     type Foreign: GetTableName;
 
-    /// The foreign table was cleared. Clearing the local table is likely appropriate.
-    fn cleared(&mut self, universe: &Universe);
+    /// Indicate if the Tracker is interested in the given [`Event`] type.
+    fn consider(&self, event: Event) -> Disposition;
 
-    /// The indicated foreign rows have been deleted or added.
-    ///
-    /// If the column has an `#[index]`, you can call `$table.track_$col_events(deleted)`.
-    /// `added` rows must be processed *after* deleted rows.
-    /// Or, if the table is `#[kind = "sorted"]` and has a `#[sort_key]` column, you can call
-    /// `$table.track_sorted_$col_events(deleted)`.
-    ///
-    /// Unfortunately `usize`s are passed instead of `$table::RowId`.
-    /// They can be converted using `$table::RowId::from_usize`.
-    /// This might be fixed in the future.
+    /// If this returns `true`, then rows will be sorted. Otherwise, their order is
+    /// undefined.
+    fn sort(&self, _event: Event) -> bool {
+        Self::Foreign::get_guarantee().sorted
+    }
+
+    /// The indicated foreign rows have had... something... done to them.
     ///
     /// You may lock the foreign table for editing, but making structural changes will likely
     /// cause you trouble.
     ///
-    /// If the foreign key is `#[sort_key]`, then the events are sorted. Otherwise, the order is
-    /// undefined.
+    /// # Deletion
+    /// The most common behavior of a tracker is to respond to deletion events.
     ///
-    /// Ignoring `added` is very typical.
-    fn track(&mut self, universe: &Universe, deleted: &[GenericRowId<Self::Foreign>], added: &[GenericRowId<Self::Foreign>]);
+    /// If the column has an `#[index]`, you can call `$table.track_$col_events(deleted)`.
+    /// Or, if the table is `#[kind = "sorted"]` and has a `#[sort_key]` column, you can call
+    /// `$table.track_sorted_$col_events(deleted)`.
+    ///
+    /// # Just-in-time
+    /// Any deleted rows in the foreign table will still be valid (at least so far as you'll be
+    /// able to access their contents without error), but will become actually-deleted after the
+    /// flush completes.
+    ///
+    /// Any newly created rows have just become accessible.
+    fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>);
+    // All of my impls of `Tracker` have been unit structs so far, so &mut seems a bit silly.
+    // But someone may find a use for it.
 }
-// FIXME: Currently we use &mut, but I've only ever used a unit struct. It is *possibly* useful...
 
 
 #[doc(hidden)]
@@ -52,22 +104,18 @@ pub struct Flush<I: GetTableName> {
     // We manage borrowing on the other stuff via mem::swap
     trackers: Arc<RwLock<Vec<Box<Tracker<Foreign=I>>>>>,
     trackers_is_empty: bool, // don't want to lock!
-    sort_events: bool,
 
-    del: Vec<GenericRowId<I>>,
-    add: Vec<GenericRowId<I>>,
-    cleared: bool,
+    selected: Vec<GenericRowId<I>>,
+    select_all: bool,
 }
 impl<I: GetTableName> Default for Flush<I> {
     fn default() -> Self {
         Flush {
             trackers: Default::default(),
             trackers_is_empty: true,
-            sort_events: false,
 
-            del: Default::default(),
-            add: Default::default(),
-            cleared: false,
+            selected: vec![],
+            select_all: false,
         }
     }
 }
@@ -80,29 +128,62 @@ impl<I: GetTableName> Flush<I> {
         let new = Flush {
             trackers: self.trackers.clone(),
             trackers_is_empty: self.trackers_is_empty,
-            sort_events: self.sort_events,
 
-            del: vec![],
-            add: vec![],
-            cleared: false,
+            selected: vec![],
+            select_all: false,
         };
         mem::replace(self, new)
     }
 
-    pub fn flush(&mut self, universe: &Universe) {
+    fn selection(&self) -> SelectRows<I> {
+        if self.select_all {
+            Select::All
+        } else {
+            Select::These(&self.selected[..])
+        }
+    }
+
+    pub fn reserve(&mut self, n: usize) { self.selected.reserve(n) }
+
+    pub fn flush(&mut self, universe: &Universe, event: Event) {
         let mut trackers = self.trackers.write().unwrap();
-        if self.sort_events {
-            self.del.sort();
-            self.add.sort();
-        }
-        for tracker in trackers.iter_mut() {
-            if self.cleared {
-                tracker.cleared(universe);
+        let mut sorted = false;
+        let fallback = universe.event_handlers.get(event);
+        {
+            for tracker in trackers.iter_mut() {
+                let disposition = &tracker.consider(event);
+                let handle = match disposition {
+                    Disposition::Ignore => continue,
+                    Disposition::Inspect | Disposition::Handle => true,
+                    _ => false,
+                };
+                let delegate = match disposition {
+                    Disposition::Inspect | Disposition::Delegate => true,
+                    _ => false,
+                };
+                if !sorted && handle && tracker.sort(event) {
+                    self.selected.sort();
+                    sorted = true;
+                }
+                if handle {
+                    tracker.handle(universe, event, self.selection());
+                }
+                if delegate {
+                    let gt = I::get_generic_table(universe);
+                    let mut gt = gt.write().unwrap();
+                    let gt = &mut *gt;
+                    if !sorted && fallback.needs_sort(gt) {
+                        self.selected.sort();
+                        sorted = true;
+                    }
+                    let rows = self.selection()
+                        .as_ref()
+                        .map(|i| ::any_slice::AnySliceRef::from(i));
+                    fallback.handle(universe, gt, event, rows);
+                }
             }
-            tracker.track(universe, &self.del[..], &self.add[..]);
         }
-        self.del.clear();
-        self.add.clear();
+        self.selected.clear();
     }
 
     /// Return values from a `Flush::extract`. This accomplishes two things:
@@ -115,21 +196,20 @@ impl<I: GetTableName> Flush<I> {
                 mem::swap(my, orig);
             }
         }
-        swap_vecs(&mut self.del, &mut orig.del);
-        swap_vecs(&mut self.add, &mut orig.add);
+        swap_vecs(&mut self.selected, &mut orig.selected);
     }
 
     pub fn need_flush(&self) -> bool {
         if self.trackers_is_empty { return false; }
-        !(self.del.is_empty() && self.add.is_empty()) || self.cleared
+        !self.selected.is_empty() || self.select_all
     }
 
     pub fn summary(&self) -> String {
-        format!("del: {}, add: {}, cleared: {}",
-                self.del.len(), self.add.len(), self.cleared)
+        format!("selected: {}, select_all: {}",
+                self.selected.len(), self.select_all)
     }
 
-    pub fn register_tracker<R: Tracker<Foreign=I>>(&mut self, tracker: R, sort_events: bool) {
+    pub fn register_tracker<R: Tracker<Foreign=I>>(&mut self, tracker: R) {
         if !R::Foreign::get_guarantee().consistent {
             panic!("Tried to add tracker to inconsistent table, {}/{}",
                    R::Foreign::get_domain(), R::Foreign::get_name());
@@ -137,19 +217,7 @@ impl<I: GetTableName> Flush<I> {
         let mut trackers = self.trackers.write().unwrap();
         trackers.push(Box::new(tracker));
         self.trackers_is_empty = false;
-        self.sort_events |= sort_events;
     }
-
-    /*
-    pub fn remove_tracker<R: Tracker<Table=I>>(&mut self) -> Option<Box<R>> {
-        let mut trackers = self.trackers.write().unwrap();
-        for i in (0..trackers.len()).rev() {
-            if trackers[i].downcast_ref::<R>().is_none() { continue; }
-            return Some(trackers.remove(i));
-        }
-        None
-    }
-    */
 
     pub fn trackers_is_empty(&self) -> bool { self.trackers_is_empty }
 }
@@ -157,19 +225,15 @@ impl<I: GetTableName> Flush<I> {
 #[doc(hidden)]
 impl<I: GetTableName> Flush<I> {
     #[inline]
-    pub fn cleared(&mut self) {
-        if self.need_flush() {
-            panic!("cleared(), but there are still pending events!");
-        }
-        self.cleared = true;
-        self.add.clear();
-        self.del.clear();
+    pub fn select_all(&mut self) {
+        self.select_all = true;
+        self.selected.clear();
     }
 
-    #[inline] pub fn add(&mut self, i: GenericRowId<I>) { self.add.push(i) }
-    #[inline] pub fn del(&mut self, i: GenericRowId<I>) { self.del.push(i) }
-    #[inline] pub fn add_reserve(&mut self, n: usize) { self.add.reserve(n) }
-    #[inline] pub fn del_reserve(&mut self, n: usize) { self.del.reserve(n) }
+    #[inline]
+    pub fn select(&mut self, i: GenericRowId<I>) {
+        self.selected.push(i);
+    }
 }
 
 
@@ -180,15 +244,11 @@ impl Universe {
     /// For tables you'll generally use `#[foreign]` to be provided a struct to implement
     /// [`Tracker`] on. Such trackers are automatically added to each table instance; this
     /// function adds the tracker only to a particular instance.
-    pub fn register_tracker<R: Tracker>(
-        &self,
-        tracker: R,
-        sort_events: bool,
-    ) {
+    pub fn register_tracker<R: Tracker>(&self, tracker: R) {
         let gt = <R::Foreign as GetTableName>::get_generic_table(self);
         let mut gt = gt.write().unwrap();
         let flush = gt.table.get_flush();
         let flush: &mut Flush<R::Foreign> = flush.downcast_mut().expect("wrong foreign table type");
-        flush.register_tracker(tracker, sort_events)
+        flush.register_tracker(tracker)
     }
 }

@@ -10,7 +10,7 @@ extern crate rustc_serialize;
 
 domain! { TEST }
 use v11::Universe;
-use v11::tracking::Tracker;
+use v11::tracking::prelude::*;
 
 type Name = &'static str;
 
@@ -36,13 +36,19 @@ table! {
 impl Tracker for sailors::track_ship_events {
     type Foreign = ships::Row;
 
-    fn cleared(&mut self, universe: &Universe) {
-        sailors::write(universe).clear();
+    fn consider(&self, event: Event) -> Disposition {
+        if event == event::DELETE {
+            Disposition::Handle
+        } else {
+            Disposition::Ignore
+        }
     }
-    fn track(&mut self, universe: &Universe, deleted_ships: &[ships::RowId], _added: &[ships::RowId]) {
-        println!("deleted: {:?}", deleted_ships);
+
+    fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
+        println!("deleted: {:?}", rows);
         let mut sailors = sailors::write(universe);
-        sailors.track_ship_removal(deleted_ships);
+        sailors.track_ship_removal(rows);
+        sailors.flush(universe, event);
     }
 }
 
@@ -106,14 +112,14 @@ fn test() {
         assert_eq!(ships.len(), 4);
         assert_eq!(sailors.len(), 6);
         sailors.close();
-        ships.flush(universe);
+        ships.flush(universe, event::CREATE);
         boaty_mcboatface
     };
     {
         let mut ships = ships::write(universe);
         println!("The Boaty McBoatface is sinking! Oh, the humanity!");
         ships.delete(boaty_mcboatface);
-        ships.flush(universe);
+        ships.flush(universe, event::DELETE);
     }
     {
         let ships = ships::read(universe);

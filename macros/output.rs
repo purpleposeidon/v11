@@ -118,9 +118,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let TABLE_DOMAIN_STR = &table.domain;
     let GUARANTEES = {
         let CONSISTENT = table.consistent;
+        let SORTED = table.sorted;
         quote! {
             Guarantee {
                 consistent: #CONSISTENT,
+                sorted: #SORTED,
             }
         }
     };
@@ -136,7 +138,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use self::v11::tables::*;
         use self::v11::columns::*;
         use self::v11::index::{CheckedIter, Checkable};
-        use self::v11::tracking::Flush;
 
         // This is a reasonable convenience for the user.
         #[allow(unused_imports)] use self::v11::storage::*;
@@ -145,7 +146,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[allow(unused_imports)] use self::v11::joincore::*; // FIXME: Bleh!
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
-        #[allow(unused_imports)] use self::v11::tracking::{Tracker, GetParam};
+        #[allow(unused_imports)] use self::v11::tracking::{Tracker, GetParam, Select, SelectRows, SelectAny, Flush};
+        #[allow(unused_imports)] use self::v11::event::{Event, Disposition};
         #[allow(unused_imports)] use std::collections::VecDeque;
         #[allow(unused_imports)] use std::cmp::Ordering;
 
@@ -270,8 +272,42 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             fn prototype(&self) -> Box<TTable> { Box::new(Self::new()) }
             fn get_flush(&mut self) -> &mut ::std::any::Any { &mut self.flush }
+
+            fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
+                Table::remove_rows(self, universe, event, rows);
+            }
         }
     }};
+    out! {
+        table.consistent => ["`Table` consistent"] {
+            impl Table {
+                fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
+                    let mut table = write(universe);
+                    match rows {
+                        Select::These(rows) => {
+                            if let Some(rows) = rows.downcast::<RowId>() {
+                                for row in rows {
+                                    table.delete(*row);
+                                }
+                            } else {
+                                panic!("wrong rows type");
+                            }
+                        },
+                        Select::All => table.clear(),
+                    }
+                    table.flush(universe, event);
+                }
+            }
+        };
+        // FIXME: We can remove if we're `#[kind = "sorted"]`, but the rows'll have to be sorted...
+        true => ["`Table` inconsistent"] {
+            impl Table {
+                fn remove_rows(&mut self, _: &Universe, _: Event, _: SelectAny) {
+                    panic!("Rows can not be removed on this table.");
+                }
+            }
+        };
+    }
 
     out! { table.derive.clone => ["RowRef IntoOwned"] {
         impl<'a> RowRef<'a> {
@@ -524,7 +560,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     out! {
         table.consistent => ["Change tracking"] {
-            use self::v11::tracking::Event;
             impl<'a> Write<'a> {
                 /// Propagate all changes
                 pub fn flush(self, universe: &Universe, event: Event) {
@@ -576,9 +611,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
         ["fake flush"] {
             impl<'u> Write<'u> {
-                /// This table does not need to be flushed; this method is here as a
-                /// convenience for macros.
-                pub fn flush(self, _universe: &Universe) {}
+                // /// This table does not need to be flushed; this method is here as a
+                // /// macro convenience.
+                // fn flush(self, _universe: &Universe) {}
 
                 // "shouldn't" get called; could happen if the table kind changes between
                 // serializations. This is a stub.
@@ -615,35 +650,45 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         impl<'u> Write<'u> {
             #(
                 /// `deleted` is a list of removed foreign keys.
-                pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[#IFC_ELEMENT]) {
-                    for deleted_foreign in deleted {
-                        // It'd be nicer to keep the iterator around, but we immediately
-                        // invalidate it. We could collect it into a Vec?
-                        while let Some(kill) = self.#IFC.deref().inner().find(*deleted_foreign).next() {
-                            // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
-                            self.delete(kill);
-                            if cfg!(test) && self.contains(kill) {
-                                panic!("Deletion failed");
+                pub fn #TRACK_IFC_REMOVAL(&mut self, selected: Select<&[#IFC_ELEMENT]>) {
+                    match selected {
+                        Select::All => self.clear(),
+                        Select::These(deleted) => {
+                            for deleted_foreign in deleted {
+                                // It'd be nicer to keep the iterator around, but we immediately
+                                // invalidate it. We could collect it into a Vec?
+                                while let Some(kill) = self.#IFC.deref().inner().find(*deleted_foreign).next() {
+                                    // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
+                                    self.delete(kill);
+                                    if cfg!(test) && self.contains(kill) {
+                                        panic!("Deletion failed");
+                                    }
+                                }
                             }
-                        }
+                        },
                     }
                 }
             )*
             #(
                 /// This is a table sorted by a foreign key. This function removes all the keys
                 /// listed in `remove`, which must also be sorted.
-                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, remove: &[#TRACK_SORTED_COL_ELEMENT]) {
-                    if remove.is_empty() || self.len() == 0 { return; }
-                    let mut core = JoinCore::new(remove.iter().map(|x| *x));
-                    self.merge0(move |me, rowid| {
-                        use std::iter::empty;
-                        let foreign = me.#TRACKED_SORTED_COL[rowid];
-                        match core.cmp(&foreign) {
-                            Join::Match(_) => Action::Continue { remove: true, add: empty() },
-                            Join::Next => Action::Continue { remove: false, add: empty() },
-                            Join::Stop => Action::Break,
-                        }
-                    });
+                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, select: Select<&[#TRACK_SORTED_COL_ELEMENT]>) {
+                    match select {
+                        Select::All => self.clear(),
+                        Select::These(remove) => {
+                            let remove = remove.downcast();
+                            let mut core = JoinCore::new(remove.iter().map(|x| *x));
+                            self.merge0(move |me, rowid| {
+                                use std::iter::empty;
+                                let foreign = me.#TRACKED_SORTED_COL[rowid];
+                                match core.cmp(&foreign) {
+                                    Join::Match(_) => Action::Continue { remove: true, add: empty() },
+                                    Join::Next => Action::Continue { remove: false, add: empty() },
+                                    Join::Stop => Action::Break,
+                                }
+                            });
+                        },
+                    }
                 }
             )*
         }
@@ -652,7 +697,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     for col in &table.cols {
         if !col.foreign_auto { continue; }
         let TRACK_EVENTS = i(format!("track_{}_events", col.name));
-        let DELEGATE = i(if Some(col.name) == table.sort_key {
+        let TRACK_REMOVAL = i(if Some(col.name) == table.sort_key {
             format!("track_sorted_{}_removal", col.name)
         } else if col.indexed {
             format!("track_{}_removal", col.name)
@@ -661,22 +706,17 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         });
         let FOREIGN_ELEMENT = i(pp::ty_to_string(&*col.element));
         out! { ["foreign_auto"] {
-            // #FOREIGN_ELEMENT is a GenericRowId<TableRow>.
-            // We need to get at the TableRow...
             impl Tracker for #TRACK_EVENTS {
+                // #FOREIGN_ELEMENT is a GenericRowId<TableRow>.
+                // We need to get at the TableRow...
                 type Foreign = <#FOREIGN_ELEMENT as GetParam>::T;
 
-                fn cleared(&mut self, universe: &Universe) {
-                    let mut lock = write(universe);
-                    lock.clear();
-                    lock.flush(universe);
-                }
+                fn consider(&self, event: Event) -> Disposition { event.delegate }
 
-                fn track(&mut self, universe: &Universe, deleted_rows: &[#FOREIGN_ELEMENT], _added_rows: &[#FOREIGN_ELEMENT]) {
-                    if deleted_rows.is_empty() { return; }
-                    let mut lock = write(universe);
-                    lock.#DELEGATE(deleted_rows);
-                    lock.flush(universe);
+                fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
+                    let mut table = write(universe);
+                    table.#TRACK_REMOVAL(rows);
+                    table.flush(universe, event);
                 }
             }
         }};
@@ -705,11 +745,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["event logging for consistent tables"] {
             impl<'u> Write<'u> {
-                fn event_cleared(&mut self) { self._table.flush.cleared() }
-                fn event_add(&mut self, i: RowId) { self._table.flush.add(i) }
-                fn event_del(&mut self, i: RowId) { self._table.flush.del(i) }
-                fn event_add_reserve(&mut self, n: usize) { self._table.flush.add_reserve(n) }
-                fn event_del_reserve(&mut self, n: usize) { self._table.flush.del_reserve(n) }
+                #[inline] fn event_cleared(&mut self) { self._table.flush.select_all() }
+                #[inline] fn event_add(&mut self, i: RowId) { self._table.flush.select(i) }
+                #[inline] fn event_del(&mut self, i: RowId) { self._table.flush.select(i) }
+                #[inline] fn event_add_reserve(&mut self, n: usize) { self._table.flush.reserve(n) }
+                #[inline] fn event_del_reserve(&mut self, n: usize) { self._table.flush.reserve(n) }
             }
         };
         ["event ignoring for inconsistent_columns tables"] {
@@ -1244,14 +1284,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     let foreign_cols = || table.cols.iter().filter(|x| x.foreign);
     let COL_TRACK_EVENTS: &Vec<_> = &foreign_cols()
-        .map(|x| i(format!("track_{}_events", x.name))) // (FIXME: Rename to `track_{}_removal`.) -- What? Why? No?
+        .map(|x| i(format!("track_{}_events", x.name)))
         .collect();
     let COL_TRACK_ELEMENTS: &Vec<_> = &foreign_cols()
         .map(|x| pp::ty_to_string(&*x.element))
         .map(i)
-        .collect();
-    let SORT_EVENTS: &Vec<bool> = &foreign_cols()
-        .map(|x| Some(x.name) == table.sort_key)
         .collect();
     out! {
         true || table.consistent => ["tracking"] {
@@ -1267,7 +1304,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     type E = #COL_TRACK_ELEMENTS;
                     _universe.register_tracker(
                         #COL_TRACK_EVENTS,
-                        #SORT_EVENTS,
                     );
                 })*
             }

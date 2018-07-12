@@ -210,7 +210,7 @@ mod test {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("test_domain") }
         fn get_name() -> TableName { TableName("test_table") }
-        fn get_guarantee() -> Guarantee { Guarantee { consistent: false } }
+        fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false } }
         fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
     }
     struct TestTable;
@@ -372,7 +372,7 @@ mod row_range_test {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("TEST_DOMAIN") }
         fn get_name() -> TableName { TableName("test_table") }
-        fn get_guarantee() -> Guarantee { Guarantee { consistent: false } }
+        fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false } }
         fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
     }
     type RR = RowRange<GenericRowId<TestTable>>;

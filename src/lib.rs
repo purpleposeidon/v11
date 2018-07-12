@@ -47,13 +47,16 @@ pub mod columns;
 pub mod index;
 pub mod map_index;
 pub mod storage;
-#[doc(hidden)]
 pub mod tracking;
+pub mod event;
 
-pub mod joincore;
 #[macro_use]
 pub mod context;
+
+// Util. Buncha these could become crates!
+pub mod joincore;
 mod assert_sorted;
+pub mod any_slice;
 
 #[cfg(feature = "doc")]
 pub mod examples;
@@ -94,7 +97,6 @@ impl<T> Storable for T where T: Sync + Sized /* + !Drop */ {}
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
-pub use tracking::Tracker;
 use domain::{DomainName, MaybeDomain};
 
 /**
@@ -102,7 +104,7 @@ use domain::{DomainName, MaybeDomain};
  * */
 pub struct Universe {
     #[doc(hidden)] pub domains: Vec<MaybeDomain>,
-    pub event_handlers: ::tracking::event::EventHandlers,
+    pub event_handlers: ::event::EventHandlers,
 }
 
 /// Universe manipulation methods.

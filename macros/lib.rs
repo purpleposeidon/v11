@@ -38,6 +38,8 @@ define_proc_macros! {
         use std::env::var as env;
         let output_path = env("V11_MACRO_DUMP_DIR").ok().unwrap_or_else(|| {
             // FIXME: There doesn't seem to be a proper way of doing this.
+            // We really want 'release' vs 'target', but that seems inaccessible
+            // without egregious hacks.
             format!(
                 "{}/target/v11_dump/{}_{}.rs",
                 env("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"),

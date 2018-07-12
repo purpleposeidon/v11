@@ -7,7 +7,8 @@ extern crate rustc_serialize;
 
 
 domain! { TEST }
-use v11::{Universe, Tracker};
+use v11::Universe;
+use v11::tracking::prelude::*;
 
 table! {
     #[kind = "append"]
@@ -59,11 +60,18 @@ table! {
 impl Tracker for test_foreign::track_id_events {
     type Foreign = easy::Row;
 
-    fn cleared(&mut self, universe: &Universe) {
-        test_foreign::write(universe).clear();
+    fn consider(&self, event: Event) -> Disposition {
+        if event == event::DELETE {
+            Disposition::Handle
+        } else {
+            Disposition::Ignore
+        }
     }
-    fn track(&mut self, universe: &Universe, deleted: &[easy::RowId], _added: &[easy::RowId]) {
-        test_foreign::write(universe).track_id_removal(deleted);
+
+    fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
+        let mut table = test_foreign::write(universe);
+        table.track_id_removal(rows);
+        table.flush(universe, event);
     }
 }
 
@@ -143,7 +151,7 @@ fn compile_rowid_in_hashmap() {
     let universe = make_universe();
     let mut easy = easy::write(&universe);
     let er = easy.push(easy::Row { x: 1 });
-    easy.flush(&universe);
+    easy.flush(&universe, event::CREATE);
 }
 
 table! {
@@ -165,7 +173,7 @@ fn compile_rowid_cmp() {
     let b = easy.push(easy::Row {x: 1});
     assert!(a != b);
     assert!(b > a);
-    easy.flush(&universe);
+    easy.flush(&universe, event::CREATE);
 }
 
 #[test]
@@ -176,7 +184,7 @@ fn contains() {
     let a = easy.push(easy::Row {x: 1});
     assert!(easy.contains(a));
     assert!(!easy.contains(easy::at(2)));
-    easy.flush(&universe);
+    easy.flush(&universe, event::CREATE);
 }
 
 

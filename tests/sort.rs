@@ -116,7 +116,7 @@ fn merge_singles() {
         val: "ok",
     });
     sorted.assert_sorted();
-    sorted.flush(universe);
+    sorted.close();
 
     for seed in 3..20 {
         use rand::*;

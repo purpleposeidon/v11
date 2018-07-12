@@ -174,6 +174,13 @@ Indexed elements are immutable, and are duplicated.
 
 ## `#[sort_key]`
 Use the element's comparision order to derive `Ord` for `RowRef`.
+
+# Debugging Macro Output
+If there is an error in the macro, it will be impossible to debug... Until now!
+Simply define the `V11_MACRO_DUMP=*` environment variable before compilation,
+and the macro output will be written to & loaded from a convenient temporary file!!
+You can also get the output of a specific table using its name, like `V11_MACRO_DUMP=heyo`.
+`V11_MACRO_DUMP_DIR` can be used to write files to a specific directory.
 **/
 // (FIXME: lang=ignored=lame)
 #[macro_export]
@@ -224,6 +231,7 @@ impl Universe {
 type Prototyper = fn() -> PBox;
 
 
+use tracking;
 pub trait TTable: ::mopa::Any + Send + Sync {
     // A slightly annoying thing is that this trait can't have any parameters.
     // But this is okay. The impl bakes them in, and user code works with the concrete table.
@@ -237,7 +245,7 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     fn prototype(&self) -> Box<TTable>;
     fn get_flush(&mut self) -> &mut Any;
 
-    fn remove_rows(&mut self, &Universe, ::tracking::Event, ::tracking::SelectAny);
+    fn remove_rows(&mut self, &Universe, ::event::Event, tracking::SelectAny);
 }
 mopafy!(TTable);
 
@@ -255,6 +263,7 @@ pub struct GenericTable {
 #[derive(Default, Clone)]
 pub struct Guarantee {
     pub consistent: bool,
+    pub sorted: bool,
 }
 impl GenericTable {
     pub fn new<T: TTable>(table: T) -> GenericTable {

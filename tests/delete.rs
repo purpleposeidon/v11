@@ -10,6 +10,7 @@ extern crate rustc_serialize;
 
 domain! { TEST }
 use v11::Universe;
+use v11::event;
 
 type Name = &'static str;
 
@@ -42,14 +43,14 @@ fn test() {
         let _mont_blanc = ships.push(ships::Row {
             name: "SS Mont-Blanc",
         });
-        ships.flush(universe);
+        ships.flush(universe, event::CREATE);
         boaty_mcboatface
     };
     {
         let mut ships = ships::write(universe);
         println!("The Boaty McBoatface is sinking! Oh, the humanity!");
         ships.delete(boaty_mcboatface);
-        ships.flush(universe);
+        ships.flush(universe, event::DELETE);
     }
     {
         let ships = ships::read(universe);
