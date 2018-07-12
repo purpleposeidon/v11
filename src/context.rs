@@ -11,7 +11,8 @@
 //!
 //! This module introduces [`context!`] to help with this.
 use std::os::raw::c_void;
-use Universe;
+use std::any::TypeId;
+use Universe; // This could be parameterized to make this module v11-agnostic!
 
 
 #[doc(hidden)]
@@ -20,8 +21,10 @@ pub trait ReleaseFields {
     /// pointer to the field with the type of the provided string, or `null_mut` if there is no
     /// such field. The field must be 'initialized' using `mem::zeroed()`. The second return value
     /// is the size of the field, and is used as a sanity-check.
+    ///
+    /// The third return value is type `TypeId` of `PhantomData<T>`, or of `()` for absent fields.
     unsafe fn release_fields<F>(self, field_for: F)
-    where F: FnMut(&'static str) -> (*mut c_void, usize);
+    where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId);
 }
 
 /// This trait indicates a type that can be locked by `context!`.
@@ -65,6 +68,8 @@ macro_rules! context {
         pub mod context_module {
             use std::mem;
             use std::ptr::null_mut;
+            use std::marker::PhantomData;
+            use std::any::TypeId;
             use $crate::context::Lockable;
 
             $(mod $i {
@@ -95,7 +100,7 @@ macro_rules! context {
 
             impl<'a> $crate::context::ReleaseFields for $name<'a> {
                 unsafe fn release_fields<F>(self, mut field_for: F)
-                where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize)
+                where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize, TypeId)
                 {
                     // Why c_void? Why not... T?
                     // Because T can't be Any, because Any requires 'static,
@@ -103,10 +108,16 @@ macro_rules! context {
                     $({
                         let mut field = self.$i;
                         const TYPE_NAME: &'static str = <self::$i::Lock as Lockable>::TYPE_NAME;
-                        let (swap_to, size) = field_for(TYPE_NAME);
+                        let (swap_to, size, id) = field_for(TYPE_NAME);
                         if swap_to.is_null() {
                             mem::drop(field);
                         } else {
+                            let expect_id = TypeId::of::<PhantomData<$i::Lock>>();
+                            if expect_id != id {
+                                // FIXME: Investigate relying only on TypeId. Dylibs?
+                                panic!("TypeId of {} did not match!",
+                                       <self::$i::Lock as Lockable>::TYPE_NAME);
+                            }
                             let expect_size = mem::size_of::<$i::Lock>();
                             if size != expect_size {
                                 panic!("sizes of {} did not match! {} vs {}",
@@ -143,14 +154,18 @@ macro_rules! context {
                                     if $i.is_some() {
                                         // This case is likely a combined table. release_fields' contract
                                         // requires dead memory, so this test is necessary.
-                                        (null_mut(), 0)
+                                        (null_mut(), 0, TypeId::of::<()>())
                                     } else {
                                         $i = Some(mem::zeroed());
                                         let ptr = $i.as_mut().unwrap();
-                                        (mem::transmute(ptr), mem::size_of::<$i::Lock>())
+                                        (
+                                            mem::transmute(ptr),
+                                            mem::size_of::<$i::Lock>(),
+                                            TypeId::of::<PhantomData<$i::Lock>>(),
+                                        )
                                     }
                                 },)*
-                                _ => (null_mut(), 0),
+                                _ => (null_mut(), 0, TypeId::of::<()>()),
                             }
                         });
                         $(
@@ -184,7 +199,7 @@ mod merging_multiple_contexts {
 
     impl ReleaseFields for () {
         unsafe fn release_fields<F>(self, _: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
         }
     }
@@ -194,7 +209,7 @@ mod merging_multiple_contexts {
         A: ReleaseFields,
     {
         unsafe fn release_fields<F>(self, field_for: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
             self.0.release_fields(field_for);
         }
@@ -206,7 +221,7 @@ mod merging_multiple_contexts {
         B: ReleaseFields,
     {
         unsafe fn release_fields<F>(self, mut field_for: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
             self.0.release_fields(|n| field_for(n));
             self.1.release_fields(|n| field_for(n));
@@ -220,7 +235,7 @@ mod merging_multiple_contexts {
         C: ReleaseFields,
     {
         unsafe fn release_fields<F>(self, mut field_for: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
             self.0.release_fields(|n| field_for(n));
             self.1.release_fields(|n| field_for(n));

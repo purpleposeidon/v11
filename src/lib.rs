@@ -102,6 +102,7 @@ use domain::{DomainName, MaybeDomain};
  * */
 pub struct Universe {
     #[doc(hidden)] pub domains: Vec<MaybeDomain>,
+    pub event_handlers: ::tracking::event::EventHandlers,
 }
 
 /// Universe manipulation methods.
@@ -110,6 +111,7 @@ impl Universe {
     pub fn new(domains: &[DomainName]) -> Universe {
         let mut ret = Universe {
             domains: Self::get_domains(domains),
+            event_handlers: Default::default(),
         };
         for domain in domains {
             ret.init_domain(*domain);

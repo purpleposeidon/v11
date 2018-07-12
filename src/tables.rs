@@ -236,6 +236,8 @@ pub trait TTable: ::mopa::Any + Send + Sync {
 
     fn prototype(&self) -> Box<TTable>;
     fn get_flush(&mut self) -> &mut Any;
+
+    fn remove_rows(&mut self, &Universe, ::tracking::Event, ::tracking::SelectAny);
 }
 mopafy!(TTable);
 
@@ -428,12 +430,13 @@ impl fmt::Display for TableName {
 
 // FIXME: Rename. `TableRowId`?
 #[doc(hidden)]
-pub trait GetTableName: 'static {
+pub trait GetTableName: 'static + Send + Sync {
     /// The raw index, like `u32`.
-    type Idx:
+    type Idx: 'static +
         ::num_traits::PrimInt +
         fmt::Display + fmt::Debug +
-        ::std::hash::Hash + Copy + Ord;
+        ::std::hash::Hash + Copy + Ord
+        + Send + Sync;
 
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;

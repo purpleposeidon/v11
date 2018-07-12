@@ -524,20 +524,22 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     out! {
         table.consistent => ["Change tracking"] {
+            use self::v11::tracking::Event;
             impl<'a> Write<'a> {
                 /// Propagate all changes
-                pub fn flush(self, universe: &Universe) {
+                pub fn flush(self, universe: &Universe, event: Event) {
                     if !self._table.flush.need_flush() { return; }
                     let mut flush = self._table.flush.extract();
                     ::std::mem::drop(self);
-                    flush.flush(universe);
+                    flush.flush(universe, event);
                     write(universe)._table.flush.restore(flush);
                 }
 
-                /// Flush table without releasing the lock.
-                pub fn live_flush(&mut self, universe: &Universe) {
+                /// Flush table without releasing the lock. This will of course cause a deadlock if
+                /// the table has trackers that need to look at values.
+                pub fn live_flush(&mut self, universe: &Universe, event: Event) {
                     if !self._table.flush.need_flush() { return; }
-                    self._table.flush.flush(universe);
+                    self._table.flush.flush(universe, event);
                 }
 
                 pub fn delete<I: CheckId>(&mut self, row: I) {
