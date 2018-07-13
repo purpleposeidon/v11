@@ -598,6 +598,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     self._table.flush.remove_tracker::<T>()
                 }
                 */
+                /// This method is here as a convenience for macros.
+                pub fn flush_or_close(self, universe: &Universe, event: Event) { self.flush(universe, event) }
             }
 
             /// Makes sure the flush requirement has been acknowledged
@@ -611,9 +613,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
         ["fake flush"] {
             impl<'u> Write<'u> {
-                // /// This table does not need to be flushed; this method is here as a
-                // /// macro convenience.
-                // fn flush(self, _universe: &Universe) {}
+                /// This method is here as a convenience for macros.
+                pub fn flush_or_close(self, _: &Universe, _: Event) {}
 
                 // "shouldn't" get called; could happen if the table kind changes between
                 // serializations. This is a stub.
