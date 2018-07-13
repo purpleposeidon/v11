@@ -60,13 +60,8 @@ table! {
 impl Tracker for test_foreign::track_id_events {
     type Foreign = easy::Row;
 
-    fn consider(&self, event: Event) -> Disposition {
-        if event == event::DELETE {
-            Disposition::Handle
-        } else {
-            Disposition::Ignore
-        }
-    }
+    fn consider(&self, event: Event) -> bool { event.is_removal }
+    fn sort(&self) -> bool { false }
 
     fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
         let mut table = test_foreign::write(universe);

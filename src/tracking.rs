@@ -8,7 +8,7 @@ use index::GenericRowId;
 pub mod prelude {
     pub use ::Universe;
     pub use ::tracking::{Tracker, SelectRows};
-    pub use ::event::{self, Event, Disposition};
+    pub use ::event::{self, Event};
 }
 
 /// Helper trait used to a parameter of a parameterized type.
@@ -52,28 +52,28 @@ impl<'a, T: GetTableName> Select<&'a GenericRowId<T>> {
 pub type SelectRows<'a, T> = Select<&'a [GenericRowId<T>]>;
 pub type SelectAny<'a> = Select<::any_slice::AnySliceRef<'a>>;
 
-use event::{Disposition, Event};
+use event::Event;
 
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
 /// guarantee on the foreign table, which is provided by `#[kind = "consistent"]`.
+/// You use `#[foreign_auto]` to derive an implementation.
 // FIXME: https://github.com/rust-lang/rust/issues/29628
 // https://doc.rust-lang.org/beta/unstable-book/language-features/on-unimplemented.html
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
 // to structural changes in the `#[foreign]` table."]
 pub trait Tracker: 'static + Send + Sync {
-    /// `$foreign::Row`.
+    /// `$foreign_table::Row`.
     type Foreign: GetTableName;
 
     /// Indicate if the Tracker is interested in the given [`Event`] type.
-    fn consider(&self, event: Event) -> Disposition;
+    /// A typical implementation is `event.is_removal`.
+    fn consider(&self, event: Event) -> bool;
 
-    /// If this returns `true`, then rows will be sorted. Otherwise, their order is
-    /// undefined.
-    fn sort(&self, _event: Event) -> bool {
-        Self::Foreign::get_guarantee().sorted
-    }
+    /// If this returns `true`, then the rows given to `handle` will be sorted.
+    /// Otherwise, the order is undefined.
+    fn sort(&self) -> bool;
 
-    /// The indicated foreign rows have had... something... done to them.
+    /// Something has happened to the indicated foreign rows.
     ///
     /// You may lock the foreign table for editing, but making structural changes will likely
     /// cause you trouble.
@@ -90,7 +90,7 @@ pub trait Tracker: 'static + Send + Sync {
     /// able to access their contents without error), but will become actually-deleted after the
     /// flush completes.
     ///
-    /// Any newly created rows have just become accessible.
+    /// Any newly created rows are valid.
     fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>);
     // All of my impls of `Tracker` have been unit structs so far, so &mut seems a bit silly.
     // But someone may find a use for it.
@@ -146,43 +146,34 @@ impl<I: GetTableName> Flush<I> {
     pub fn reserve(&mut self, n: usize) { self.selected.reserve(n) }
 
     pub fn flush(&mut self, universe: &Universe, event: Event) {
-        let mut trackers = self.trackers.write().unwrap();
         let mut sorted = false;
-        let fallback = universe.event_handlers.get(event);
+
         {
+            let mut trackers = self.trackers.write().unwrap();
             for tracker in trackers.iter_mut() {
-                let disposition = &tracker.consider(event);
-                let handle = match disposition {
-                    Disposition::Ignore => continue,
-                    Disposition::Inspect | Disposition::Handle => true,
-                    _ => false,
-                };
-                let delegate = match disposition {
-                    Disposition::Inspect | Disposition::Delegate => true,
-                    _ => false,
-                };
-                if !sorted && handle && tracker.sort(event) {
-                    self.selected.sort();
+                if !tracker.consider(event) { continue; }
+                if !sorted && tracker.sort() {
                     sorted = true;
+                    self.selected.sort();
                 }
-                if handle {
-                    tracker.handle(universe, event, self.selection());
-                }
-                if delegate {
-                    let gt = I::get_generic_table(universe);
-                    let mut gt = gt.write().unwrap();
-                    let gt = &mut *gt;
-                    if !sorted && fallback.needs_sort(gt) {
-                        self.selected.sort();
-                        sorted = true;
-                    }
-                    let rows = self.selection()
-                        .as_ref()
-                        .map(|i| ::any_slice::AnySliceRef::from(i));
-                    fallback.handle(universe, gt, event, rows);
-                }
+                tracker.handle(universe, event, self.selection());
             }
         }
+        {
+            let fallback = universe.event_handlers.get(event);
+            let gt = I::get_generic_table(universe);
+            let mut gt = gt.write().unwrap();
+            let gt = &mut *gt;
+            if !sorted && fallback.needs_sort(gt) {
+                self.selected.sort();
+            }
+            let rows = self
+                .selection()
+                .as_ref()
+                .map(|i| ::any_slice::AnySliceRef::from(i));
+            fallback.handle(universe, gt, event, rows);
+        }
+
         self.selected.clear();
     }
 

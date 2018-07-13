@@ -8,17 +8,23 @@
 pub struct Event {
     /// A unique ID number. Used as an index for fallback handlers.
     pub id: u16,
-    /// If `true`, then auto-derived foreign rows will remove the selected rows.
     pub is_removal: bool,
-    /// The disposition of auto-derived foreign rows.
-    pub delegate: Disposition,
+    pub is_creation: bool,
 }
 
+const Z: u8 = 0;
+const C: u8 = 1;
+const D: u8 = 2;
+
 macro_rules! events {
-    ($($(#[$attr:meta])* $ident:ident = $id:expr, $rm:expr, $del:expr,)*) => {
+    ($($(#[$attr:meta])* $mode:ident:$ident:ident = $id:expr,)*) => {
         $(
             $(#[$attr])*
-            pub const $ident: Event = Event { id: $id, is_removal: $rm, delegate: $del };
+            pub const $ident: Event = Event {
+                id: $id,
+                is_removal: $mode & D > 0,
+                is_creation: $mode & C > 0,
+            };
         )*
         use std::fmt;
         impl fmt::Debug for Event {
@@ -33,39 +39,29 @@ macro_rules! events {
         pub static EVENT_LIST: &[Event] = &[$($ident),*];
     }
 }
-use self::Disposition::*;
 events! {
-    INVALID_EVENT = 0, false, Delegate,
-    CREATE = 1, false, Ignore,
-    DELETE = 2, true, Handle,
-    SAVE = 3, false, Delegate,
-    SYNC = 4, false, Delegate,
-    UNSYNC = 5, true, Handle,
-    UNLOAD = 6, true, Handle,
-    UPDATE = 7, false, Ignore,
-    MODIFY = 8, false, Ignore,
-    MOVE = 9, false, Ignore,
-    DIRTY = 10, false, Ignore,
-    RESET = 11, false, Delegate,
-    VIEW = 12, false, Delegate,
-    DEBUG = 13, false, Delegate,
-    CLONE = 14, false, Delegate,
-    SERIALIZE = 15, false, Delegate,
-    DESERIALIZE = 16, false, Delegate,
+    Z:INVALID_EVENT = 0,
+    C:CREATE = 1,
+    D:DELETE = 2,
+    Z:SAVE = 3,
+    C:SYNCED = 4,
+    D:UNSYNCED = 5,
+    Z:UPDATE = 6,
+    Z:MODIFY = 7,
+    C:MOVE_IN = 8,
+    D:MOVE_OUT = 9,
+    Z:DIRTY = 10,
+    Z:RESET = 11,
+    Z:VIEW = 12,
+    Z:DEBUG = 13,
+    Z:CLONE = 14,
+    D:UNLOAD = 15,
+    Z:SERIALIZE = 16,
+    C:DESERIALIZE = 17,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Disposition {
-    /// The `Tracker` will handle the event.
-    Handle,
-    /// Have the `Universe`'s default handler deal with the event.
-    Delegate,
-    /// The `Tracker` will handle the event, but then again delegate it.
-    Inspect,
-    /// Ignore the event. This is more efficient than returning `Handle` and ignoring.
-    Ignore,
-}
+
+
 
 // Fallback event handlers must call methods on GenericTable, and its parameters must be cast
 // through &Any.
@@ -84,12 +80,6 @@ pub struct NullHandler;
 impl FallbackHandler for NullHandler {
     fn needs_sort(&self, _gt: &GenericTable) -> bool { false }
     fn handle(&self, _universe: &Universe, _gt: &mut GenericTable, _event: Event, _rows: SelectAny) {}
-}
-
-pub struct InvalidHandler;
-impl FallbackHandler for InvalidHandler {
-    fn needs_sort(&self, _gt: &GenericTable) -> bool { false }
-    fn handle(&self, _universe: &Universe, _gt: &mut GenericTable, _event: Event, _rows: SelectAny) { panic!("Invalid fallback event handler!"); }
 }
 
 pub struct DeleteHandler;
@@ -111,27 +101,22 @@ impl Default for EventHandlers {
     fn default() -> Self {
         EventHandlers {
             fallbacks: (0..MAX_EVENT_TYPES)
-                .map(|i| {
-                    if EVENT_LIST.get(i).map(|e| e.delegate) == Some(Ignore) {
-                        debug_assert!(EVENT_LIST[i].id as usize == i);
-                        Box::new(NullHandler) as Box<FallbackHandler>
-                    } else {
-                        Box::new(InvalidHandler) as Box<FallbackHandler>
-                    }
-                }).collect(),
+                .map(|_| Box::new(NullHandler) as Box<FallbackHandler>)
+                .collect(),
         }
     }
 }
 impl EventHandlers {
-    pub fn add(&mut self, event: Event, mut handler: Box<FallbackHandler>) -> Box<FallbackHandler> {
-        if event == INVALID_EVENT {
+    pub fn add(&mut self, _event: Event, _handler: Box<FallbackHandler>) -> Box<FallbackHandler> {
+        unimplemented!("converting a list of foreign rows to local rows doesn't have a trivial implementation");
+        /*if event == INVALID_EVENT {
             panic!("Can't set the INVALID_EVENT handler");
         }
         ::std::mem::swap(
             &mut self.fallbacks[event.id as usize],
             &mut handler,
         );
-        handler
+        handler*/
     }
 
     /// Return the FallbackHandler` for the given `Event`. If there is no registered handler,

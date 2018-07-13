@@ -46,13 +46,11 @@ table! {
 
 impl Tracker for arrays::track_range_start_events {
     type Foreign = elements::Row;
-    fn consider(&self, event: Event) -> Disposition {
-        if event.is_removal {
-            Disposition::Handle
-        } else {
-            Disposition::Delegate
-        }
+    fn consider(&self, event: Event) -> bool {
+        event.is_removal
     }
+
+    fn sort(&self) -> bool { false }
 
     fn handle(&mut self, universe: &Universe, event: Event, selected: SelectRows<Self::Foreign>) {
         let mut arrays = arrays::write(universe);

@@ -147,7 +147,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
         #[allow(unused_imports)] use self::v11::tracking::{Tracker, GetParam, Select, SelectRows, SelectAny, Flush};
-        #[allow(unused_imports)] use self::v11::event::{Event, Disposition};
+        #[allow(unused_imports)] use self::v11::event::Event;
         #[allow(unused_imports)] use std::collections::VecDeque;
         #[allow(unused_imports)] use std::cmp::Ordering;
 
@@ -712,7 +712,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 // We need to get at the TableRow...
                 type Foreign = <#FOREIGN_ELEMENT as GetParam>::T;
 
-                fn consider(&self, event: Event) -> Disposition { event.delegate }
+                fn consider(&self, event: Event) -> bool { event.is_removal }
+                fn sort(&self) -> bool { GUARANTEES.sorted }
 
                 fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
                     let mut table = write(universe);
