@@ -41,23 +41,30 @@ macro_rules! events {
 }
 events! {
     Z:INVALID_EVENT = 0,
+
     C:CREATE = 1,
     D:DELETE = 2,
-    Z:SAVE = 3,
-    C:SYNCED = 4,
-    D:UNSYNCED = 5,
-    Z:UPDATE = 6,
-    Z:MODIFY = 7,
-    C:MOVE_IN = 8,
-    D:MOVE_OUT = 9,
-    Z:DIRTY = 10,
-    Z:RESET = 11,
-    Z:VIEW = 12,
-    Z:DEBUG = 13,
-    Z:CLONE = 14,
-    D:UNLOAD = 15,
-    Z:SERIALIZE = 16,
-    C:DESERIALIZE = 17,
+
+    Z:SERIALIZE = 3,
+    C:DESERIALIZE = 4,
+
+    Z:SAVE = 5,
+    D:UNLOAD = 6,
+
+    C:SYNCED = 7,
+    D:UNSYNCED = 8,
+
+    C:MOVE_IN = 9,
+    D:MOVE_OUT = 10,
+
+    Z:UPDATE = 11,
+    Z:MODIFY = 12,
+    Z:DIRTY = 13,
+    Z:RESET = 14,
+
+    Z:VIEW = 15,
+    Z:DEBUG = 16,
+    Z:CLONE = 17,
 }
 
 
