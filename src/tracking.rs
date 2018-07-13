@@ -46,11 +46,40 @@ impl<I> Select<I> {
         }
     }
 }
-impl<'a, T: GetTableName> Select<&'a GenericRowId<T>> {
-    // FIXME: iter?
+impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
+    /// Returns an iterator over the `Select::These` rows,
+    /// or use the given range if all rows were selected.
+    pub fn iter_or_all(self, all: ::index::RowRange<GenericRowId<T>>) -> SelectIter<'a, T> {
+        match self {
+            Select::All => SelectIter::All(all.iter_slow()),
+            Select::These(rows) => SelectIter::These(rows.iter()),
+        }
+    }
 }
+
+
 pub type SelectRows<'a, T> = Select<&'a [GenericRowId<T>]>;
 pub type SelectAny<'a> = Select<::any_slice::AnySliceRef<'a>>;
+
+pub enum SelectIter<'a, T: GetTableName> {
+    All(::index::UncheckedIter<T>),
+    These(::std::slice::Iter<'a, GenericRowId<T>>),
+}
+impl<'a, T: GetTableName> Iterator for SelectIter<'a, T> {
+    type Item = GenericRowId<T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            SelectIter::All(r) => r.next(),
+            SelectIter::These(r) => r.next().map(|i| *i),
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            SelectIter::All(r) => r.size_hint(),
+            SelectIter::These(r) => r.size_hint(),
+        }
+    }
+}
 
 use event::Event;
 
