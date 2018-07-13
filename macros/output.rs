@@ -678,7 +678,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     match select {
                         Select::All => self.clear(),
                         Select::These(remove) => {
-                            let remove = remove.downcast();
                             let mut core = JoinCore::new(remove.iter().map(|x| *x));
                             self.merge0(move |me, rowid| {
                                 use std::iter::empty;
@@ -719,7 +718,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
                     let mut table = write(universe);
                     table.#TRACK_REMOVAL(rows);
-                    table.flush(universe, event);
+                    table.flush_or_close(universe, event);
                 }
             }
         }};
