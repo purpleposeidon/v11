@@ -45,13 +45,22 @@ impl<I> Select<I> {
             Select::These(rows) => Select::These(rows),
         }
     }
+
+    pub fn unwrap(self) -> I {
+        match self {
+            Select::All => panic!("unwrap"),
+            Select::These(i) => i,
+        }
+    }
 }
 impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
     /// Returns an iterator over the `Select::These` rows,
     /// or use the given range if all rows were selected.
-    pub fn iter_or_all(self, all: ::index::RowRange<GenericRowId<T>>) -> SelectIter<'a, T> {
+    pub fn iter_or_all<I>(self, all: I) -> SelectIter<'a, I, T>
+    where I: Iterator<Item=GenericRowId<T>>
+    {
         match self {
-            Select::All => SelectIter::All(all.iter_slow()),
+            Select::All => SelectIter::All(all),
             Select::These(rows) => SelectIter::These(rows.iter()),
         }
     }
@@ -61,11 +70,19 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
 pub type SelectRows<'a, T> = Select<&'a [GenericRowId<T>]>;
 pub type SelectAny<'a> = Select<::any_slice::AnySliceRef<'a>>;
 
-pub enum SelectIter<'a, T: GetTableName> {
-    All(::index::UncheckedIter<T>),
+pub enum SelectIter<'a, I, T>
+where
+    I: Iterator<Item=GenericRowId<T>>,
+    T: GetTableName,
+{
+    All(I),
     These(::std::slice::Iter<'a, GenericRowId<T>>),
 }
-impl<'a, T: GetTableName> Iterator for SelectIter<'a, T> {
+impl<'a, I, T> Iterator for SelectIter<'a, I, T>
+where
+    I: Iterator<Item=GenericRowId<T>>,
+    T: GetTableName,
+{
     type Item = GenericRowId<T>;
     fn next(&mut self) -> Option<Self::Item> {
         match self {
