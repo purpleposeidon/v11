@@ -64,6 +64,17 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
             Select::These(rows) => SelectIter::These(rows.iter()),
         }
     }
+
+    pub fn iter_or_all_with<F, I>(self, f: F) -> SelectIter<'a, I, T>
+    where
+        F: FnOnce() -> I,
+        I: Iterator<Item=GenericRowId<T>>,
+    {
+        match self {
+            Select::All => SelectIter::All(f()),
+            Select::These(rows) => SelectIter::These(rows.iter()),
+        }
+    }
 }
 
 
