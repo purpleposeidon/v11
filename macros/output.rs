@@ -512,7 +512,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// Equivalent to `0..len()`. (R/W)
         ///
-        /// Be careful calling this on consistent tables; it may include deleted rows. You can use 
+        /// Be careful calling this on consistent tables; it may include deleted rows.
+        /// See `iter`.
         fn row_range(&self) -> RowRange<RowId> {
             (RowId::new(0)..RowId::from_usize(self.len())).into()
         }
