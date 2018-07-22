@@ -98,6 +98,7 @@ impl DomainName {
     }
 }
 
+// FIXME: Tests are trouble. They execute in multiple threads without any setup.
 #[inline]
 pub(crate) fn check_lock() -> bool {
     !cfg!(test)
@@ -265,6 +266,7 @@ impl Universe {
 
     /// Adds any properties that are unknown. This function should be called if any libraries have
     /// been loaded since before the universe was created.
+    // FIXME: Bad name.
     pub fn add_properties(&mut self) {
         // We only allow domains to be set at creation, so we don't need to look for new ones.
         // Trying to get a property at a new domain is an errorneous/exceptional case, so this is

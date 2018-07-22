@@ -1,0 +1,4 @@
+#!/bin/sh
+
+
+cargo build --release --test $1 && cargo test --release --test $1 -- $2 || valgrind $(ls target/release/deps/$1-*|ag -vQ .d|head -n1) $2

@@ -60,6 +60,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             // Fix docs.
             let buff = buff.replace("#TABLE_NAME", &table.name);
 
+            // It's very sweet that we don't have to pass this into the macro!
+            // A benefit of defining the macro within the function.
             out.write(buff.as_bytes())?;
         }
     }
@@ -113,11 +115,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     #[allow(unused)]
     let TABLE_VERSION = table.version;
     let TABLE_DOMAIN = i(table.domain.clone());
+    let TABLE_DOMAIN_STR = &table.domain;
     let GUARANTEES = {
         let CONSISTENT = table.consistent;
+        let SORTED = table.sorted;
         quote! {
             Guarantee {
                 consistent: #CONSISTENT,
+                sorted: #SORTED,
             }
         }
     };
@@ -134,11 +139,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use self::v11::columns::*;
         use self::v11::index::{CheckedIter, Checkable};
 
-        #[allow(unused_imports)] use self::v11::storage::*; // A reasonable convenience for the user.
-        #[allow(unused_imports)] use self::v11::joincore::*;
+        // This is a reasonable convenience for the user.
+        #[allow(unused_imports)] use self::v11::storage::*;
+
+        // FIXME: Verify that all these imports are used multiple times in conditional ways.
+        #[allow(unused_imports)] use self::v11::joincore::*; // FIXME: Bleh!
         #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
         #[allow(unused_imports)] use self::v11::Action;
-        #[allow(unused_imports)] use self::v11::tracking::Tracker;
+        #[allow(unused_imports)] use self::v11::tracking::{Tracker, GetParam, Select, SelectRows, SelectAny, Flush};
+        #[allow(unused_imports)] use self::v11::event::Event;
         #[allow(unused_imports)] use std::collections::VecDeque;
         #[allow(unused_imports)] use std::cmp::Ordering;
 
@@ -185,14 +194,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         /// A reference to the first row. Is invalid if there is no rows.
         pub const FIRST: RowId = RowId {
             i: 0,
-            t: ::std::marker::PhantomData,
+            table: ::std::marker::PhantomData,
         };
 
         /// An index value to be used for default values.
         /// Note that it may become valid if the table is full!
         pub const INVALID: RowId = RowId {
             i: ::std::usize::MAX as RawType,
-            t: ::std::marker::PhantomData,
+            table: ::std::marker::PhantomData,
         };
 
         /// Creates an index into the `i`th row.
@@ -211,6 +220,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }).collect();
 
     out! { ["The `Row` struct"] {
+        use std::sync::RwLock;
         /**
          * A structure holding a copy of each column's data. This is used to pass entire rows around through methods;
          * the actual table is column-based, so eg `read.column[index]` is the standard method of accessing rows.
@@ -219,10 +229,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub struct Row {
             #(#COL_ATTR pub #COL_NAME: #COL_ELEMENT,)*
         }
-        impl TableRow for Row {
+        impl GetTableName for Row {
             type Idx = RawType;
             fn get_domain() -> DomainName { TABLE_DOMAIN }
             fn get_name() -> TableName { TABLE_NAME }
+            fn get_guarantee() -> Guarantee { GUARANTEES }
+            fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
+                RowId::get_generic_table(universe)
+            }
         }
 
         /// A row of a reference to each element.
@@ -243,6 +257,57 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         // FIXME: Implement `struct RowMut`, would need to respect EditA.
     }};
+    out! { ["The `Table` struct"] {
+        #[derive(Default)]
+        pub struct Table {
+            flush: Flush<Row>,
+            free: FreeList<Row>,
+        }
+        impl TTable for Table {
+            fn new() -> Self where Self: Sized { Default::default() }
+            fn domain() -> DomainName where Self: Sized { TABLE_DOMAIN }
+            fn name() -> TableName where Self: Sized { TABLE_NAME }
+            fn guarantee() -> Guarantee where Self: Sized { GUARANTEES }
+            // FIXME: Unused?
+
+            fn prototype(&self) -> Box<TTable> { Box::new(Self::new()) }
+            fn get_flush(&mut self) -> &mut ::std::any::Any { &mut self.flush }
+
+            fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
+                Table::remove_rows(self, universe, event, rows);
+            }
+        }
+    }};
+    out! {
+        table.consistent => ["`Table` consistent"] {
+            impl Table {
+                fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
+                    let mut table = write(universe);
+                    match rows {
+                        Select::These(rows) => {
+                            if let Some(rows) = rows.downcast::<RowId>() {
+                                for row in rows {
+                                    table.delete(*row);
+                                }
+                            } else {
+                                panic!("wrong rows type");
+                            }
+                        },
+                        Select::All => table.clear(),
+                    }
+                    table.flush(universe, event);
+                }
+            }
+        };
+        // FIXME: We can remove if we're `#[kind = "sorted"]`, but the rows'll have to be sorted...
+        true => ["`Table` inconsistent"] {
+            impl Table {
+                fn remove_rows(&mut self, _: &Universe, _: Event, _: SelectAny) {
+                    panic!("Rows can not be removed on this table.");
+                }
+            }
+        };
+    }
 
     out! { table.derive.clone => ["RowRef IntoOwned"] {
         impl<'a> RowRef<'a> {
@@ -261,28 +326,31 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     let LOCKED_TABLE_DELETED_ROW = quote_if(table.consistent, quote! {
         fn is_deleted(&self, idx: GenericRowId<Row>) -> bool {
-            self._lock.free.get(&idx.to_usize()).is_some()
+            self._table.free.get(&idx).is_some()
         }
     });
     out! { ["Table locks"] {
-        /// The table, locked for reading.
+        /**
+         * The table, locked for reading.
+         * */
         pub struct Read<'u> {
-            #[doc(hidden)]
             _lock: BiRef<::std::sync::RwLockReadGuard<'u, GenericTable>, &'u GenericTable, GenericTable>,
+            _table: &'u Table,
             #(pub #COL_NAME: RefA<'u, #COL_TYPE>,)*
         }
 
-        /// The table, locked for writing.
+        /**
+         * The table, locked for writing.
+         * */
         pub struct Write<'u> {
-            #[doc(hidden)]
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
+            _table: &'u mut Table,
             // '#COL_MUT' is either MutA or EditA
             #(pub #COL_NAME: #COL_MUT<'u, #COL_TYPE>,)*
         }
 
         /// The table, borrowed from a `Write` lock, that forbids structural changes.
         pub struct Edit<'u, 'w> where 'u: 'w {
-            #[doc(hidden)]
             _inner: &'w Write<'u>,
             #(pub #COL_NAME: &'w mut #COL_MUT<'u, #COL_TYPE>,)*
         }
@@ -300,6 +368,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     // This is conceptually/morally equivalent to `slice::split_at_mut`.
                     // It's like splitting `Write` into `(&Structural, &mut Edit)`.
                     // See the `Deref` implementation.
+                    // FIXME: Is it UB to have `&T` and `&mut T.1`, even if we make guarantees?
                     use std::mem;
                     let me1: &Self = mem::transmute(self as *const Self);
                     let me2: &mut Self = mem::transmute(self as *mut Self);
@@ -307,7 +376,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     (Edit {
                         _inner: me1,
                         #(#COL_NAME: &mut me2.#COL_NAME2,)*
-                    }, EditIter::new(me3.row_range(), me3._lock.free.keys()))
+                    }, EditIter::new(me3.row_range(), me3._table.free.keys()))
                 }
             }
         }
@@ -340,12 +409,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         /** Iterate over a range of rows. (R/W) */
         pub fn range(&self, range: RowRange<RowId>) -> ConsistentIter<Self> {
             let checked_iter = CheckedIter::from(self, range);
-            ConsistentIter::new(checked_iter, &self._lock.free)
+            ConsistentIter::new(checked_iter, &self._table.free)
         }
 
         /** Returns true if `i` is a valid RowId. */
         pub fn contains(&self, index: RowId) -> bool {
-            index.to_usize() < self.len() && !self._lock.free.contains_key(&index.to_usize())
+            index.to_usize() < self.len() && !self._table.free.contains_key(&index)
         }
     };
     let DUMP = quote_if(table.derive.clone, quote! {
@@ -443,7 +512,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// Equivalent to `0..len()`. (R/W)
         ///
-        /// Be careful calling this on consistent tables; it may include deleted rows. You can use 
+        /// Be careful calling this on consistent tables; it may include deleted rows.
+        /// See `iter`.
         fn row_range(&self) -> RowRange<RowId> {
             (RowId::new(0)..RowId::from_usize(self.len())).into()
         }
@@ -489,97 +559,31 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }};
 
-    let ifcs = || table.cols.iter().filter(|x| x.indexed && x.foreign);
-
-    let IFC: Vec<_> = ifcs()
-        .map(|x| pp::ident_to_string(x.name))
-        .map(i)
-        .collect();
-    let TRACK_IFC_REMOVAL: Vec<_> = ifcs()
-        .map(|x| format!("track_{}_removal", x.name))
-        .map(i)
-        .collect();
-    let IFC_ELEMENT: Vec<_> = ifcs()
-        .map(|x| pp::ty_to_string(&*x.element))
-        .map(i)
-        .collect();
-
     out! {
         table.consistent => ["Change tracking"] {
-            /// Add a tracker.
-            pub fn register_tracker(universe: &Universe, tracker: Box<Tracker + Send + Sync>, sort_events: bool) {
-                let mut gt = Row::get_generic_table(universe).write().unwrap();
-                gt.add_tracker(tracker, sort_events);
-            }
-
             impl<'a> Write<'a> {
                 /// Propagate all changes
-                pub fn flush(mut self, universe: &Universe, add_event: Event, del_event: Event) {
-                    if !self._lock.need_flush() { return; }
-                    let mut flush = self._lock.acquire_flush();
-                    drop(self);
-                    flush.flush(universe, add_event, del_event);
-                    let mut gt = Row::get_generic_table(universe).write().unwrap();
-                    flush.restore(&mut gt);
+                pub fn flush(self, universe: &Universe, event: Event) {
+                    if !self._table.flush.need_flush() { return; }
+                    let mut flush = self._table.flush.extract();
+                    ::std::mem::drop(self);
+                    flush.flush(universe, event);
+                    write(universe)._table.flush.restore(flush);
                 }
 
-                /// Propagate events using an iterator whose elements will be collected into a `Vec`, if
-                /// necessary. It's preferable to use other methods!
-                pub fn send_event_collect<I>(&self, universe: &Universe, event: Event, mut rows: I)
-                where
-                    I: Iterator<Item=RowId>
-                {
-                    let mut count = 0;
-                    for tracker in &self.trackers {
-                        if tracker.dependency(event) != EventDependency::Ignore {
-                            count += 1;
-                        }
-                    }
-                    if count == 1 {
-                        let mut rows = Some(Rows);
-                        self.send_event_with(universe, event, true, move || rows.take())
-                    } else count > 1 {
-                        let rows: Vec<_> = row.collect();
-                        self.send_event_clone(universe, event, &rows);
-                    }
-                }
-
-                /// Propagate events using a `Clone`able iterator to indicate selected rows.
-                pub fn send_event_clone<I>(&self, universe: &Universe, event: Event, mut rows: I)
-                where
-                    I: Iterator<Item=RowId> + Clone
-                {
-                    self.send_event_with(universe, event, false, || rows.clone())
-                }
-
-                /// Propagate events using a closure to generate a fresh iterator for needsome `Tracker`.
-                /// Stops as soon as it returns `None`.
-                pub fn send_event_with<I, F>(&self, universe: &Universe, event: Event, mut gen: F)
-                where
-                    I: Iterator<Item=RowId>,
-                    F: FnMut() -> Option<I>,
-                {
-                    let fallback = universe.generic_event_handler(event);
-                    for tracker in &self.trackers {
-                        let d = tracker.dependency(event);
-                        if d == Dependency::Ignore { continue; }
-                        if let Some(rows) = gen() {
-                            if d == Dependency::Handle {
-                                tracker.selected(universe, event, gen());
-                            } else {
-                                fallback(universe, event, gen().map(|row| row.to_usize()));
-                            }
-                        } else {
-                            break;
-                        }
-                    }
+                /// Flush table without releasing the lock. This will of course cause a deadlock if
+                /// the table has trackers that need to look at values.
+                pub fn live_flush(&mut self, universe: &Universe, event: Event) {
+                    if !self._table.flush.need_flush() { return; }
+                    self._table.flush.flush(universe, event);
                 }
 
                 pub fn delete<I: CheckId>(&mut self, row: I) {
                     unsafe {
-                        let i = row.check(self).to_usize();
-                        self.delete_raw(i);
-                        self.event_delete(i);
+                        let i = row.check(self).uncheck();
+                        self.delete_raw(i.to_usize());
+                        self.event_del(i);
+                        self._table.free.insert(i, ());
                     }
                 }
 
@@ -589,36 +593,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     )*
                 }
 
-                #(
-                    /// `deleted` is a list of removed foreign keys.
-                    pub fn #TRACK_IFC_REMOVAL(&mut self, deleted: &[usize]) {
-                        // FIXME: &mut Iterator? usize or RowId?
-                        for deleted_foreign in deleted {
-                            type E = #IFC_ELEMENT;
-                            let deleted_foreign = E::from_usize(*deleted_foreign);
-                            loop {
-                                // It'd be nicer to keep the iterator around, but we immediately
-                                // invalidate it. We could pass deleted_foreign into the TCol?
-                                let kill = if let Some(kill) = self.#IFC.deref().inner().find(deleted_foreign).next() {
-                                    // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
-                                    kill
-                                } else {
-                                    break;
-                                };
-                                self.delete(kill);
-                                if cfg!(test) && self.contains(kill) {
-                                    panic!("Deletion failed");
-                                }
-                            }
-                        }
-                    }
-                )*
+                /*
+                /// Try to remove an instance of your tracker.
+                pub fn remove_tracker<T: Tracker<Table=Row>>(&mut self) -> Option<Box<Tracker<Table=Row>>> {
+                    self._table.flush.remove_tracker::<T>()
+                }
+                */
+                /// This method is here as a convenience for macros.
+                pub fn flush_or_close(self, universe: &Universe, event: Event) { self.flush(universe, event) }
             }
 
             /// Makes sure the flush requirement has been acknowledged
             impl<'a> Drop for Write<'a> {
                 fn drop(&mut self) {
-                    if self._lock.need_flush() {
+                    if self._table.flush.need_flush() {
                         panic!("Changes to {} were not flushed", TABLE_NAME);
                     }
                 }
@@ -626,9 +614,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
         ["fake flush"] {
             impl<'u> Write<'u> {
-                /// This table does not need to be flushed; this method is here as a
-                /// convenience for macros.
-                pub fn flush(self, _universe: &Universe) {}
+                /// This method is here as a convenience for macros.
+                pub fn flush_or_close(self, _: &Universe, _: Event) {}
 
                 // "shouldn't" get called; could happen if the table kind changes between
                 // serializations. This is a stub.
@@ -639,6 +626,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
     }
 
+    // 'ifc' = "indexed foreign column"
+    let ifcs = || table.cols.iter().filter(|x| x.indexed && x.foreign);
+    let IFC: Vec<_> = ifcs()
+        .map(|x| i(pp::ident_to_string(x.name)))
+        .collect();
+    let TRACK_IFC_REMOVAL: Vec<_> = ifcs()
+        .map(|x| i(format!("track_{}_removal", x.name)))
+        .collect();
+    let IFC_ELEMENT: Vec<_> = ifcs()
+        .map(|x| i(pp::ty_to_string(&*x.element)))
+        .collect();
+
     let sorted_foreign = || table.cols.iter().filter(|x| Some(x.name) == table.sort_key && x.foreign);
     let TRACKED_SORTED_COL: &Vec<_> = &sorted_foreign()
         .map(|x| i(pp::ident_to_string(x.name)))
@@ -646,23 +645,51 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let TRACK_SORTED_COL_EVENTS: &Vec<_> = &sorted_foreign()
         .map(|x| i(format!("track_sorted_{}_removal", x.name)))
         .collect();
-    out! { ["track sorted events"] {
+    let TRACK_SORTED_COL_ELEMENT: &Vec<_> = &sorted_foreign()
+        .map(|x| i(pp::ty_to_string(&*x.element)))
+        .collect();
+    out! { ["foreign row removal"] {
         impl<'u> Write<'u> {
+            #(
+                /// `deleted` is a list of removed foreign keys.
+                pub fn #TRACK_IFC_REMOVAL(&mut self, selected: Select<&[#IFC_ELEMENT]>) {
+                    match selected {
+                        Select::All => self.clear(),
+                        Select::These(deleted) => {
+                            for deleted_foreign in deleted {
+                                // It'd be nicer to keep the iterator around, but we immediately
+                                // invalidate it. We could collect it into a Vec?
+                                while let Some(kill) = self.#IFC.deref().inner().find(*deleted_foreign).next() {
+                                    // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
+                                    self.delete(kill);
+                                    if cfg!(test) && self.contains(kill) {
+                                        panic!("Deletion failed");
+                                    }
+                                }
+                            }
+                        },
+                    }
+                }
+            )*
             #(
                 /// This is a table sorted by a foreign key. This function removes all the keys
                 /// listed in `remove`, which must also be sorted.
-                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, remove: &[usize]) {
-                    if remove.is_empty() || self.len() == 0 { return; }
-                    let mut core = JoinCore::new(remove.iter().map(|x| *x));
-                    self.merge0(move |me, rowid| {
-                        use std::iter::empty;
-                        let foreign = me.#TRACKED_SORTED_COL[rowid].to_usize();
-                        match core.cmp(&foreign) {
-                            Join::Match(_) => Action::Continue { remove: true, add: empty() },
-                            Join::Next => Action::Continue { remove: false, add: empty() },
-                            Join::Stop => Action::Break,
-                        }
-                    });
+                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, select: Select<&[#TRACK_SORTED_COL_ELEMENT]>) {
+                    match select {
+                        Select::All => self.clear(),
+                        Select::These(remove) => {
+                            let mut core = JoinCore::new(remove.iter().map(|x| *x));
+                            self.merge0(move |me, rowid| {
+                                use std::iter::empty;
+                                let foreign = me.#TRACKED_SORTED_COL[rowid];
+                                match core.cmp(&foreign) {
+                                    Join::Match(_) => Action::Continue { remove: true, add: empty() },
+                                    Join::Next => Action::Continue { remove: false, add: empty() },
+                                    Join::Stop => Action::Break,
+                                }
+                            });
+                        },
+                    }
                 }
             )*
         }
@@ -671,26 +698,27 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     for col in &table.cols {
         if !col.foreign_auto { continue; }
         let TRACK_EVENTS = i(format!("track_{}_events", col.name));
-        let DELEGATE = i(if Some(col.name) == table.sort_key {
+        let TRACK_REMOVAL = i(if Some(col.name) == table.sort_key {
             format!("track_sorted_{}_removal", col.name)
         } else if col.indexed {
             format!("track_{}_removal", col.name)
         } else {
             panic!("`#[foreign_auto]` can only be used on columns with `#[index]` or `#[sort_key]`.");
         });
+        let FOREIGN_ELEMENT = i(pp::ty_to_string(&*col.element));
         out! { ["foreign_auto"] {
             impl Tracker for #TRACK_EVENTS {
-                fn cleared(&mut self, universe: &Universe) {
-                    let mut lock = write(universe);
-                    lock.clear();
-                    lock.flush(universe);
-                }
+                // #FOREIGN_ELEMENT is a GenericRowId<TableRow>.
+                // We need to get at the TableRow...
+                type Foreign = <#FOREIGN_ELEMENT as GetParam>::T;
 
-                fn track(&mut self, universe: &Universe, deleted_rows: &[usize], _added_rows: &[usize]) {
-                    if deleted_rows.is_empty() { return; }
-                    let mut lock = write(universe);
-                    lock.#DELEGATE(deleted_rows);
-                    lock.flush(universe);
+                fn consider(&self, event: Event) -> bool { event.is_removal }
+                fn sort(&self) -> bool { GUARANTEES.sorted }
+
+                fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
+                    let mut table = write(universe);
+                    table.#TRACK_REMOVAL(rows);
+                    table.flush_or_close(universe, event);
                 }
             }
         }};
@@ -719,22 +747,23 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["event logging for consistent tables"] {
             impl<'u> Write<'u> {
-                fn event_cleared(&mut self) { self._lock.cleared = true; }
-                fn event_add(&mut self, i: usize) { self._lock.add(i); }
-                fn event_delete(&mut self, i: usize) { self._lock.delete(i); }
-                fn event_add_reserve(&mut self, n: usize) { self._lock.add_reserve(n) }
-                fn event_delete_reserve(&mut self, n: usize) { self._lock.delete_reserve(n) }
+                #[inline] fn event_cleared(&mut self) { self._table.flush.select_all() }
+                #[inline] fn event_add(&mut self, i: RowId) { self._table.flush.select(i) }
+                #[inline] fn event_del(&mut self, i: RowId) { self._table.flush.select(i) }
+                #[inline] fn event_add_reserve(&mut self, n: usize) { self._table.flush.reserve(n) }
+                #[inline] fn event_del_reserve(&mut self, n: usize) { self._table.flush.reserve(n) }
             }
         };
         ["event ignoring for inconsistent_columns tables"] {
             impl<'u> Write<'u> {
                 #[inline] fn event_cleared(&mut self) {}
-                #[inline] fn event_add(&mut self, _: usize) {}
-                #[inline] fn event_delete(&mut self, _: usize) {}
+                #[inline] fn event_add(&mut self, _: RowId) {}
+                #[inline] fn event_del(&mut self, _: RowId) {}
                 #[inline] fn event_add_reserve(&mut self, _: usize) {}
-                #[inline] fn event_delete_reserve(&mut self, _: usize) {}
+                #[inline] fn event_del_reserve(&mut self, _: usize) {}
             }
         };
+        // FIXME: event_del_reserve is inacessible!
     }
 
     out! { ["mut methods safe for all guarantees"] {
@@ -757,7 +786,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #[inline]
             fn push_end_unchecked(&mut self, row: Row) -> RowId {
                 let rowid = self.push_only_unchecked(row);
-                self.event_add(rowid.to_usize());
+                self.event_add(rowid);
                 rowid
             }
 
@@ -1054,7 +1083,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
         !table.sorted => ["row pushing for unsorted tables"] {
             impl<'u> Write<'u> {
-                /** Populate the table with data from the provided iterator. */
+                /// Populate the table with data from the provided iterator.
                 pub fn push_all<I: ::std::iter::Iterator<Item=Row>>(&mut self, data: I) {
                     self.reserve(data.size_hint().0);
                     for row in data {
@@ -1072,11 +1101,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     } else {
                         None
                     };
-                    let next = self._lock.free.keys().next().cloned();
+                    let next = self._table.free.keys().next().cloned();
                     let i = if let Some(old) = next {
-                        self._lock.free.remove(&old);
+                        self._table.free.remove(&old);
                         self.event_add(old);
-                        let old = RowId::from_usize(old);
                         // This is a very simple implementation!
                         self.swap_out_row(old, &mut row);
                         old
@@ -1087,21 +1115,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         assert_eq!(Some(i), expect);
                     }
                     // It's not a checked index. I think it likely that you'll generally want an
-                    // unchecked index when using this.
+                    // unchecked index when using this, for a foreign key.
                     i
                 }
 
                 /// Returns the RowId of the next row that would be inserted.
                 pub fn next_pushed(&self) -> RowId {
-                    let i = self._lock.free
+                    self._table.free
                         .keys()
                         .next()
                         .cloned()
-                        .unwrap_or(self.len());
-                    RowId::from_usize(i)
+                        .unwrap_or(RowId::from_usize(self.len()))
                 }
 
-                /// Push an 'array' of values. Contiguity guaranteed!
+                /// Push an 'array' of values. The return value is a contiguous range.
                 pub fn push_array<I>(&mut self, mut i: I) -> RowRange<RowId>
                 where I: ExactSizeIterator<Item=Row>
                 {
@@ -1128,14 +1155,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! { ["Lock & Load"] {
 
         use std::mem::transmute;
-        use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
-
-        impl Row {
-            pub fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
-                let domain_id = TABLE_DOMAIN.get_id();
-                universe.get_generic_table(domain_id, TABLE_NAME)
-            }
-        }
+        use std::sync::{RwLockReadGuard, RwLockWriteGuard, LockResult, TryLockResult};
 
         fn convert_read_guard(_lock: RwLockReadGuard<GenericTable>) -> Read {
             #(let #COL_NAME = {
@@ -1156,8 +1176,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 // If mem::swap becomes a problem, we could switch to OwningRef<Rc<RWLGuard>, &column>.
                 // This does require heap allocation tho...
             };)*
+            let _table = {
+                let _table: &Table = _lock.table.downcast_ref::<Table>().expect("Table downcast failed");
+                // FIXME: Audit this unsafety. This might be easy to another thing? Or
+                // GenericTable'll fall out somehow. Maybe they could co-own?
+                unsafe { transmute(_table) }
+            };
             Read {
                 _lock: BiRef::Left(_lock),
+                _table,
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -1170,12 +1197,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         /// This is equivalent to `RwLock::read`.
         pub fn read_result<'u>(universe: &'u Universe) -> LockResult<Read<'u>> {
-            let table = Row::get_generic_table(universe).read();
+            let table = RowId::get_generic_table(universe).read();
             intern::wrangle_lock::map_result(table, convert_read_guard)
         }
 
         pub fn try_read<'u>(universe: &'u Universe) -> TryLockResult<Read<'u>> {
-            let table = Row::get_generic_table(universe).try_read();
+            let table = RowId::get_generic_table(universe).try_read();
             intern::wrangle_lock::map_try_result(table, convert_read_guard)
         }
 
@@ -1187,10 +1214,17 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 unsafe {
                     #COL_MUT::new(transmute(got))
                     // See comment about transmute in `convert_read_guard()`.
+                    // FIXME: Actually the comment should go on this one, since mut is harder.
                 }
             };)*
+            let _table = {
+                let _table: &mut Table = _lock.table.downcast_mut::<Table>().expect("Table downcast failed");
+                // See comment about transmute in `convert_read_guard()`.
+                unsafe { transmute(_table) }
+            };
             Write {
                 _lock,
+                _table,
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -1201,35 +1235,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         pub fn write_result<'u>(universe: &'u Universe) -> LockResult<Write<'u>> {
-            let table = Row::get_generic_table(universe).write();
+            let table = RowId::get_generic_table(universe).write();
             intern::wrangle_lock::map_result(table, convert_write_guard)
         }
 
         pub fn try_write<'u>(universe: &'u Universe) -> TryLockResult<Write<'u>> {
-            let table = Row::get_generic_table(universe).try_write();
+            let table = RowId::get_generic_table(universe).try_write();
             intern::wrangle_lock::map_try_result(table, convert_write_guard)
-        }
-
-        pub struct GenericOps;
-        impl DynTable for GenericOps {
-            fn remove_rows(&self, universe: &Universe, event: Event, rows: &mut Iterator<Item=usize>) {
-                let mut table = write(universe);
-                for row in rows {
-                    let row = RowId::from_usize(*row);
-                    self.delete(row);
-                }
-                write.flush_deleted(universe, event);
-
-                /*
-                   let flush = table.acquire_flush();
-                   flush.flush(universe, event::INVALID_EVENT, event);
-                */
-            }
         }
 
         /// Register the table onto its domain.
         pub fn register() {
-            let table = GenericTable::new(TABLE_DOMAIN, TABLE_NAME, GUARANTEES.clone(), Box::new(GenericOps));
+            let table = GenericTable::new(Table::new());
             let mut table = table #(.add_column(
                 #COL_NAME_STR,
                 column_format::#COL_NAME,
@@ -1257,6 +1274,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             {
                 Read {
                     _lock: BiRef::Right(&*self._lock),
+                    _table: &self._table,
                     #(
                         #COL_NAME: RefA::new(self.#COL_NAME2.deref()),
                     )*
@@ -1268,42 +1286,51 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     let foreign_cols = || table.cols.iter().filter(|x| x.foreign);
     let COL_TRACK_EVENTS: &Vec<_> = &foreign_cols()
-        .map(|x| i(format!("track_{}_events", x.name))) // FIXME: Rename to `track_{}_removal`.
+        .map(|x| i(format!("track_{}_events", x.name)))
         .collect();
     let COL_TRACK_ELEMENTS: &Vec<_> = &foreign_cols()
         .map(|x| pp::ty_to_string(&*x.element))
         .map(i)
         .collect();
-    let SORT_EVENTS: &Vec<bool> = &foreign_cols()
-        .map(|x| Some(x.name) == table.sort_key)
-        .collect();
-    out! { ["tracking"] {
-        #(
-            /// `Tracker` must be implemented on this struct to maintain consistency by responding to
-            /// structural tables on the foreign table.
-            #[allow(non_camel_case_types)] // We do not want to guess at the capitalization.
-            pub struct #COL_TRACK_EVENTS;
-        )*
-        fn register_foreign_trackers(_universe: &Universe) {
-            #({
-                let bx = Box::new(#COL_TRACK_EVENTS) as Box<Tracker + Sync + Send>;
-                type E = #COL_TRACK_ELEMENTS;
-                E::register_tracker(_universe, bx, #SORT_EVENTS);
-            })*
-        }
-    }};
+    out! {
+        true || table.consistent => ["tracking"] {
+            #(
+                /// You must implement [`Tracker`] on this struct to maintain consistency by responding to
+                /// structural changes on the foreign table.
+                #[allow(non_camel_case_types)] // We do not want to guess at the capitalization.
+                pub struct #COL_TRACK_EVENTS;
+            )*
 
+            fn register_foreign_trackers(_universe: &Universe) {
+                #({
+                    type E = #COL_TRACK_ELEMENTS;
+                    _universe.register_tracker(
+                        #COL_TRACK_EVENTS,
+                    );
+                })*
+            }
+        };
+        /*["no tracking"] {
+            fn register_foreign_trackers(_universe: &Universe) {
+            }
+        }*/ // FIXME: Some of my stuff is registering trackers to tables that shouldn't have them? o_O But it works!?
+    };
+
+    let TABLE_PATH_STR = format!("{}/{} version={},cols={},#={}",
+        TABLE_DOMAIN_STR, TABLE_NAME_STR, table.version, table.cols.len(), table.hash_names());
     out! { ["`context!` duck-type implementation"] {
-        // Hidden because `$table::read()` is shorter than `$table::Read::lock()`.
-        impl<'u> Write<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { write(universe) }
-            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("mut ", #TABLE_NAME_STR) }
+        use self::v11::context::Lockable;
+
+        unsafe impl<'u> Lockable<'u> for Write<'u> {
+            const TYPE_NAME: &'static str = concat!("mut v11/table/", #TABLE_PATH_STR);
+            fn lock(universe: &'u Universe) -> Self { write(universe) }
+        }
+        unsafe impl<'u> Lockable<'u> for Read<'u> {
+            const TYPE_NAME: &'static str = concat!("ref v11/table/", #TABLE_PATH_STR);
+            fn lock(universe: &'u Universe) -> Self { read(universe) }
         }
 
-        impl<'u> Read<'u> {
-            #[doc(hidden)] #[inline] pub fn lock(universe: &'u Universe) -> Self { read(universe) }
-            #[doc(hidden)] #[inline] pub fn lock_name() -> &'static str { concat!("ref ", #TABLE_NAME_STR) }
-        }
+        // Can't do Edit because it has multiple lifetimes :(
     }};
 
     if table.save && !table.derive.clone { panic!("#[save] requires #[row_derive(Clone)]"); }
@@ -1316,11 +1343,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             impl<'u> Read<'u> {
                 /// Row-based encoding.
                 pub fn encode_rows<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
-                    if !self._lock.skip_flush() {
-                        panic!("Encoding unflushed table!\n{}", self._lock.unflushed_summary());
+                    if self._table.flush.need_flush() {
+                        panic!("Encoding unflushed table!\n{}", self._table.flush.summary());
                     }
                     e.emit_struct(#TABLE_NAME_STR, 2, |e| {
-                        e.emit_struct_field("free_list", 0, |e| self._lock.free.encode(e))?;
+                        e.emit_struct_field("free_list", 0, |e| self._table.free.encode(e))?;
                         e.emit_struct_field("rows", 1, |e| e.emit_seq(self.len(), |e| {
                             for i in self.row_range().iter_slow() {
                                 let i = unsafe { CheckedRowId::fab(i.to_raw(), self) };
@@ -1347,9 +1374,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
 
                 pub fn decode_rows_append<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
-                    if !self._lock.skip_flush() { panic!("Decoding unflushed table!"); }
+                    if self._table.flush.need_flush() {
+                        panic!("Decoding unflushed table!\n{}", self._table.flush.summary());
+                    }
                     let caught = d.read_struct(#TABLE_NAME_STR, 2, |d| {
-                        self._lock.free = d.read_struct_field("free_list", 0, ::std::collections::BTreeMap::decode)?;
+                        self._table.free = d.read_struct_field("free_list", 0, ::std::collections::BTreeMap::decode)?;
                         d.read_struct_field("rows", 1, |d| d.read_seq(|e, count| {
                             self.reserve(count);
                             for i in 0..count {
@@ -1364,10 +1393,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     }
                     // De-index deleted things.
                     // Bit lame.
-                    let to_free: Vec<_> = self._lock.free.keys().map(|i| *i).collect();
+                    let to_free: Vec<_> = self._table.free.keys().map(|i| *i).collect();
                     for free in to_free.into_iter() {
+                        let free = free.to_usize();
+                        assert!(free < self.len());
                         unsafe {
-                            assert!(free < self.len());
                             self.delete_raw(free);
                         }
                     }

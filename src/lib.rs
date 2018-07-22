@@ -7,12 +7,14 @@
 //!
 //! - Calling `register()` functions on domains, properties and tables. This should only be done from the
 //! main thread, before any `Universe`s have been created.
-//! - Doing strange things with the references in a table lock. (&'static strly, `mem::swap`.)
+//! - Doing strange things with the references in a table lock. (Namely, `mem::swap`.)
 //! - Using `pub` items that are marked `#[doc(hidden)]`. These should only be used by
 //! macro-generated code.
 //!
 //!
 //! [dod]: http://www.dataorienteddesign.com/dodmain/
+// FIXME: Change `References` to [`References`].
+// FIXME: Could use some hefty reorganization.
 
 #[allow(unused_imports)]
 #[macro_use]
@@ -27,6 +29,8 @@ extern crate bit_vec_mut as bit_vec;
 pub extern crate num_traits;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate mopa;
 
 use std::sync::*;
 
@@ -43,19 +47,22 @@ pub mod columns;
 pub mod index;
 pub mod map_index;
 pub mod storage;
-#[doc(hidden)]
 pub mod tracking;
+pub mod event;
 
-pub mod joincore;
 #[macro_use]
 pub mod context;
+
+// Util. Buncha these could become crates!
+pub mod joincore;
 mod assert_sorted;
+pub mod any_slice;
 
 #[cfg(feature = "doc")]
 pub mod examples;
 
 #[cfg(not(feature = "doc"))]
-/// Run `cargo doc --feature doc` to see example macro output.
+/// Run `cargo doc --features doc --open` to get documentation on example macro output.
 pub mod examples {}
 
 #[cfg(feature = "doc")]
@@ -68,20 +75,28 @@ pub mod v11 {
 }
 
 
-/**
- * Trait describing bounds that all storable types must satisfy.
- *
- * Types that implement this trait also shouldn't implement `Drop`,
- * however this can not yet be expressed.
- * */
+/// Trait describing bounds that all storable types must satisfy.
+///
+/// Types that implement this trait shouldn't implement `Drop`,
+/// and they shouldn't be `mem::needs_drop`.
+/// However this can not yet be expressed... and actually isn't even required yet.
+///
+/// There are additional requirements not expressed by this type.
 // FIXME: !Drop
-pub trait Storable: Sync + Sized /* + !Drop */ {}
+pub trait Storable: Sync + Sized /* + !Drop */ {
+    #[doc(hidden)]
+    fn assert_no_drop() {
+        // FIXME: Call me, maybe.
+        if ::std::mem::needs_drop::<Self>() {
+            panic!("Column element needs_drop");
+        }
+    }
+}
 impl<T> Storable for T where T: Sync + Sized /* + !Drop */ {}
 
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
-pub use tracking::Tracker;
 use domain::{DomainName, MaybeDomain};
 
 /**
@@ -89,7 +104,7 @@ use domain::{DomainName, MaybeDomain};
  * */
 pub struct Universe {
     #[doc(hidden)] pub domains: Vec<MaybeDomain>,
-    event_handlers: Vec<tracking::FallbackEventHandler>,
+    pub event_handlers: ::event::EventHandlers,
 }
 
 /// Universe manipulation methods.
@@ -98,7 +113,7 @@ impl Universe {
     pub fn new(domains: &[DomainName]) -> Universe {
         let mut ret = Universe {
             domains: Self::get_domains(domains),
-            event_handlers: vec![tracking::invalid_event_handler],
+            event_handlers: Default::default(),
         };
         for domain in domains {
             ret.init_domain(*domain);
@@ -106,12 +121,11 @@ impl Universe {
         ret
     }
 
+    /// Converts to a form shareable with other threads.
     pub fn guard(self) -> GuardedUniverse { Arc::new(RwLock::new(self)) }
 
-    /**
-     * Returns a string describing all the tables in the Universe.
-     * (This does not include their contents.)
-     * */
+    /// Returns a string describing all the tables in the Universe.
+    /// (This does not include their contents.)
     pub fn info(&self) -> String {
         let mut out = "".to_owned();
         for domain in &self.domains {

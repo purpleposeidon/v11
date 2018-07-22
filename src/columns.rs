@@ -1,12 +1,12 @@
 //! Table indexing is strongly typed.
 //! Each table has its own index type (`GenericRowId`),
-//! which may be converted to a 'post-checked' form (`CheckedRowId`).
+//! which may be converted to an 'already checked' form (`CheckedRowId`).
 // FIXME: RowIdPreCheck, RowIdPostCheck?
 
 use std::ops::{Index, IndexMut};
 use std::marker::PhantomData;
 use Storable;
-use tables::{TableRow, LockedTable, GenericRowId, CheckedRowId};
+use tables::{GetTableName, LockedTable, GenericRowId, CheckedRowId};
 
 /// All column storage types use this trait to expose a `Vec`-like interface.
 /// Some of the methods are used to keep `IndexedCol`s in sync.
@@ -28,16 +28,15 @@ pub trait TCol {
     /// Callback for when an element is deleted.
     unsafe fn deleted(&mut self, _i: usize) {}
 }
-// FIXME: Should the whole trait be unsafe?
 
 /// It's not possible to do a blanket implementation of indexing on `TCol`s due to orphan rules,
 /// so this is a wrapper.
 // We could ditch the wrapper by `trait TCol: Index<...>`, but this is more pleasant to deal with.
-pub struct Col<C: TCol, T: TableRow> {
+pub struct Col<C: TCol, T: GetTableName> {
     inner: C,
     table: PhantomData<T>,
 }
-impl<C: TCol, T: TableRow> Col<C, T> {
+impl<C: TCol, T: GetTableName> Col<C, T> {
     #[doc(hidden)]
     pub fn new() -> Self {
         Self { inner: C::new(), table: PhantomData }
@@ -53,7 +52,7 @@ impl<C: TCol, T: TableRow> Col<C, T> {
     #[doc(hidden)] pub fn inner(&self) -> &C { &self.inner }
     #[doc(hidden)] pub fn inner_mut(&mut self) -> &mut C { &mut self.inner }
 }
-impl<C: TCol, T: TableRow> Index<GenericRowId<T>> for Col<C, T> {
+impl<C: TCol, T: GetTableName> Index<GenericRowId<T>> for Col<C, T> {
     type Output = C::Element;
     fn index(&self, i: GenericRowId<T>) -> &Self::Output {
         unsafe {
@@ -62,7 +61,7 @@ impl<C: TCol, T: TableRow> Index<GenericRowId<T>> for Col<C, T> {
         }
     }
 }
-impl<C: TCol, T: TableRow> IndexMut<GenericRowId<T>> for Col<C, T> {
+impl<C: TCol, T: GetTableName> IndexMut<GenericRowId<T>> for Col<C, T> {
     fn index_mut(&mut self, i: GenericRowId<T>) -> &mut Self::Output {
         unsafe {
             let i = self.check(i.to_usize());
@@ -151,7 +150,7 @@ mod searching {
             impl<'a, C, T> $ty<'a, Col<BTreeIndex<C, T>, T>>
             where
                 C: TCol + 'a,
-                T: TableRow,
+                T: GetTableName,
                 C::Element: Hash + Ord + Copy,
             {
                 pub fn find<'b>(&'a self, e: C::Element) -> Indexes<'b, C, T>

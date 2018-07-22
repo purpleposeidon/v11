@@ -52,6 +52,3 @@ bag:
 
 array:
     Like 'bag', but order is preserved
-
-indirect:
-    I think most guarantees can be conserved in this case.

@@ -35,9 +35,25 @@ define_proc_macros! {
             return String::new();
         }
 
-        // FIXME: Write to target/$target/v11_dump/$table_name.rs, output `include!(that-path)`
-        let dump = ::std::env::var("V11_MACRO_DUMP").ok();
-        let dump = (dump == Some(table.name.to_owned())) || dump == Some("*".to_owned());
+        use std::env::var as env;
+        let output_path = env("V11_MACRO_DUMP_DIR").ok().unwrap_or_else(|| {
+            // FIXME: There doesn't seem to be a proper way of doing this.
+            // We really want 'release' vs 'target', but that seems inaccessible
+            // without egregious hacks.
+            format!(
+                "{}/target/v11_dump/{}_{}.rs",
+                env("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"),
+                table.domain,
+                table.name,
+            )
+        });
+        let output_path = ::std::path::Path::new(&output_path);
+        let dump = match env("V11_MACRO_DUMP").as_ref().map(String::as_str) {
+            Ok("*") => true,
+            Ok("0") | Ok("") => false,
+            Ok(n) => n == table.name,
+            _ => false,
+        };
         let mut ret = Vec::new();
         ::output::write_out(table, &mut ret).unwrap();
         let ret = String::from_utf8(ret).unwrap();
@@ -54,8 +70,12 @@ define_proc_macros! {
                 let out = filemap.pop().unwrap();
                 out.1.to_string()
             };
-            println!("{}", formatted);
-            formatted
+            use std::fs;
+            use std::io::Write;
+            fs::create_dir_all(output_path.parent().expect("no parent")).ok();
+            let mut out = fs::File::create(output_path).expect("unable to create dump file");
+            out.write(formatted.as_bytes()).expect("dump failed");
+            format!("include!({:?});", output_path)
         } else {
             ret
         }

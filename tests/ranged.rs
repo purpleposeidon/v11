@@ -7,8 +7,8 @@ extern crate v11_macros;
 extern crate rustc_serialize;
 
 use v11::*;
+use v11::tracking::prelude::*;
 use v11::tables::RowRange;
-use v11::tracking::Tracker;
 
 
 
@@ -31,7 +31,6 @@ table! {
         blah: [Blah; VecCol<Blah>],
     }
 }
-
 table! {
     #[kind = "consistent"]
     #[row_derive(Clone)]
@@ -44,13 +43,19 @@ table! {
         range: [RowRange<elements::RowId>; VecCol<RowRange<elements::RowId>>],
     }
 }
+
 impl Tracker for arrays::track_range_start_events {
-    fn cleared(&mut self, universe: &Universe) {
-        arrays::write(universe).clear();
+    type Foreign = elements::Row;
+    fn consider(&self, event: Event) -> bool {
+        event.is_removal
     }
-    fn track(&mut self, universe: &Universe, deleted: &[usize], _added: &[usize]) {
+
+    fn sort(&self) -> bool { false }
+
+    fn handle(&mut self, universe: &Universe, event: Event, selected: SelectRows<Self::Foreign>) {
         let mut arrays = arrays::write(universe);
-        arrays.track_range_start_removal(deleted);
+        arrays.track_range_start_removal(selected);
+        arrays.flush(universe, event);
     }
 }
 
@@ -104,6 +109,6 @@ fn ranged() {
             println!("\t{}", e.bits[erow]);
         }
     }
-    a.flush(universe);
-    e.flush(universe);
+    a.flush(universe, event::CREATE);
+    e.flush(universe, event::CREATE);
 }

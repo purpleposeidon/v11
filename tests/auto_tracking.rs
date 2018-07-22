@@ -10,7 +10,7 @@ extern crate rustc_serialize;
 
 domain! { TEST }
 use v11::Universe;
-use v11::tracking::prelude::*;
+use v11::event;
 
 type Name = &'static str;
 
@@ -26,28 +26,15 @@ table! {
     #[kind = "consistent"]
     #[row_derive(Debug)]
     [TEST/sailors] {
-        #[foreign]
+        #[foreign_auto]
         #[index]
         ship: [ships::RowId; VecCol<ships::RowId>],
         name: [Name; VecCol<Name>],
     }
 }
 
-impl Tracker for sailors::track_ship_events {
-    type Foreign = ships::Row;
-
-    fn consider(&self, event: Event) -> bool { event.is_removal }
-
-    fn sort(&self) -> bool { false }
-
-    fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
-        println!("deleted: {:?}", rows);
-        let mut sailors = sailors::write(universe);
-        sailors.track_ship_removal(rows);
-        sailors.flush(universe, event);
-    }
-}
-
+//pub mod ships { include!("/tmp/b.rs"); }
+//pub mod sailors { include!("/tmp/a.rs"); }
 
 #[test]
 fn test() {

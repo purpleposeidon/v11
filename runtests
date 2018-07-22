@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# Not sure why cargo doesn't do this itself...
+
+for f in $(ls tests/*.rs | line.py "_.split('/')[1].split('.')[0]");
+do
+    cargo test --test $f
+    cargo test --release --test $f
+    ./hardtest $f
+done

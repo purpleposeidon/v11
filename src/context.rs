@@ -1,4 +1,6 @@
-//! `v11` code involving many table locks can encounter two problems.
+//! Ergonomics for juggling multiple locks.
+//!
+//! `v11` code involving many table locks can encounter two problems:
 //!
 //! 1. A higher function may have a write lock, and some lower function also needs a write locking,
 //!    resulting in a dead-lock.
@@ -6,7 +8,12 @@
 //!
 //! You could create context structs manually, but this is labor-intensive, especially when you
 //! start needing to combine them.
+//!
+//! This module introduces [`context!`] to help with this.
 use std::os::raw::c_void;
+use std::any::TypeId;
+use Universe; // This could be parameterized to make this module v11-agnostic!
+
 
 #[doc(hidden)]
 pub trait ReleaseFields {
@@ -14,19 +21,25 @@ pub trait ReleaseFields {
     /// pointer to the field with the type of the provided string, or `null_mut` if there is no
     /// such field. The field must be 'initialized' using `mem::zeroed()`. The second return value
     /// is the size of the field, and is used as a sanity-check.
+    ///
+    /// The third return value is type `TypeId` of `PhantomData<T>`, or of `()` for absent fields.
     unsafe fn release_fields<F>(self, field_for: F)
-    where F: FnMut(&'static str) -> (*mut c_void, usize);
+    where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId);
 }
 
-/// Creates a struct that holds many table locks. This is useful for efficiently passing
-/// whole lock contexts to other functions. It is possible to 'transfer' one context into another
-/// using `NewContext::from(universe, oldContext)`. Any unused locks will be dropped, and any new
-/// locks will be acquired.
-///
-/// The locks are duck-typed: any type with functions
-/// `fn lock<'a>(&'a Universe) -> Self where Self: 'a` and
-/// `fn name() -> &'static str`
-/// can be used.
+/// This trait indicates a type that can be locked by `context!`.
+pub unsafe trait Lockable<'u> {
+    /// It is very important that this name be unique per-type!
+    /// It is relied upon to be unique per-type.
+    const TYPE_NAME: &'static str;
+    fn lock(&'u Universe) -> Self where Self: 'u;
+    // What if we got a vtable? Each type should have a unique one...
+}
+
+/// Creates a struct that holds many table locks that implement `Lockable`.
+/// This is useful for ergonomically passing multiple locks to other functions.
+/// It is possible to 'transfer' one context into another using `NewContext::from(universe, oldContext)`.
+/// Any unused locks will be dropped, and any new locks will be acquired.
 ///
 /// Tuples of up to three contexts can be combined. Try nesting the tuples if you need more.
 ///
@@ -42,16 +55,22 @@ pub trait ReleaseFields {
 ///     }
 /// }
 /// ```
+///
+/// You might consider implementing convenience functions on the context struct.
 // This macro is Wildly Exciting.
 #[macro_export]
 macro_rules! context {
     (pub struct $name:ident {
         $(pub $i:ident: $lock:path,)*
     }) => {
+        // It's a shame there isn't some kind of identifier concatenation macro.
         #[allow(non_snake_case)]
         pub mod context_module {
             use std::mem;
             use std::ptr::null_mut;
+            use std::marker::PhantomData;
+            use std::any::TypeId;
+            use $crate::context::Lockable;
 
             $(mod $i {
                 #[allow(unused)]
@@ -81,17 +100,28 @@ macro_rules! context {
 
             impl<'a> $crate::context::ReleaseFields for $name<'a> {
                 unsafe fn release_fields<F>(self, mut field_for: F)
-                where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize)
+                where F: FnMut(&'static str) -> (*mut ::std::os::raw::c_void, usize, TypeId)
                 {
+                    // Why c_void? Why not... T?
+                    // Because T can't be Any, because Any requires 'static,
+                    // and these are lock guards.
                     $({
                         let mut field = self.$i;
-                        let (swap_to, size) = field_for($i::Lock::lock_name());
+                        const TYPE_NAME: &'static str = <self::$i::Lock as Lockable>::TYPE_NAME;
+                        let (swap_to, size, id) = field_for(TYPE_NAME);
                         if swap_to.is_null() {
                             mem::drop(field);
                         } else {
+                            let expect_id = TypeId::of::<PhantomData<$i::Lock>>();
+                            if expect_id != id {
+                                // FIXME: Investigate relying only on TypeId. Dylibs?
+                                panic!("TypeId of {} did not match!",
+                                       <self::$i::Lock as Lockable>::TYPE_NAME);
+                            }
                             let expect_size = mem::size_of::<$i::Lock>();
                             if size != expect_size {
-                                panic!("sizes of {} did not match! {} vs {}", $i::Lock::lock_name(), size, expect_size);
+                                panic!("sizes of {} did not match! {} vs {}",
+                                       <self::$i::Lock as Lockable>::TYPE_NAME, size, expect_size);
                             }
                             // swap_to points at invalid memory
                             let swap_to = &mut *(swap_to as *mut $i::Lock);
@@ -114,38 +144,41 @@ macro_rules! context {
                     // `old`'s. Since the macro doesn't actually know what fields `old` has, we need to
                     // track which of our own fields we've initialized.
                     // (FIXME: LLVM w/ --release should make this 0-cost; does it?)
-                    // FIXME: What if there's a panic?
                     $(
-                        let mut $i: (bool, $i::Lock<'a>);
+                        let mut $i: Option<$i::Lock<'a>> = None;
                     )*
                     unsafe {
-                        $(
-                            $i = (false, mem::zeroed());
-                            // FIXME: Why not just Option?
-                        )*
                         old.release_fields(|name| {
-                            $(if name == $i::Lock::lock_name() {
-                                return if $i.0 {
-                                    // This case is likely a combined table. release_fields' contract
-                                    // requires dead memory, so this test is necessary.
-                                    (null_mut(), 0)
-                                } else {
-                                    $i.0 = true;
-                                    (mem::transmute(&mut $i.1), mem::size_of::<$i::Lock>())
-                                };
-                            })*
-                            (null_mut(), 0)
+                            match name {
+                                $(<self::$i::Lock as Lockable>::TYPE_NAME => {
+                                    if $i.is_some() {
+                                        // This case is likely a combined table. release_fields' contract
+                                        // requires dead memory, so this test is necessary.
+                                        (null_mut(), 0, TypeId::of::<()>())
+                                    } else {
+                                        $i = Some(mem::zeroed());
+                                        let ptr = $i.as_mut().unwrap();
+                                        (
+                                            mem::transmute(ptr),
+                                            mem::size_of::<$i::Lock>(),
+                                            TypeId::of::<PhantomData<$i::Lock>>(),
+                                        )
+                                    }
+                                },)*
+                                _ => (null_mut(), 0, TypeId::of::<()>()),
+                            }
                         });
                         $(
-                            if !$i.0 {
-                                let mut new = $i::Lock::<'a>::lock(universe);
-                                mem::swap(&mut new, &mut $i.1);
-                                mem::forget(new);
+                            if $i.is_none() {
+                                let l = <self::$i::Lock as Lockable>::lock(universe);
+                                $i = Some(l);
                             }
                         )*
                     }
                     Self {
-                        $($i: $i.1),*
+                        $(
+                            $i: $i.unwrap(),
+                        )*
                     }
                 }
             }
@@ -166,7 +199,7 @@ mod merging_multiple_contexts {
 
     impl ReleaseFields for () {
         unsafe fn release_fields<F>(self, _: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
         }
     }
@@ -176,7 +209,7 @@ mod merging_multiple_contexts {
         A: ReleaseFields,
     {
         unsafe fn release_fields<F>(self, field_for: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
             self.0.release_fields(field_for);
         }
@@ -188,7 +221,7 @@ mod merging_multiple_contexts {
         B: ReleaseFields,
     {
         unsafe fn release_fields<F>(self, mut field_for: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
             self.0.release_fields(|n| field_for(n));
             self.1.release_fields(|n| field_for(n));
@@ -202,7 +235,7 @@ mod merging_multiple_contexts {
         C: ReleaseFields,
     {
         unsafe fn release_fields<F>(self, mut field_for: F)
-        where F: FnMut(&'static str) -> (*mut c_void, usize)
+        where F: FnMut(&'static str) -> (*mut c_void, usize, TypeId)
         {
             self.0.release_fields(|n| field_for(n));
             self.1.release_fields(|n| field_for(n));
