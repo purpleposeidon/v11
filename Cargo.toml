@@ -4,7 +4,6 @@ version = "0.0.4"
 authors = ["neptunepink <purpleposeidon@gmail.com>"]
 
 [lib]
-crate-type = ["rlib", "dylib"]
 
 [dev-dependencies]
 rand = "*"
