@@ -215,7 +215,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     let ROW_REF_DERIVES: Vec<_> = ROW_DERIVES.iter()
         .filter(|x| match x.as_ref() {
-            "Clone" | "RustcEncodable" | "RustcDecodable" => false,
+            "Clone" | "RustcEncodable" | "RustcDecodable" | "Serialize" | "Deserialize" => false,
             _ => true,
         }).collect();
 

@@ -18,9 +18,11 @@ use tables::{GetTableName, LockedTable, GenericTable};
 /// Index to a row on some table.
 /// You can call `row_index.check(&table)` to pre-check the index,
 /// which you should do if you will be accessing multiple columns.
+#[derive(Serialize, Deserialize)]
 pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
     pub i: T::Idx,
+    #[serde(skip)]
     #[doc(hidden)]
     pub table: PhantomData<T>,
 }
