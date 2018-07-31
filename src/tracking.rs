@@ -15,7 +15,7 @@ pub mod prelude {
 pub trait GetParam { type T; }
 impl<T: GetTableName> GetParam for GenericRowId<T> { type T = T; }
 
-/// Indicates whether all rows hae been selected, or only some of them.
+/// Indicates whether all rows have been selected, or only some of them.
 /// (No selection is indicated by not receiving a call.)
 #[derive(Debug, Clone)]
 pub enum Select<I> {
@@ -273,14 +273,14 @@ impl<I: GetTableName> Flush<I> {
 #[doc(hidden)]
 impl<I: GetTableName> Flush<I> {
     #[inline]
-    pub fn select_all(&mut self) {
-        self.select_all = true;
-        self.selected.clear();
+    pub fn select(&mut self, i: GenericRowId<I>) {
+        self.selected.push(i);
     }
 
     #[inline]
-    pub fn select(&mut self, i: GenericRowId<I>) {
-        self.selected.push(i);
+    pub fn select_all(&mut self) {
+        self.select_all = true;
+        self.selected.clear();
     }
 }
 

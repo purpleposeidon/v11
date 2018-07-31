@@ -601,6 +601,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 */
                 /// This method is here as a convenience for macros.
                 pub fn flush_or_close(self, universe: &Universe, event: Event) { self.flush(universe, event) }
+
+                /// Mark a row. Calling `flush` will then propagate the selection.
+                pub fn select(&mut self, row: RowId) {
+                    self._table.flush.select(row);
+                }
+
+                /// Mark every row. Calling `flush` will then propagate the selection.
+                pub fn select_all(&mut self, row: RowId) {
+                    self._table.flush.select_all(row);
+                }
             }
 
             /// Makes sure the flush requirement has been acknowledged
