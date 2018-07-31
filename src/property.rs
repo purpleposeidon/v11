@@ -353,6 +353,13 @@ impl Universe {
         *self[prop].write().unwrap() = val;
     }
 
+    /// Exchange the value in a property.
+    pub fn swap<V: Any + Sync>(&self, prop: &ToPropRef<V>, mut val: V) -> V {
+        let mut prop = self[prop].write().unwrap();
+        ::std::mem::swap(&mut *prop, &mut val);
+        val
+    }
+
     /// Gets the property locked for reading. Panics if poisoned.
     pub fn read<V: Any + Sync>(&self, prop: &ToPropRef<V>) -> RwLockReadGuard<V> {
         self[prop].read().unwrap()
