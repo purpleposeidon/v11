@@ -148,24 +148,22 @@ pub trait Tracker: 'static + Send + Sync {
     /// flush completes.
     ///
     /// Any newly created rows are valid.
-    fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>);
-    // All of my impls of `Tracker` have been unit structs so far, so &mut seems a bit silly.
-    // But someone may find a use for it.
+    fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>);
 }
 
 
 #[doc(hidden)]
-pub struct Flush<I: GetTableName> {
+pub struct Flush<T: GetTableName> {
     // All the other fields don't need locks, but this one does because we need to continue holding
     // it after releasing the lock on `GenericTable`.
     // We manage borrowing on the other stuff via mem::swap
-    trackers: Arc<RwLock<Vec<Box<Tracker<Foreign=I>>>>>,
+    trackers: Arc<RwLock<Vec<Box<Tracker<Foreign=T>>>>>,
     trackers_is_empty: bool, // don't want to lock!
 
-    selected: Vec<GenericRowId<I>>,
+    selected: Vec<GenericRowId<T>>,
     select_all: bool,
 }
-impl<I: GetTableName> Default for Flush<I> {
+impl<T: GetTableName> Default for Flush<T> {
     fn default() -> Self {
         Flush {
             trackers: Default::default(),
@@ -177,7 +175,7 @@ impl<I: GetTableName> Default for Flush<I> {
     }
 }
 #[doc(hidden)]
-impl<I: GetTableName> Flush<I> {
+impl<T: GetTableName> Flush<T> {
     /// Swap the values out, returning them in a temporary `Flush` that is used for doing actual
     /// flushing. This is required because we need to release the lock on Table to flush, in case
     /// someone wants it.
@@ -192,7 +190,7 @@ impl<I: GetTableName> Flush<I> {
         mem::replace(self, new)
     }
 
-    fn selection(&self) -> SelectRows<I> {
+    fn selection(&self) -> SelectRows<T> {
         if self.select_all {
             Select::All
         } else {
@@ -204,7 +202,6 @@ impl<I: GetTableName> Flush<I> {
 
     pub fn flush(&mut self, universe: &Universe, event: Event) {
         let mut sorted = false;
-
         {
             let mut trackers = self.trackers.write().unwrap();
             for tracker in trackers.iter_mut() {
@@ -218,7 +215,7 @@ impl<I: GetTableName> Flush<I> {
         }
         {
             let fallback = universe.event_handlers.get(event);
-            let gt = I::get_generic_table(universe);
+            let gt = T::get_generic_table(universe);
             let mut gt = gt.write().unwrap();
             let gt = &mut *gt;
             if !sorted && fallback.needs_sort(gt) {
@@ -230,8 +227,54 @@ impl<I: GetTableName> Flush<I> {
                 .map(|i| ::any_slice::AnySliceRef::from(i));
             fallback.handle(universe, gt, event, rows);
         }
-
         self.selected.clear();
+    }
+
+    pub fn flush_selection<I>(
+        &self,
+        universe: &Universe,
+        event: Event,
+        selection_sorted: bool,
+        selection: I,
+    )
+    where
+        I: Iterator<Item=GenericRowId<T>>,
+    {
+        let assert_nosort = |b| if b && !selection_sorted {
+            panic!("Tracker requires sorted a sorted selection, but the selection can not be sorted");
+        };
+
+        let mut collection = Vec::new();
+        let mut selection = Some(selection);
+        macro_rules! select {
+            () => {{
+                if let Some(selection) = selection.take() {
+                    collection.extend(selection);
+                }
+                Select::These(collection.as_slice())
+            }};
+        }
+
+        {
+            let trackers = self.trackers.read().unwrap();
+            for tracker in trackers.iter() {
+                if !tracker.consider(event) { continue; }
+                assert_nosort(tracker.sort());
+                tracker.handle(universe, event, select!());
+            }
+        }
+        {
+            let fallback = universe.event_handlers.get(event);
+            let gt = T::get_generic_table(universe);
+            let mut gt = gt.write().unwrap();
+            let gt = &mut *gt;
+            assert_nosort(fallback.needs_sort(gt));
+            let rows = select!();
+            let rows = rows
+                .as_ref()
+                .map(|i| ::any_slice::AnySliceRef::from(i));
+            fallback.handle(universe, gt, event, rows);
+        }
     }
 
     /// Return values from a `Flush::extract`. This accomplishes two things:
@@ -239,7 +282,7 @@ impl<I: GetTableName> Flush<I> {
     /// 2. Does the right thing if events have happened in the meantime.
     pub fn restore(&mut self, mut orig: Self) {
         mem::swap(&mut self.trackers, &mut orig.trackers);
-        fn swap_vecs<I>(my: &mut Vec<I>, orig: &mut Vec<I>) {
+        fn swap_vecs<T>(my: &mut Vec<T>, orig: &mut Vec<T>) {
             if my.is_empty() {
                 mem::swap(my, orig);
             }
@@ -257,7 +300,7 @@ impl<I: GetTableName> Flush<I> {
                 self.selected.len(), self.select_all)
     }
 
-    pub fn register_tracker<R: Tracker<Foreign=I>>(&mut self, tracker: R) {
+    pub fn register_tracker<R: Tracker<Foreign=T>>(&mut self, tracker: R) {
         if !R::Foreign::get_guarantee().consistent {
             panic!("Tried to add tracker to inconsistent table, {}/{}",
                    R::Foreign::get_domain(), R::Foreign::get_name());
@@ -271,9 +314,9 @@ impl<I: GetTableName> Flush<I> {
 }
 /// $Table notifies us of events via this impl.
 #[doc(hidden)]
-impl<I: GetTableName> Flush<I> {
+impl<T: GetTableName> Flush<T> {
     #[inline]
-    pub fn select(&mut self, i: GenericRowId<I>) {
+    pub fn select(&mut self, i: GenericRowId<T>) {
         self.selected.push(i);
     }
 

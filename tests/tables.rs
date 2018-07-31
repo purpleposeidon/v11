@@ -63,7 +63,7 @@ impl Tracker for test_foreign::track_id_events {
     fn consider(&self, event: Event) -> bool { event.is_removal }
     fn sort(&self) -> bool { false }
 
-    fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
+    fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
         let mut table = test_foreign::write(universe);
         table.track_id_removal(rows);
         table.flush(universe, event);

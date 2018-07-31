@@ -608,8 +608,27 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
 
                 /// Mark every row. Calling `flush` will then propagate the selection.
-                pub fn select_all(&mut self, row: RowId) {
-                    self._table.flush.select_all(row);
+                pub fn select_all(&mut self) {
+                    self._table.flush.select_all();
+                }
+            }
+            impl<'a> Read<'a> {
+                pub fn select_rows<I>(
+                    &self,
+                    universe: &Universe,
+                    event: Event,
+                    selection_sorted: bool,
+                    selection: I,
+                )
+                where
+                    I: Iterator<Item=RowId>,
+                {
+                    self._table.flush.flush_selection(
+                        universe,
+                        event,
+                        selection_sorted,
+                        selection,
+                    )
                 }
             }
 
@@ -725,7 +744,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 fn consider(&self, event: Event) -> bool { event.is_removal }
                 fn sort(&self) -> bool { GUARANTEES.sorted }
 
-                fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
+                fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
                     let mut table = write(universe);
                     table.#TRACK_REMOVAL(rows);
                     table.flush_or_close(universe, event);

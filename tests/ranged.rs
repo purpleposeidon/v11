@@ -52,7 +52,7 @@ impl Tracker for arrays::track_range_start_events {
 
     fn sort(&self) -> bool { false }
 
-    fn handle(&mut self, universe: &Universe, event: Event, selected: SelectRows<Self::Foreign>) {
+    fn handle(&self, universe: &Universe, event: Event, selected: SelectRows<Self::Foreign>) {
         let mut arrays = arrays::write(universe);
         arrays.track_range_start_removal(selected);
         arrays.flush(universe, event);

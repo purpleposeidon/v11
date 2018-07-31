@@ -40,7 +40,7 @@ impl Tracker for sailors::track_ship_events {
 
     fn sort(&self) -> bool { false }
 
-    fn handle(&mut self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
+    fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
         println!("deleted: {:?}", rows);
         let mut sailors = sailors::write(universe);
         sailors.track_ship_removal(rows);
