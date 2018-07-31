@@ -290,16 +290,17 @@ fn push() {
     assert_eq!(er.to_usize(), 0);
 }
 
+use rand::{Rng, SeedableRng, XorShiftRng};
 
 #[test]
 fn random() {
-    for x in 0..10000 {
-        random_round([x, 12, 32, 49]);
+    let mut rng = XorShiftRng::from_seed(Default::default());
+    for _ in 0..10000 {
+        random_round(rng.gen());
     }
 }
 
-fn random_round(seed: [u32; 4]) {
-    use rand::{Rng, SeedableRng, XorShiftRng};
+fn random_round(seed: [u8; 16]) {
     let mut rng = XorShiftRng::from_seed(seed);
     let check: Vec<easy::Row> = (0..rng.gen_range(0, 20))
         .map(|_| {

@@ -75,8 +75,9 @@ fn is_sortable() {
 fn test_merge_thoroughly() {
     let universe = &make_universe();
     use rand::*;
-    for seed in 2..20 {
-        let mut rng = XorShiftRng::from_seed([2, 9, 293, seed]);
+    let mut rng = XorShiftRng::from_seed(Default::default());
+    for _ in 2..20 {
+        let mut rng = XorShiftRng::from_rng(&mut rng).unwrap();
         let mut sorted = sorted::write(universe);
         for n in 0..rng.gen_range(1, 20) {
             println!("round {}", n);
@@ -118,9 +119,10 @@ fn merge_singles() {
     sorted.assert_sorted();
     sorted.close();
 
-    for seed in 3..20 {
-        use rand::*;
-        let mut rng = XorShiftRng::from_seed([3, 10, 294, seed]);
+    use rand::*;
+    let mut rng = XorShiftRng::from_seed(Default::default());
+    for _ in 3..20 {
+        let mut rng = XorShiftRng::from_rng(&mut rng).unwrap();
         let mut sorted = sorted::write(universe);
         for n in 0..30 {
             println!("round {}", n);

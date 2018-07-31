@@ -4,6 +4,9 @@
 extern crate v11;
 #[macro_use]
 extern crate v11_macros;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate rustc_serialize;
 
 
@@ -12,7 +15,7 @@ domain! { TEST }
 table! {
     #[kind = "consistent"]
     #[save]
-    #[row_derive(RustcEncodable, RustcDecodable, Debug, Clone)]
+    #[row_derive(RustcEncodable, RustcDecodable, Serialize, Deserialize, Debug, Clone)]
     [TEST/saveme] {
         foo: [i32; VecCol<i32>],
         bar: [bool; BoolCol],
