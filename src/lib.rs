@@ -41,6 +41,7 @@ use std::sync::*;
 #[macro_use]
 pub mod domain;
 #[macro_use]
+pub mod table_macro;
 pub mod tables;
 #[macro_use]
 pub mod property;
