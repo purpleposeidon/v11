@@ -8,9 +8,22 @@ use std::marker::PhantomData;
 use Storable;
 use tables::{GetTableName, LockedTable, GenericRowId, CheckedRowId};
 
+/// `Any` version of a column
+pub trait AnyCol: ::mopa::Any + Send + Sync {}
+mopafy!(AnyCol);
+
+/// Column that can be serialized & deserialized.
+pub trait SaveCol: AnyCol + ::erased_serde::Serialize {}
+serialize_trait_object!(SaveCol);
+
+impl<T> AnyCol for T
+where
+    T: ::mopa::Any + Send + Sync
+{}
+
 /// All column storage types use this trait to expose a `Vec`-like interface.
 /// Some of the methods are used to keep `IndexedCol`s in sync.
-pub trait TCol {
+pub trait TCol: AnyCol {
     type Element: Storable;
 
     fn new() -> Self where Self: Sized;
@@ -29,13 +42,19 @@ pub trait TCol {
     unsafe fn deleted(&mut self, _i: usize) {}
 }
 
+
 /// It's not possible to do a blanket implementation of indexing on `TCol`s due to orphan rules,
 /// so this is a wrapper.
 // We could ditch the wrapper by `trait TCol: Index<...>`, but this is more pleasant to deal with.
+#[derive(Serialize, Deserialize)]
 pub struct Col<C: TCol, T: GetTableName> {
     inner: C,
+    #[serde(skip)]
     table: PhantomData<T>,
 }
+impl<C: TCol, T: GetTableName> SaveCol for Col<C, T>
+where C: ::serde::Serialize
+{}
 impl<C: TCol, T: GetTableName> Col<C, T> {
     #[doc(hidden)]
     pub fn new() -> Self {

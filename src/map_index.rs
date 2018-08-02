@@ -48,6 +48,18 @@ where C::Element: Hash + Ord + Copy
         }
     }
 }
+use serde::{Serialize, Serializer};
+impl<C: TCol, T: GetTableName> Serialize for BTreeIndex<C, T>
+where
+    C::Element: Hash + Ord + Copy,
+    C: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+    {
+        ::erased_serde::serialize(&self.inner, serializer)
+    }
+}
 impl<C: TCol, T: GetTableName> TCol for BTreeIndex<C, T>
 where C::Element: Hash + Ord + Copy
 {

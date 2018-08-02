@@ -25,6 +25,7 @@ use property::{GlobalPropertyId, PropertyName, DomainedPropertyId};
 /// // Every object in `MY_DOMAIN` is now accessible from the `universe`.
 /// ```
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize)]
 pub struct DomainName(pub &'static str);
 impl fmt::Display for DomainName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -180,17 +181,18 @@ impl fmt::Debug for DomainInfo {
     }
 }
 impl DomainInfo {
-    pub fn instantiate(&self, gid2producer: &[fn() -> PBox]) -> DomainInstance {
+    pub fn instantiate(&self, gid2producer: &[FmtProducer]) -> DomainInstance {
         if check_lock() && !self.locked() { panic!("not locked"); }
         let properties = self.property_members.iter().map(|id| {
-            gid2producer[id.0]()
+            let val = gid2producer[id.0].0.produce();
+            val
         }).collect();
         let tables = self.tables.iter().map(|(k, v)| (*k, v.prototype().guard())).collect();
         DomainInstance {
             id: self.id,
             name: self.name,
             property_members: properties,
-            tables: tables,
+            tables,
         }
     }
 
@@ -318,8 +320,9 @@ impl DomainInstance {
         let info = &all_properties.domains[&self.name];
         while self.property_members.len() < info.property_members.len() {
             let gid = info.property_members[self.property_members.len()];
-            let producer = all_properties.gid2producer[gid.0];
-            self.property_members.push(producer());
+            let producer = &all_properties.gid2producer[gid.0];
+            let val = producer.0.produce();
+            self.property_members.push(val);
         }
     }
 
@@ -334,6 +337,18 @@ impl DomainInstance {
     }
 }
 
+pub trait Producer: 'static + Send + Sync {
+    fn produce(&self) -> PBox;
+    fn domain(&self) -> DomainName;
+    fn name(&self) -> PropertyName;
+}
+pub struct FmtProducer(pub(crate) Box<Producer>);
+impl fmt::Debug for FmtProducer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Producer[{:?}/{:?}]", self.0.domain(), self.0.name())
+    }
+}
+
 #[derive(Default, Debug)]
 #[doc(hidden)]
 // FIXME: Rename to...? Multiverse?
@@ -342,7 +357,7 @@ pub struct GlobalProperties {
     pub name2gid: HashMap<PropertyName, GlobalPropertyId>,
     pub gid2name: HashMap<GlobalPropertyId, PropertyName>,
 
-    pub gid2producer: Vec<fn() -> PBox>,
+    pub gid2producer: Vec<FmtProducer>,
     pub domains: HashMap<DomainName, DomainInfo>,
     pub did2name: Vec<DomainName>,
 }

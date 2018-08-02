@@ -31,17 +31,6 @@ impl<I> Iterator for VoidIter<I> {
 }
 
 
-// FIXME: Are these actually necessary?
-pub fn desync_box<'a>(v: &'a PBox) -> &'a Any {
-    v.deref()
-}
-
-pub fn desync_box_mut<'a>(v: &'a mut PBox) -> &'a mut Any {
-    use std::ops::DerefMut;
-    v.deref_mut()
-}
-
-
 /// Conversions for the results of `lock.(try_)?{read,write}`.
 pub mod wrangle_lock {
     use std::sync::{LockResult, TryLockResult, TryLockError, PoisonError};

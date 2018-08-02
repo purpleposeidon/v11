@@ -18,7 +18,7 @@ use tables::{GetTableName, LockedTable, GenericTable};
 /// Index to a row on some table.
 /// You can call `row_index.check(&table)` to pre-check the index,
 /// which you should do if you will be accessing multiple columns.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
     pub i: T::Idx,
@@ -268,6 +268,7 @@ mod test {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[derive(RustcDecodable, RustcEncodable)]
+#[derive(Serialize, Deserialize)]
 pub struct RowRange<R> {
     pub start: R,
     pub end: R,

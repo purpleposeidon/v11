@@ -2,11 +2,14 @@
 
 use Storable;
 use columns::TCol;
+use serde::ser::{Serialize, Serializer, SerializeStruct, SerializeSeq};
+use serde::de::{self, Deserialize, Deserializer};
 
 /// Stores data contiguously using the standard rust `Vec`.
 /// This is ideal for tables that do not have rows added to them often.
 #[derive(Debug)]
 #[derive(RustcEncodable, RustcDecodable)]
+#[derive(Serialize, Deserialize)]
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }
@@ -38,14 +41,175 @@ impl<E: Storable> TCol for VecCol<E> {
 // FIXME: Implement. Mostly just need some kind of page_size allocator.
 pub type SegCol<E> = VecCol<E>;
 
-// FIXME: We're using a hacked up bit_vec for `IndexMut`, but we can do the hackup right here, ya?
-type BitVec = ::bit_vec::BitVec<u64>;
+extern crate bit_vec;
+type BitVec = self::bit_vec::BitVec<u32>;
+fn bitvec_from_parts<E, R>(len: usize, mut data: Vec<u32>, err: E) -> Result<BitVec, R>
+where E: FnOnce(usize, &'static str) -> R
+{
+    // to_bytes/from_bytes is super whack. Just reuse the Vec, dude!
+    const S: usize = 32;
+    let backing_len = data.len() * S;
+    {
+        // There are two length fields, unfortunately. Are they consistent?
+        if len > backing_len {
+            // Longer...
+            return Err(err(data.len(), "`len` longer than `data.len`"));
+        }
+        if backing_len - len > S {
+            // It's okay to be short,
+            // but not so short that an element is in excess.
+            return Err(err(data.len(), "`len` is excessively shorter than `data.len`"));
+        }
+    }
+    let mut bits = BitVec::new();
+    unsafe {
+        ::std::mem::swap(bits.storage_mut(), &mut data);
+        bits.set_len(backing_len);
+        bits.truncate(len);
+        // We don't just do `bits.set_len(backing_len)` because the bit-vec
+        // docs talk about the importance of the excess bits being 0 for
+        // "correctness". It's probably only relevant for BitSet operations,
+        // which we don't use, but this is easy to do.
+    }
+    Ok(bits)
+}
 
 /// Densely packed booleans.
 #[derive(Debug, Default)]
-#[derive(RustcEncodable, RustcDecodable)]
 pub struct BoolCol {
+    ref_val: bool,
+    ref_idx: usize,
     data: BitVec,
+}
+impl BoolCol {
+    fn flush(&mut self) {
+        if self.ref_idx >= self.len() { return }
+        self.data.set(self.ref_idx, self.ref_val);
+        self.ref_idx = ::std::usize::MAX;
+    }
+}
+impl Serialize for BoolCol {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+    {
+        // No serde support, hmm.
+        if serializer.is_human_readable() {
+            let mut seq = serializer.serialize_seq(Some(self.data.len()))?;
+            for b in &self.data {
+                seq.serialize_element(&b)?;
+            }
+            seq.end()
+        } else {
+            let mut state = serializer.serialize_struct("BoolCol", 4)?;
+            state.serialize_field("ref_val", &self.ref_val)?;
+            state.serialize_field("ref_idx", &self.ref_idx)?;
+            state.serialize_field("len", &self.data.len())?;
+            state.serialize_field("data", &self.data.storage())?;
+            state.end()
+        }
+    }
+}
+impl<'de> Deserialize<'de> for BoolCol {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: Deserializer<'de>
+    {
+        use serde::de::{Visitor, SeqAccess, MapAccess};
+        use std::fmt;
+        if deserializer.is_human_readable() {
+            // &[bool]
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = BoolCol;
+                fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                    write!(fmt, "an array of booleans")
+                }
+
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut data = BitVec::with_capacity(seq.size_hint().unwrap_or(0));
+                    loop {
+                        match seq.next_element() {
+                            Err(e) => return Err(e),
+                            Ok(Some(b)) => data.push(b),
+                            Ok(None) => return Ok(BoolCol {
+                                ref_val: false,
+                                ref_idx: ::std::usize::MAX,
+                                data,
+                            }),
+                        }
+                    }
+                }
+            }
+            deserializer.deserialize_seq(V)
+        } else {
+            // ref_val + ref_idx + len + Vec<u8>
+            #[derive(Deserialize)]
+            #[allow(non_camel_case_types)]
+            enum Field { ref_val, ref_idx, len, data }
+
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = BoolCol;
+                fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                    write!(fmt, "a `BoolCol` struct")
+                }
+
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    use de_help::next;
+                    let seq = &mut seq;
+                    println!("{:?}", seq.size_hint());
+                    Ok(BoolCol {
+                        ref_val: next(seq, "ref_val")?,
+                        ref_idx: next(seq, "ref_idx")?,
+                        data: bitvec_from_parts(
+                            next(seq, "len")?,
+                            next(seq, "data")?,
+                            |l, m| de::Error::invalid_length(l, &m),
+                        )?,
+                    })
+                }
+
+                fn visit_map<V>(self, mut map: V) -> Result<BoolCol, V::Error>
+                where V: MapAccess<'de>
+                {
+                    use de_help::Hole;
+                    let mut ref_val = Hole::<bool>::new("ref_val");
+                    let mut ref_idx = Hole::<usize>::new("ref_idx");
+                    let mut len = Hole::<usize>::new("len");
+                    let mut data = Hole::<Vec<u32>>::new("data");
+
+                    let map = &mut map;
+                    while let Some(key) = map.next_key()? {
+                        match key {
+                            Field::ref_val => ref_val.fill(map)?,
+                            Field::ref_idx => ref_idx.fill(map)?,
+                            Field::len => len.fill(map)?,
+                            Field::data => data.fill(map)?,
+                        }
+                    }
+
+                    let mut ret = BoolCol {
+                        ref_val: ref_val.take::<V>()?,
+                        ref_idx: ref_idx.take::<V>()?,
+                        data: bitvec_from_parts(
+                            len.take::<V>()?,
+                            data.take::<V>()?,
+                            |l, m| de::Error::invalid_length(l, &m),
+                        )?,
+                    };
+                    ret.flush(); // Might've been stale when encoded >.>
+
+                    Ok(ret)
+                }
+            }
+            deserializer.deserialize_struct("BoolCol", &["ref_val", "ref_idx", "len", "data"], V)
+        }
+    }
 }
 impl TCol for BoolCol {
     type Element = bool;
@@ -53,26 +217,47 @@ impl TCol for BoolCol {
     fn new() -> BoolCol { Default::default() }
 
     fn len(&self) -> usize { self.data.len() }
-    fn truncate(&mut self, len: usize) { self.data.truncate(len) }
-    unsafe fn unchecked_index(&self, i: usize) -> &Self::Element { &self.data[i] } // FIXME: be unchecked
-    unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element { &mut self.data[i] }
+    fn truncate(&mut self, len: usize) {
+        self.flush();
+        self.data.truncate(len)
+    }
+    unsafe fn unchecked_index(&self, i: usize) -> &Self::Element {
+        // FIXME: Actually checked!
+        if i == self.ref_idx {
+            &self.ref_val
+        } else if self.data[i] {
+            &true
+        } else {
+            &false
+        }
+    }
+    unsafe fn unchecked_index_mut(&mut self, i: usize) -> &mut Self::Element {
+        self.flush();
+        self.ref_idx = i;
+        self.ref_val = self.data[i];
+        &mut self.ref_val
+    }
     fn reserve(&mut self, n: usize) { self.data.reserve(n) }
     fn push(&mut self, v: Self::Element) { self.data.push(v) }
     unsafe fn unchecked_swap_out(&mut self, i: usize, new: &mut Self::Element) {
+        self.flush();
         let new_v = *new;
         *new = self.data[i];
         self.data.set(i, new_v);
     }
     unsafe fn unchecked_swap(&mut self, a: usize, b: usize) {
-        let av = self.data[a];
-        let bv = self.data[b];
-        self.data[a] = bv;
-        self.data[a] = av;
+        self.flush();
+        let av: bool = self.data[a];
+        let bv: bool = self.data[b];
+        self.data.set(a, bv);
+        self.data.set(b, av);
     }
 }
 
 #[cfg(test)]
 mod test {
+    use serde::de::DeserializeOwned;
+
     #[test]
     fn bool_col_unit() {
         use super::TCol;
@@ -106,6 +291,75 @@ mod test {
         unsafe {
             assert_eq!(bc.unchecked_index(0), &true);
             assert_eq!(bc.unchecked_index(1), &false);
+        }
+    }
+
+    use super::*;
+    use std::fmt::Debug;
+    extern crate serde_json;
+    extern crate bincode;
+
+    fn dupe<C>(col: &C) -> (C, C)
+    where
+        C: TCol + Serialize + DeserializeOwned,
+        C::Element: Debug + PartialEq + Clone,
+    {
+        // serialize to json + bincode, & back again
+        println!("Trying json...");
+        let b = self::serde_json::to_string_pretty(&col).unwrap();
+        println!("{}", b);
+        let b = self::serde_json::from_str(&b).unwrap();
+
+        println!("Okay, now doing bincode");
+        let c = self::bincode::serialize(&col).unwrap();
+        println!("{:?}", c);
+        let c = self::bincode::deserialize(c.as_slice()).unwrap();
+        (b, c)
+    }
+
+    fn exercise_storage<C, G>(n: usize, mut gen: G)
+    where
+        C: TCol,
+        G: FnMut() -> C::Element,
+        C: Serialize + DeserializeOwned,
+        C::Element: Debug + PartialEq + Clone,
+    {
+        let mut col = C::new();
+        for i in 0..n {
+            assert_eq!(col.len(), i);
+            col.push(gen());
+            assert_eq!(col.len(), i + 1);
+            col.truncate(i + 1);
+            assert_eq!(col.len(), i + 1);
+
+            {
+                let (b, c) = dupe::<C>(&col);
+                for d in [b, c].into_iter() {
+                    assert_eq!(col.len(), d.len());
+                    for i in 0..col.len() {
+                        unsafe {
+                            assert_eq!(col.unchecked_index(i), d.unchecked_index(i));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    extern crate rand;
+    #[test]
+    fn everything() {
+        use self::rand::Rng;
+        #[allow(deprecated)]
+        let mut rng = self::rand::XorShiftRng::new_unseeded();
+        for n in &[0, 1, 8, 16, 32, 64, 128] {
+            let n = *n;
+            println!("BoolCol");
+            exercise_storage::<BoolCol, _>(n, || rng.gen());
+            println!("VecCol<i3>");
+            exercise_storage::<VecCol<i8>, _>(n, || rng.gen());
+            println!("VecCol<bool>");
+            exercise_storage::<VecCol<bool>, _>(n, || rng.gen());
         }
     }
 }

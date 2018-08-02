@@ -80,6 +80,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         .map(|x| {
             let ct = pp::ty_to_string(&*x.colty);
             if x.indexed {
+                // FIXME: More index types
                 format!("Col<BTreeIndex<{}, Row>, Row>", ct)
             } else {
                 format!("Col<{}, Row>", ct)
@@ -134,7 +135,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         use v11;
         use self::v11::Universe;
         use self::v11::domain::DomainName;
-        use self::v11::intern::{self, PBox, BiRef};
+        use self::v11::intern::{self, BiRef};
         use self::v11::tables::*;
         use self::v11::columns::*;
         use self::v11::index::{CheckedIter, Checkable};
@@ -1214,7 +1215,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             Read {
                 _lock: BiRef::Left(_lock),
                 _table,
-                #( #COL_NAME3: #COL_NAME4, )*
+                #( #COL_NAME3, )*
             }
         }
 
@@ -1264,6 +1265,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
 
         pub fn write_result<'u>(universe: &'u Universe) -> LockResult<Write<'u>> {
+            // FIXME: err, table is a Result, maybe we don't need wrangle_lock?
             let table = RowId::get_generic_table(universe).write();
             intern::wrangle_lock::map_result(table, convert_write_guard)
         }
@@ -1276,17 +1278,22 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         /// Register the table onto its domain.
         pub fn register() {
             let table = GenericTable::new(Table::new());
-            let mut table = table #(.add_column(
-                #COL_NAME_STR,
-                column_format::#COL_NAME,
-                {
-                    fn maker() -> PBox {
-                        type CT = #COL_TYPE2;
-                        Box::new(CT::new()) as PBox
+            let mut table = table #(.add_column({
+                fn prototyper() -> GenericColumn {
+                    GenericColumn {
+                        name: #COL_NAME_STR,
+                        stored_type_name: column_format::#COL_NAME,
+                        data: {
+                            type CT = #COL_TYPE2;
+                            Box::new(CT::new()) as Box<AnyCol>
+                        },
+                        recast_ref: column_recast_ref::#COL_NAME2,
+                        recast_mut: column_recast_mut::#COL_NAME3,
+                        prototyper,
                     }
-                    maker
-                },
-            ))*;
+                }
+                prototyper
+            }))*;
             table.add_init(register_foreign_trackers);
             table.register();
         }
@@ -1432,6 +1439,36 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     }
                     caught
                 }
+            }
+            mod column_recast_ref {
+                #(
+                    pub fn #COL_NAME(c: &AnyCol) -> &SaveCol {
+                        c.downcast_ref::<#COL_TYPE>().unwrap() as &SaveCol
+                    }
+                )*
+            }
+            mod column_recast_mut {
+                #(
+                    pub fn #COL_NAME(c: &mut AnyCol) -> &mut SaveCol {
+                        c.downcast_mut::<#COL_TYPE>().unwrap() as &mut SaveCol
+                    }
+                )*
+            }
+        };
+        ["Saveless stubs"] {
+            mod column_recast_ref {
+                #(
+                    pub fn #COL_NAME(c: &AnyCol) -> &SaveCol {
+                        super::v11::tables::no_recast_ref(c)
+                    }
+                )*
+            }
+            mod column_recast_mut {
+                #(
+                    pub fn #COL_NAME(c: &mut AnyCol) -> &mut SaveCol {
+                        super::v11::tables::no_recast_mut(c)
+                    }
+                )*
             }
         };
     }

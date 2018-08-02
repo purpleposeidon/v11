@@ -7,6 +7,8 @@ authors = ["neptunepink <purpleposeidon@gmail.com>"]
 
 [dev-dependencies]
 rand = "*"
+serde_json = "*"
+bincode = "*"
 
 [dependencies]
 v11_macros = { path = "./macros" }
@@ -14,9 +16,9 @@ procedural-masquerade = "^0.1.2"
 rustc-serialize = "*"
 serde = "1.0"
 serde_derive = "1.0"
+erased-serde = "0.3.5"
 itertools = "0.4.16"
-# bit-vec = "0.4.3"
-bit-vec-mut = { git = "https://github.com/purpleposeidon/bit-vec" }
+bit-vec = "0.5.0"
 num-traits = "*"
 lazy_static = "*"
 

@@ -4,11 +4,11 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt;
 
 use Universe;
-use intern::PBox;
 use intern;
 use domain::*;
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize)]
 pub struct PropertyName(pub &'static str);
 impl fmt::Display for PropertyName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -188,17 +188,24 @@ macro_rules! property {
             }
         }
 
-        pub fn producer() -> PBox {
-            let val: Type = $INIT;
-            Box::new(RwLock::new(val)) as PBox
-            // Yeah, this guy's a bit ridiculous.
+        struct Produce;
+        impl $crate::domain::Producer for Produce {
+            fn produce(&self) -> PBox {
+                let val: Type = $INIT;
+                Box::new(RwLock::new(val)) as PBox
+            }
+            fn domain(&self) -> DomainName { DOMAIN_NAME }
+            fn name(&self) -> PropertyName { NAME }
         }
+
+        const DOMAIN_NAME: DomainName = DomainName(stringify!($DOMAIN));
+        const NAME: PropertyName = PropertyName(concat!(stringify!($DOMAIN), "/", stringify!($NAME)));
 
         // Can't access this directly because 'static mut' is unsafe to touch in any way.
         #[doc(hidden)]
         static mut VAL: Prop<Type> = Prop {
-            domain_name: DomainName(stringify!($DOMAIN)),
-            name: PropertyName(concat!(stringify!($DOMAIN), "/", stringify!($NAME))),
+            domain_name: DOMAIN_NAME,
+            name: NAME,
             index: PropertyIndex {
                 domain_id: unset::DOMAIN_ID,
                 global_index: unset::GLOBAL_PROPERTY_ID,
@@ -222,9 +229,8 @@ macro_rules! property {
             }
 
             fn register(&self) {
-                let producer = producer as fn() -> PBox;
                 unsafe {
-                    VAL.init(producer);
+                    VAL.init(Box::new(Produce));
                 }
             }
         }
@@ -255,7 +261,7 @@ impl<V> Prop<V> {
     fn get_index_within_domain(&self) -> DomainedPropertyId { self.index.domained_index }
     fn get_global_index(&self) -> GlobalPropertyId { self.index.global_index }
 
-    pub fn init(&mut self, producer: fn() -> PBox) {
+    pub fn init(&mut self, producer: Box<::domain::Producer>) {
         let globals = clone_globals();
         let pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
         // We must acquire the global lock at the beginning of this function. If we wait, and a
@@ -296,7 +302,7 @@ impl<V> Prop<V> {
         pmap.gid2name.insert(self.index.global_index, self.name);
         domain_info.property_members.push(global_index);
         if first_instance {
-            pmap.gid2producer.push(producer);
+            pmap.gid2producer.push(FmtProducer(producer));
         }
         // FIXME: Shouldn't we panic if we're adding something to a domain that was already used to
         // make a universe?
@@ -398,7 +404,6 @@ impl<'a, V: Any + Sync> ::std::ops::Index<&'a ToPropRef<V>> for Universe {
             },
             Some(v) => v,
         };
-        let v = ::intern::desync_box(v);
         let l: Option<&RwLock<V>> = v.downcast_ref();
         match l {
             None => {

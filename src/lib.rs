@@ -26,8 +26,9 @@ extern crate rustc_serialize;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate erased_serde;
 extern crate itertools;
-extern crate bit_vec_mut as bit_vec;
 #[doc(hidden)]
 pub extern crate num_traits;
 #[macro_use]
@@ -53,7 +54,6 @@ pub mod map_index;
 pub mod storage;
 pub mod tracking;
 pub mod event;
-pub mod serial;
 
 #[macro_use]
 pub mod context;
@@ -62,6 +62,7 @@ pub mod context;
 pub mod joincore;
 mod assert_sorted;
 pub mod any_slice;
+pub mod de_help;
 
 #[cfg(feature = "doc")]
 pub mod examples;
@@ -88,7 +89,7 @@ pub mod v11 {
 ///
 /// There are additional requirements not expressed by this type.
 // FIXME: !Drop
-pub trait Storable: Sync + Sized /* + !Drop */ {
+pub trait Storable: 'static + Send + Sync + Sized /* + !Drop */ {
     #[doc(hidden)]
     fn assert_no_drop() {
         // FIXME: Call me, maybe.
@@ -97,8 +98,8 @@ pub trait Storable: Sync + Sized /* + !Drop */ {
         }
     }
 }
-impl<T> Storable for T where T: Sync + Sized /* + !Drop */ {}
 
+impl<T> Storable for T where T: 'static + Send + Sync + Sized /* + !Drop */ {}
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 

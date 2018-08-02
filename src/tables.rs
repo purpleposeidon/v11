@@ -2,13 +2,14 @@ use std::any::Any;
 use std::sync::*;
 use std::fmt;
 
+use serde::{Serialize, Serializer};
 
 pub use v11_macros::*;
 
 use Universe;
 use intern;
-use intern::PBox;
 use domain::{DomainName, DomainId, MaybeDomain};
+use columns::{AnyCol, SaveCol};
 
 impl Universe {
     #[doc(hidden)]
@@ -20,7 +21,18 @@ impl Universe {
     }
 }
 
-type Prototyper = fn() -> PBox;
+
+#[doc(hidden)]
+pub fn no_recast_ref(_: &AnyCol) -> &SaveCol {
+    panic!("Column does not have a serialization caster set");
+}
+#[doc(hidden)]
+pub fn no_recast_mut(_: &mut AnyCol) -> &mut SaveCol {
+    panic!("Column does not have a serialization caster set");
+}
+type RecastFnRef = fn(&AnyCol) -> &SaveCol;
+type RecastFnMut = fn(&mut AnyCol) -> &mut SaveCol;
+type Prototyper = fn() -> GenericColumn;
 
 
 use tracking;
@@ -43,12 +55,16 @@ mopafy!(TTable);
 
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 #[doc(hidden)]
+#[derive(Serialize)]
 pub struct GenericTable {
     pub domain: DomainName,
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
+    #[serde(skip)]
     init_fns: Vec<fn(&Universe)>,
+    #[serde(skip)]
     pub guarantee: Guarantee,
+    #[serde(skip)]
     pub table: Box<TTable>,
 }
 #[doc(hidden)]
@@ -94,7 +110,7 @@ impl GenericTable {
         GenericTable {
             domain: self.domain,
             name: self.name,
-            columns: self.columns.iter().map(GenericColumn::prototype).collect(),
+            columns: self.columns.iter().map(|c| (c.prototyper)()).collect(),
             init_fns: self.init_fns.clone(),
             guarantee: self.guarantee.clone(),
 
@@ -102,28 +118,31 @@ impl GenericTable {
         }
     }
 
-    pub fn add_column(mut self, name: &'static str, type_name: &'static str, prototyper: Prototyper) -> Self {
-        intern::check_name(name);
+    pub fn add_column(mut self, prototyper: Prototyper) -> Self {
+        let col = prototyper();
+        intern::check_name(col.name);
         for c in &self.columns {
-            if c.name == name {
-                panic!("Duplicate column name {}", name);
+            if c.name == col.name {
+                panic!("Duplicate column name {}", col.name);
             }
         }
-        self.columns.push(GenericColumn {
-            name: name,
-            stored_type_name: type_name,
-            data: prototyper(),
-            prototyper: prototyper,
-        });
+        self.columns.push(col);
         self
     }
 
-    pub fn get_column<C: Any>(&self, name: &str, type_name: &'static str) -> &C {
+    pub fn get_column<C>(
+        &self,
+        name: &str,
+        type_name: &'static str,
+    ) -> &C
+    where C: Any + Send + Sync
+    {
         let c = self.columns.iter().find(|c| c.name == name).unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
-        match ::intern::desync_box(&c.data).downcast_ref() {
+        let cdata: &AnyCol = &*c.data;
+        match cdata.downcast_ref() {
             Some(ret) => ret,
             None => {
                 panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
@@ -131,13 +150,20 @@ impl GenericTable {
         }
     }
 
-    pub fn get_column_mut<C: Any>(&mut self, name: &str, type_name: &'static str) -> &mut C {
+    pub fn get_column_mut<C>(
+        &mut self,
+        name: &str,
+        type_name: &'static str,
+    ) -> &mut C
+    where C: Any + Send + Sync
+    {
         let my_name = &self.name;
         let c = self.columns.iter_mut().find(|c| c.name == name).unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", my_name, name);
         });
         if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
-        match ::intern::desync_box_mut(&mut c.data).downcast_mut() {
+        let cdata: &mut AnyCol = &mut *c.data;
+        match cdata.downcast_mut() {
             Some(ret) => ret,
             None => {
                 panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
@@ -198,30 +224,36 @@ impl fmt::Debug for GenericTable {
 
 #[doc(hidden)]
 pub struct GenericColumn {
-    name: &'static str,
-    stored_type_name: &'static str,
+    pub name: &'static str,
+    pub stored_type_name: &'static str,
     // "FIXME: PBox here is lame." -- What? No it isn't.
-    data: PBox,
-    prototyper: Prototyper,
+    pub data: Box<AnyCol>,
+    pub recast_ref: RecastFnRef,
+    pub recast_mut: RecastFnMut,
+    pub prototyper: Prototyper,
+}
+impl Serialize for GenericColumn {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+    {
+        let data = (self.recast_ref)(&*self.data);
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("column", 3)?;
+        state.serialize_field("name", self.name)?;
+        state.serialize_field("stored_type_name", self.stored_type_name)?;
+        state.serialize_field("data", data)?;
+        state.end()
+    }
 }
 impl fmt::Debug for GenericColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "GenericColumn(name: {:?}, stored_type_name: {:?})", self.name, self.stored_type_name)
     }
 }
-impl GenericColumn {
-    fn prototype(&self) -> GenericColumn {
-        GenericColumn {
-            name: self.name,
-            stored_type_name: self.stored_type_name,
-            data: (self.prototyper)(),
-            prototyper: self.prototyper,
-        }
-    }
-}
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize)]
 pub struct TableName(pub &'static str);
 impl fmt::Display for TableName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -237,7 +269,8 @@ pub trait GetTableName: 'static + Send + Sync {
         ::num_traits::PrimInt +
         fmt::Display + fmt::Debug +
         ::std::hash::Hash + Copy + Ord
-        + Send + Sync;
+        + Send + Sync
+        + Serialize;
 
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;
