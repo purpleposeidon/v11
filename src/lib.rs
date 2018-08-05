@@ -23,11 +23,11 @@ extern crate v11_macros;
 #[macro_use]
 extern crate procedural_masquerade;
 extern crate rustc_serialize;
-extern crate serde;
+pub extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
-extern crate erased_serde;
+pub extern crate erased_serde;
 extern crate itertools;
 #[doc(hidden)]
 pub extern crate num_traits;
@@ -54,6 +54,7 @@ pub mod map_index;
 pub mod storage;
 pub mod tracking;
 pub mod event;
+pub mod serial;
 
 #[macro_use]
 pub mod context;

@@ -2,14 +2,15 @@ use std::any::Any;
 use std::sync::*;
 use std::fmt;
 
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 
 pub use v11_macros::*;
 
 use Universe;
 use intern;
 use domain::{DomainName, DomainId, MaybeDomain};
-use columns::{AnyCol, SaveCol};
+use columns::AnyCol;
+use tracking::SelectAny;
 
 impl Universe {
     #[doc(hidden)]
@@ -22,17 +23,16 @@ impl Universe {
 }
 
 
-#[doc(hidden)]
-pub fn no_recast_ref(_: &AnyCol) -> &SaveCol {
-    panic!("Column does not have a serialization caster set");
+/// A function that creates a new `GenericColumn`.
+pub type Prototyper = fn() -> GenericColumn;
+// FIXME: SmallBox!
+pub type BoxedSerialize<'a> = Box<::erased_serde::Serialize + 'a>;
+/// A function that, given a generic column and a selection, returns a `Serialize`able object that
+/// can serialize that selection.
+pub type SelectionSerializerFactory = for<'a> fn(&'a GenericColumn, &'a SelectAny) -> BoxedSerialize<'a>;
+pub fn no_serializer_factory(col: &GenericColumn, _: &SelectAny) -> BoxedSerialize<'static> {
+    panic!("Column {:?} can't be serialized", col.name)
 }
-#[doc(hidden)]
-pub fn no_recast_mut(_: &mut AnyCol) -> &mut SaveCol {
-    panic!("Column does not have a serialization caster set");
-}
-type RecastFnRef = fn(&AnyCol) -> &SaveCol;
-type RecastFnMut = fn(&mut AnyCol) -> &mut SaveCol;
-type Prototyper = fn() -> GenericColumn;
 
 
 use tracking;
@@ -50,21 +50,19 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     fn get_flush(&mut self) -> &mut Any;
 
     fn remove_rows(&mut self, &Universe, ::event::Event, tracking::SelectAny);
+
+    fn serial_selection<'a>(&self, &'a tracking::SelectAny) -> BoxedSerialize<'a>;
 }
 mopafy!(TTable);
 
 /// A table held by `Universe`. Its information is used to populate concrete tables.
 #[doc(hidden)]
-#[derive(Serialize)]
 pub struct GenericTable {
     pub domain: DomainName,
     pub name: TableName,
     pub columns: Vec<GenericColumn>,
-    #[serde(skip)]
     init_fns: Vec<fn(&Universe)>,
-    #[serde(skip)]
     pub guarantee: Guarantee,
-    #[serde(skip)]
     pub table: Box<TTable>,
 }
 #[doc(hidden)]
@@ -228,22 +226,8 @@ pub struct GenericColumn {
     pub stored_type_name: &'static str,
     // "FIXME: PBox here is lame." -- What? No it isn't.
     pub data: Box<AnyCol>,
-    pub recast_ref: RecastFnRef,
-    pub recast_mut: RecastFnMut,
     pub prototyper: Prototyper,
-}
-impl Serialize for GenericColumn {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer
-    {
-        let data = (self.recast_ref)(&*self.data);
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("column", 3)?;
-        state.serialize_field("name", self.name)?;
-        state.serialize_field("stored_type_name", self.stored_type_name)?;
-        state.serialize_field("data", data)?;
-        state.end()
-    }
+    pub serializer_factory: SelectionSerializerFactory,
 }
 impl fmt::Debug for GenericColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -8,6 +8,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate rustc_serialize;
+extern crate serde_json;
 
 
 domain! { TEST }
@@ -22,31 +23,77 @@ table! {
     }
 }
 
+property! { static TEST/JSON_OUT: String }
 
+use v11::event::{FallbackHandler, Event};
+use v11::tracking::SelectAny;
+use v11::tables::GenericTable;
+use v11::Universe;
+use std::sync::RwLock;
 
+struct FullDump;
+impl FallbackHandler for FullDump {
+    fn needs_sort(&self, _gt: &RwLock<GenericTable>) -> bool { false }
+    fn handle(&self, universe: &Universe, gt: &RwLock<GenericTable>, _event: Event, rows: SelectAny) {
+        println!("Handling!");
+        // This is a bit silly; with json you'd want it by row rather than by column.
+        let mut out = universe[JSON_OUT].write().unwrap();
+        let gt = gt.read().unwrap();
+        use v11::serial::TableSelection;
+        *out += &serde_json::to_string_pretty(&TableSelection::from(&*gt, &rows)).unwrap();
+    }
+}
 
 
 #[test]
 fn test() {
     use v11::*;
     TEST.register();
+    JSON_OUT.register();
     saveme::register();
 
-    let universe = &Universe::new(&[TEST]);
+    let mut universe = Universe::new(&[TEST]);
+    universe.event_handlers.add(event::SAVE, Box::new(FullDump) as Box<FallbackHandler>);
+    let universe = &universe;
+    let expect_len;
     {
         let mut saveme = saveme::write(universe);
         saveme.push(saveme::Row {
-            foo: 1,
+            foo: 100,
             bar: false,
         });
         saveme.push(saveme::Row {
-            foo: 2,
+            foo: 200,
+            bar: true,
+        });
+        saveme.push(saveme::Row {
+            foo: 300,
             bar: true,
         });
         for blah in saveme.iter() {
             println!("{:?}", saveme.get_row_ref(blah));
         }
+        expect_len = saveme.len();
         saveme.flush(universe, event::CREATE);
+    }
+    {
+        let saveme = saveme::read(universe);
+        println!("gonna save");
+        saveme.select_all(universe, event::SAVE);
+        println!("json saved:");
+        let json = universe[JSON_OUT].read().unwrap();
+        println!("{}", json);
+        println!("--End--");
+    }
+    {
+        universe.set(JSON_OUT, String::new());
+        let saveme = saveme::read(universe);
+        println!("Gonna select/save just one row!");
+        saveme.select_rows(universe, event::SAVE, true, Some(::saveme::FIRST).into_iter());
+        println!("json saved:");
+        let json = universe[JSON_OUT].read().unwrap();
+        println!("{}", json);
+        println!("--End--");
     }
     use rustc_serialize::json;
     let mut j = String::new();
@@ -71,6 +118,6 @@ fn test() {
             println!("{:?}", saveme.get_row_ref(blah));
             n += 1;
         }
-        assert_eq!(n, 2);
+        assert_eq!(n, expect_len);
     }
 }

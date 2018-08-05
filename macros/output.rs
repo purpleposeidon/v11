@@ -128,30 +128,33 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
     //: bool = table.sort_key.is_some();
-    out! { ["Imports & header data"] {
+    out! { ["Imports"] {
+        // These imports are messy. It's complex because some of them are imported in multiple
+        // ways. However, nobody cares.
+        //
+
         #[allow(unused_imports)]
+            extern crate v11;
+            use self::v11::Universe;
+            use self::v11::domain::DomainName;
+            use self::v11::intern::{self, BiRef};
+            use self::v11::tables::*;
+            use self::v11::columns::*;
+            use self::v11::index::{CheckedIter, Checkable};
+
+            // This is a reasonable convenience for the user.
+            use self::v11::storage::*;
+
+            use self::v11::joincore::*;
+            use self::v11::map_index::BTreeIndex;
+            use self::v11::Action;
+            use self::v11::tracking::{Tracker, GetParam, Select, SelectRows, SelectAny, Flush};
+            use self::v11::event::Event;
+            use std::collections::VecDeque;
+            use std::cmp::Ordering;
         use super::*;
-
-        use v11;
-        use self::v11::Universe;
-        use self::v11::domain::DomainName;
-        use self::v11::intern::{self, BiRef};
-        use self::v11::tables::*;
-        use self::v11::columns::*;
-        use self::v11::index::{CheckedIter, Checkable};
-
-        // This is a reasonable convenience for the user.
-        #[allow(unused_imports)] use self::v11::storage::*;
-
-        // FIXME: Verify that all these imports are used multiple times in conditional ways.
-        #[allow(unused_imports)] use self::v11::joincore::*; // FIXME: Bleh!
-        #[allow(unused_imports)] use self::v11::map_index::BTreeIndex;
-        #[allow(unused_imports)] use self::v11::Action;
-        #[allow(unused_imports)] use self::v11::tracking::{Tracker, GetParam, Select, SelectRows, SelectAny, Flush};
-        #[allow(unused_imports)] use self::v11::event::Event;
-        #[allow(unused_imports)] use std::collections::VecDeque;
-        #[allow(unused_imports)] use std::cmp::Ordering;
-
+    }}
+    out! { ["Header info"] {
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         pub const TABLE_DOMAIN: DomainName = super::#TABLE_DOMAIN;
         pub const VERSION: u64 = #TABLE_VERSION;
@@ -276,6 +279,14 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
                 Table::remove_rows(self, universe, event, rows);
+            }
+
+            fn serial_selection<'a>(&self, rows: &'a SelectAny) -> BoxedSerialize<'a> {
+                Box::new(rows.as_ref().map(|rows| {
+                    rows
+                        .downcast::<RowId>()
+                        .expect("selection element type mismatch")
+                })) as BoxedSerialize
             }
         }
     }};
@@ -614,6 +625,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
             impl<'a> Read<'a> {
+                /// Select every row. (Immutable version; also defined for [`Write`].)
+                pub fn select_all(
+                    &self,
+                    universe: &Universe,
+                    event: Event,
+                ) {
+                    self._table.flush.flush_all(universe, event)
+                }
+
                 pub fn select_rows<I>(
                     &self,
                     universe: &Universe,
@@ -1287,9 +1307,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             type CT = #COL_TYPE2;
                             Box::new(CT::new()) as Box<AnyCol>
                         },
-                        recast_ref: column_recast_ref::#COL_NAME2,
-                        recast_mut: column_recast_mut::#COL_NAME3,
                         prototyper,
+                        serializer_factory: serializer_factories::#COL_NAME2,
                     }
                 }
                 prototyper
@@ -1440,33 +1459,67 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     caught
                 }
             }
-            mod column_recast_ref {
+            mod serializer_factories {
+                use super::v11::serde::ser::{Serialize, Serializer, SerializeSeq};
+                use super::v11::erased_serde::Serialize as ErasedSer;
+                use super::v11::tracking::{Select, SelectAny, SelectOwned};
                 #(
-                    pub fn #COL_NAME(c: &AnyCol) -> &SaveCol {
-                        c.downcast_ref::<#COL_TYPE>().unwrap() as &SaveCol
-                    }
-                )*
-            }
-            mod column_recast_mut {
-                #(
-                    pub fn #COL_NAME(c: &mut AnyCol) -> &mut SaveCol {
-                        c.downcast_mut::<#COL_TYPE>().unwrap() as &mut SaveCol
+                    pub fn #COL_NAME<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> BoxedSerialize<'a> {
+                        type ColType = #COL_TYPE;
+
+                        let col = col.data.downcast_ref::<ColType>().expect("Column mismatch");
+                        let sel = match sel {
+                            Select::All => Select::All,
+                            Select::These(rows) => Select::These(rows.downcast().expect("RowId mismatch")),
+                        };
+                        struct CS<'a> {
+                            col: &'a ColType,
+                            sel: Select<&'a [super::RowId]>,
+                        }
+                        impl<'a> Serialize for CS<'a> {
+                            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                            where
+                                S: Serializer,
+                            {
+                                // FIXME: Specialize.
+                                match self.sel {
+                                    Select::All => {
+                                        // FIXME: This ougtha be `transmute`.
+                                        let col = self.col.inner();
+                                        let len = col.len();
+                                        let mut seq = serializer.serialize_seq(Some(len))?;
+
+                                        for i in 0..col.len() {
+                                            let e = unsafe { col.unchecked_index(i) };
+                                            seq.serialize_element(e)?;
+                                        }
+                                        seq.end()
+                                    },
+                                    Select::These(rows) => {
+                                        let mut seq = serializer.serialize_seq(Some(rows.len()))?;
+                                        let col = self.col.inner();
+                                        for i in rows {
+                                            // We don't have a guarantee here!
+                                            let e = col.checked_index(i.to_usize());
+                                            seq.serialize_element(e)?;
+                                        }
+                                        seq.end()
+                                    },
+                                }
+                            }
+                        }
+                        Box::new(CS { col, sel }) // There are many things that need to be erased.
+                        // FIXME: We return a Box. However! We could return a SmallBox instead.
+                        // Always just the two pointers!
                     }
                 )*
             }
         };
         ["Saveless stubs"] {
-            mod column_recast_ref {
+            mod serializer_factories {
                 #(
-                    pub fn #COL_NAME(c: &AnyCol) -> &SaveCol {
-                        super::v11::tables::no_recast_ref(c)
-                    }
-                )*
-            }
-            mod column_recast_mut {
-                #(
-                    pub fn #COL_NAME(c: &mut AnyCol) -> &mut SaveCol {
-                        super::v11::tables::no_recast_mut(c)
+                    pub fn #COL_NAME(c: &AnyCol, s: &SelectAny) -> BoxedSerialize {
+                        super::v11::tables::no_serializer_factory(c, s)
                     }
                 )*
             }

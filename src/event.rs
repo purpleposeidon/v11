@@ -76,25 +76,28 @@ events! {
 use Universe;
 use tables::GenericTable;
 use tracking::SelectAny;
+use std::sync::RwLock;
 
 
 pub trait FallbackHandler: 'static + Send + Sync {
-    fn needs_sort(&self, gt: &GenericTable) -> bool;
-    fn handle(&self, universe: &Universe, gt: &mut GenericTable, event: Event, rows: SelectAny);
+    fn needs_sort(&self, gt: &RwLock<GenericTable>) -> bool;
+    fn handle(&self, universe: &Universe, gt: &RwLock<GenericTable>, event: Event, rows: SelectAny);
 }
 
 pub struct NullHandler;
 impl FallbackHandler for NullHandler {
-    fn needs_sort(&self, _gt: &GenericTable) -> bool { false }
-    fn handle(&self, _universe: &Universe, _gt: &mut GenericTable, _event: Event, _rows: SelectAny) {}
+    fn needs_sort(&self, _gt: &RwLock<GenericTable>) -> bool { false }
+    fn handle(&self, _universe: &Universe, _gt: &RwLock<GenericTable>, _event: Event, _rows: SelectAny) {}
 }
 
 pub struct DeleteHandler;
 impl FallbackHandler for DeleteHandler {
-    fn needs_sort(&self, gt: &GenericTable) -> bool {
+    fn needs_sort(&self, gt: &RwLock<GenericTable>) -> bool {
+        let gt = gt.read().unwrap();
         gt.guarantee.sorted
     }
-    fn handle(&self, universe: &Universe, gt: &mut GenericTable, event: Event, rows: SelectAny) {
+    fn handle(&self, universe: &Universe, gt: &RwLock<GenericTable>, event: Event, rows: SelectAny) {
+        let mut gt = gt.write().unwrap();
         gt.table.remove_rows(universe, event, rows);
     }
 }
@@ -114,16 +117,15 @@ impl Default for EventHandlers {
     }
 }
 impl EventHandlers {
-    pub fn add(&mut self, _event: Event, _handler: Box<FallbackHandler>) -> Box<FallbackHandler> {
-        unimplemented!("converting a list of foreign rows to local rows doesn't have a trivial implementation");
-        /*if event == INVALID_EVENT {
+    pub fn add(&mut self, event: Event, mut handler: Box<FallbackHandler>) -> Box<FallbackHandler> {
+        if event == INVALID_EVENT {
             panic!("Can't set the INVALID_EVENT handler");
         }
         ::std::mem::swap(
             &mut self.fallbacks[event.id as usize],
             &mut handler,
         );
-        handler*/
+        handler
     }
 
     /// Return the FallbackHandler` for the given `Event`. If there is no registered handler,

@@ -18,6 +18,7 @@ impl<T: GetTableName> GetParam for GenericRowId<T> { type T = T; }
 /// Indicates whether all rows have been selected, or only some of them.
 /// (No selection is indicated by not receiving a call.)
 #[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize)]
 pub enum Select<I> {
     All,
     These(I),
@@ -79,6 +80,7 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
 
 
 pub type SelectRows<'a, T> = Select<&'a [GenericRowId<T>]>;
+pub type SelectOwned<T> = Select<Vec<GenericRowId<T>>>;
 pub type SelectAny<'a> = Select<::any_slice::AnySliceRef<'a>>;
 
 pub enum SelectIter<'a, I, T>
@@ -216,8 +218,6 @@ impl<T: GetTableName> Flush<T> {
         {
             let fallback = universe.event_handlers.get(event);
             let gt = T::get_generic_table(universe);
-            let mut gt = gt.write().unwrap();
-            let gt = &mut *gt;
             if !sorted && fallback.needs_sort(gt) {
                 self.selected.sort();
             }
@@ -230,6 +230,24 @@ impl<T: GetTableName> Flush<T> {
         self.selected.clear();
     }
 
+    pub fn flush_all(
+        &self,
+        universe: &Universe,
+        event: Event,
+    ) {
+        {
+            let trackers = self.trackers.read().unwrap();
+            for tracker in trackers.iter() {
+                if !tracker.consider(event) { continue; }
+                tracker.handle(universe, event, Select::All);
+            }
+        }
+        {
+            let fallback = universe.event_handlers.get(event);
+            let gt = T::get_generic_table(universe);
+            fallback.handle(universe, gt, event, Select::All);
+        }
+    }
     pub fn flush_selection<I>(
         &self,
         universe: &Universe,
@@ -266,8 +284,6 @@ impl<T: GetTableName> Flush<T> {
         {
             let fallback = universe.event_handlers.get(event);
             let gt = T::get_generic_table(universe);
-            let mut gt = gt.write().unwrap();
-            let gt = &mut *gt;
             assert_nosort(fallback.needs_sort(gt));
             let rows = select!();
             let rows = rows

@@ -18,15 +18,22 @@ use tables::{GetTableName, LockedTable, GenericTable};
 /// Index to a row on some table.
 /// You can call `row_index.check(&table)` to pre-check the index,
 /// which you should do if you will be accessing multiple columns.
-#[derive(Serialize)]
 pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
     pub i: T::Idx,
-    #[serde(skip)]
     #[doc(hidden)]
     pub table: PhantomData<T>,
 }
-impl<T: GetTableName> GenericRowId<T> {
+use serde::ser::{Serialize, Serializer};
+impl<T: GetTableName> Serialize for GenericRowId<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer
+    {
+        self.i.serialize(serializer)
+    }
+}
+impl<T: GetTableName> GenericRowId<T> where Self: ::serde::Serialize {
     pub fn new(i: T::Idx) -> Self {
         GenericRowId {
             i,
@@ -541,6 +548,10 @@ impl<'a, T: LockedTable + 'a> ConsistentIter<'a, T> {
             rows,
             deleted: JoinCore::new(deleted.keys()),
         }
+    }
+
+    pub fn with_deleted(self) -> CheckedIter<'a, T> {
+        self.rows
     }
 }
 impl<'a, T: LockedTable + 'a> Iterator for ConsistentIter<'a, T> {

@@ -187,6 +187,7 @@ macro_rules! table {
         // It'd be nicer to generate 'mod' in the procmacro, but the procedural masquerade hack
         // can't be invoked twice in the same module.
         #[allow(dead_code)]
+        #[allow(unused_imports)]
         mod $name {
             __v11_invoke_table! {
                 __v11_internal_table!($(#[$meta])* [$domain/$name] $($args)*)
@@ -199,6 +200,7 @@ macro_rules! table {
         $($args:tt)*
     ) => {
         #[allow(dead_code)]
+        #[allow(unused_imports)]
         pub mod $name {
             __v11_invoke_table! {
                 __v11_internal_table!($(#[$meta])* [$domain/$name] $($args)*)

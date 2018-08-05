@@ -2,8 +2,6 @@
 
 use Storable;
 use columns::TCol;
-use serde::ser::{Serialize, Serializer, SerializeStruct, SerializeSeq};
-use serde::de::{self, Deserialize, Deserializer};
 
 /// Stores data contiguously using the standard rust `Vec`.
 /// This is ideal for tables that do not have rows added to them often.
@@ -43,6 +41,7 @@ pub type SegCol<E> = VecCol<E>;
 
 extern crate bit_vec;
 type BitVec = self::bit_vec::BitVec<u32>;
+/*
 fn bitvec_from_parts<E, R>(len: usize, mut data: Vec<u32>, err: E) -> Result<BitVec, R>
 where E: FnOnce(usize, &'static str) -> R
 {
@@ -73,6 +72,7 @@ where E: FnOnce(usize, &'static str) -> R
     }
     Ok(bits)
 }
+*/
 
 /// Densely packed booleans.
 #[derive(Debug, Default)]
@@ -86,129 +86,6 @@ impl BoolCol {
         if self.ref_idx >= self.len() { return }
         self.data.set(self.ref_idx, self.ref_val);
         self.ref_idx = ::std::usize::MAX;
-    }
-}
-impl Serialize for BoolCol {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer
-    {
-        // No serde support, hmm.
-        if serializer.is_human_readable() {
-            let mut seq = serializer.serialize_seq(Some(self.data.len()))?;
-            for b in &self.data {
-                seq.serialize_element(&b)?;
-            }
-            seq.end()
-        } else {
-            let mut state = serializer.serialize_struct("BoolCol", 4)?;
-            state.serialize_field("ref_val", &self.ref_val)?;
-            state.serialize_field("ref_idx", &self.ref_idx)?;
-            state.serialize_field("len", &self.data.len())?;
-            state.serialize_field("data", &self.data.storage())?;
-            state.end()
-        }
-    }
-}
-impl<'de> Deserialize<'de> for BoolCol {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: Deserializer<'de>
-    {
-        use serde::de::{Visitor, SeqAccess, MapAccess};
-        use std::fmt;
-        if deserializer.is_human_readable() {
-            // &[bool]
-            struct V;
-            impl<'de> Visitor<'de> for V {
-                type Value = BoolCol;
-                fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                    write!(fmt, "an array of booleans")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut data = BitVec::with_capacity(seq.size_hint().unwrap_or(0));
-                    loop {
-                        match seq.next_element() {
-                            Err(e) => return Err(e),
-                            Ok(Some(b)) => data.push(b),
-                            Ok(None) => return Ok(BoolCol {
-                                ref_val: false,
-                                ref_idx: ::std::usize::MAX,
-                                data,
-                            }),
-                        }
-                    }
-                }
-            }
-            deserializer.deserialize_seq(V)
-        } else {
-            // ref_val + ref_idx + len + Vec<u8>
-            #[derive(Deserialize)]
-            #[allow(non_camel_case_types)]
-            enum Field { ref_val, ref_idx, len, data }
-
-            struct V;
-            impl<'de> Visitor<'de> for V {
-                type Value = BoolCol;
-                fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                    write!(fmt, "a `BoolCol` struct")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    use de_help::next;
-                    let seq = &mut seq;
-                    println!("{:?}", seq.size_hint());
-                    Ok(BoolCol {
-                        ref_val: next(seq, "ref_val")?,
-                        ref_idx: next(seq, "ref_idx")?,
-                        data: bitvec_from_parts(
-                            next(seq, "len")?,
-                            next(seq, "data")?,
-                            |l, m| de::Error::invalid_length(l, &m),
-                        )?,
-                    })
-                }
-
-                fn visit_map<V>(self, mut map: V) -> Result<BoolCol, V::Error>
-                where V: MapAccess<'de>
-                {
-                    use de_help::Hole;
-                    let mut ref_val = Hole::<bool>::new("ref_val");
-                    let mut ref_idx = Hole::<usize>::new("ref_idx");
-                    let mut len = Hole::<usize>::new("len");
-                    let mut data = Hole::<Vec<u32>>::new("data");
-
-                    let map = &mut map;
-                    while let Some(key) = map.next_key()? {
-                        match key {
-                            Field::ref_val => ref_val.fill(map)?,
-                            Field::ref_idx => ref_idx.fill(map)?,
-                            Field::len => len.fill(map)?,
-                            Field::data => data.fill(map)?,
-                        }
-                    }
-
-                    let mut ret = BoolCol {
-                        ref_val: ref_val.take::<V>()?,
-                        ref_idx: ref_idx.take::<V>()?,
-                        data: bitvec_from_parts(
-                            len.take::<V>()?,
-                            data.take::<V>()?,
-                            |l, m| de::Error::invalid_length(l, &m),
-                        )?,
-                    };
-                    ret.flush(); // Might've been stale when encoded >.>
-
-                    Ok(ret)
-                }
-            }
-            deserializer.deserialize_struct("BoolCol", &["ref_val", "ref_idx", "len", "data"], V)
-        }
     }
 }
 impl TCol for BoolCol {

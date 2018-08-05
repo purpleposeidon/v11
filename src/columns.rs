@@ -12,10 +12,6 @@ use tables::{GetTableName, LockedTable, GenericRowId, CheckedRowId};
 pub trait AnyCol: ::mopa::Any + Send + Sync {}
 mopafy!(AnyCol);
 
-/// Column that can be serialized & deserialized.
-pub trait SaveCol: AnyCol + ::erased_serde::Serialize {}
-serialize_trait_object!(SaveCol);
-
 impl<T> AnyCol for T
 where
     T: ::mopa::Any + Send + Sync
@@ -40,6 +36,13 @@ pub trait TCol: AnyCol {
     unsafe fn unchecked_swap(&mut self, a: usize, b: usize);
     /// Callback for when an element is deleted.
     unsafe fn deleted(&mut self, _i: usize) {}
+
+    fn checked_index(&self, i: usize) -> &Self::Element {
+        if i >= self.len() {
+            panic!("Index out of range: {}; length {}", i, self.len());
+        }
+        unsafe { self.unchecked_index(i) }
+    }
 }
 
 
@@ -48,13 +51,11 @@ pub trait TCol: AnyCol {
 // We could ditch the wrapper by `trait TCol: Index<...>`, but this is more pleasant to deal with.
 #[derive(Serialize, Deserialize)]
 pub struct Col<C: TCol, T: GetTableName> {
+    #[serde(flatten)]
     inner: C,
     #[serde(skip)]
     table: PhantomData<T>,
 }
-impl<C: TCol, T: GetTableName> SaveCol for Col<C, T>
-where C: ::serde::Serialize
-{}
 impl<C: TCol, T: GetTableName> Col<C, T> {
     #[doc(hidden)]
     pub fn new() -> Self {
