@@ -7,7 +7,6 @@ use columns::TCol;
 /// This is ideal for tables that do not have rows added to them often.
 #[derive(Debug)]
 #[derive(RustcEncodable, RustcDecodable)]
-#[derive(Serialize, Deserialize)]
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }

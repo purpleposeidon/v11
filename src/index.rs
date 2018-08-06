@@ -33,6 +33,16 @@ impl<T: GetTableName> Serialize for GenericRowId<T> {
         self.i.serialize(serializer)
     }
 }
+use serde::de::{Deserialize, Deserializer};
+impl<'de, T: GetTableName> Deserialize<'de> for GenericRowId<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let i = T::Idx::deserialize(deserializer)?;
+        Ok(GenericRowId::new(i))
+    }
+}
 impl<T: GetTableName> GenericRowId<T> where Self: ::serde::Serialize {
     pub fn new(i: T::Idx) -> Self {
         GenericRowId {

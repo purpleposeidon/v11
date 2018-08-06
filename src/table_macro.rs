@@ -139,7 +139,7 @@ This is useful when this table is going to have foreign keys pointing at it.
 Puts `#[derive(Foo, Bar)]` on the generated `Row` and `RowRef` structs.
 
 ## `#[version = "0"]`
-A version number for the table. The default is `0`.
+A version number for the table. The default is `0`. It is a `u32`.
 
 # Column Attributes
 

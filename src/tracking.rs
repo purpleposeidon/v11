@@ -1,5 +1,6 @@
 use std::mem;
 use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
 use Universe;
 use tables::GetTableName;
 use index::GenericRowId;
@@ -60,10 +61,7 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
     pub fn iter_or_all<I>(self, all: I) -> SelectIter<'a, I, T>
     where I: Iterator<Item=GenericRowId<T>>
     {
-        match self {
-            Select::All => SelectIter::All(all),
-            Select::These(rows) => SelectIter::These(rows.iter()),
-        }
+        self.iter_or_all_with(|| all)
     }
 
     pub fn iter_or_all_with<F, I>(self, f: F) -> SelectIter<'a, I, T>
@@ -75,6 +73,13 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
             Select::All => SelectIter::All(f()),
             Select::These(rows) => SelectIter::These(rows.iter()),
         }
+    }
+}
+impl<T: GetTableName> Select<Vec<GenericRowId<T>>> {
+    pub fn as_slice<'a>(&'a self) -> SelectRows<'a, T> {
+        self
+            .as_ref()
+            .map(|rows| rows.as_slice())
     }
 }
 
@@ -164,6 +169,8 @@ pub struct Flush<T: GetTableName> {
 
     selected: Vec<GenericRowId<T>>,
     select_all: bool,
+
+    remapped: HashMap<GenericRowId<T>, GenericRowId<T>>,
 }
 impl<T: GetTableName> Default for Flush<T> {
     fn default() -> Self {
@@ -173,6 +180,8 @@ impl<T: GetTableName> Default for Flush<T> {
 
             selected: vec![],
             select_all: false,
+
+            remapped: HashMap::new(),
         }
     }
 }
@@ -188,6 +197,8 @@ impl<T: GetTableName> Flush<T> {
 
             selected: vec![],
             select_all: false,
+
+            remapped: HashMap::new(),
         };
         mem::replace(self, new)
     }
@@ -198,6 +209,23 @@ impl<T: GetTableName> Flush<T> {
         } else {
             Select::These(&self.selected[..])
         }
+    }
+
+    pub fn set_remapping(&mut self, remap: &[(GenericRowId<T>, GenericRowId<T>)]) {
+        let remap = remap
+            .iter()
+            .map(|&(o, n)| (o, n));
+        self.remapped.clear();
+        self
+            .remapped
+            .extend(remap);
+    }
+
+    pub fn remap(&self, old: GenericRowId<T>) -> Option<GenericRowId<T>> {
+        self
+            .remapped
+            .get(&old)
+            .map(|&i| i)
     }
 
     pub fn reserve(&mut self, n: usize) { self.selected.reserve(n) }

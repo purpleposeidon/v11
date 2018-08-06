@@ -39,8 +39,8 @@ impl FallbackHandler for FullDump {
         // This is a bit silly; with json you'd want it by row rather than by column.
         let mut out = universe[JSON_OUT].write().unwrap();
         let gt = gt.read().unwrap();
-        use v11::serial::TableSelection;
-        *out += &serde_json::to_string_pretty(&TableSelection::from(&*gt, &rows)).unwrap();
+        use v11::serial::TableSelectionSer;
+        *out += &serde_json::to_string_pretty(&TableSelectionSer::from(&*gt, &rows)).unwrap();
     }
 }
 
@@ -84,6 +84,17 @@ fn test() {
         let json = universe[JSON_OUT].read().unwrap();
         println!("{}", json);
         println!("--End--");
+        {
+            let alternia = &Universe::new(&[TEST]);
+            let mut saveme2 = saveme::write(alternia);
+            let deserializer = &mut serde_json::Deserializer::from_str(&json);
+            saveme2.deserialize(deserializer).unwrap();
+            println!("Okay, we reconstitute it:");
+            for i in saveme2.iter() {
+                println!("{:?}", saveme2.get_row_ref(i));
+            }
+            println!("--End--");
+        }
     }
     {
         universe.set(JSON_OUT, String::new());

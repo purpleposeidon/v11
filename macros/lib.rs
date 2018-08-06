@@ -1,4 +1,5 @@
 #![recursion_limit = "1024"] // quote :D
+// https://imgur.com/zAQHVPh.png
 
 #[macro_use]
 extern crate procedural_masquerade;
@@ -58,6 +59,7 @@ define_proc_macros! {
         ::output::write_out(table, &mut ret).unwrap();
         let ret = String::from_utf8(ret).unwrap();
         if dump {
+            // FIXME: Freak out if output file already exists & is newer than process.
             // formatting
             let formatted = {
                 use rustfmt::*;

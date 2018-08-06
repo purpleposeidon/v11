@@ -2,7 +2,8 @@ use std::any::Any;
 use std::sync::*;
 use std::fmt;
 
-use serde::Serialize;
+use serde::ser::{Serialize};
+use serde::de::{DeserializeOwned};
 
 pub use v11_macros::*;
 
@@ -60,6 +61,7 @@ mopafy!(TTable);
 pub struct GenericTable {
     pub domain: DomainName,
     pub name: TableName,
+    pub schema_version: u32,
     pub columns: Vec<GenericColumn>,
     init_fns: Vec<fn(&Universe)>,
     pub guarantee: Guarantee,
@@ -70,6 +72,7 @@ pub struct GenericTable {
 pub struct Guarantee {
     pub consistent: bool,
     pub sorted: bool,
+    pub append_only: bool,
 }
 impl GenericTable {
     pub fn new<T: TTable>(table: T) -> GenericTable {
@@ -80,6 +83,7 @@ impl GenericTable {
         GenericTable {
             domain,
             name,
+            schema_version: 0, // FIXME
             columns: Vec::new(),
             init_fns: Vec::new(),
             guarantee,
@@ -108,6 +112,7 @@ impl GenericTable {
         GenericTable {
             domain: self.domain,
             name: self.name,
+            schema_version: self.schema_version,
             columns: self.columns.iter().map(|c| (c.prototyper)()).collect(),
             init_fns: self.init_fns.clone(),
             guarantee: self.guarantee.clone(),
@@ -254,7 +259,7 @@ pub trait GetTableName: 'static + Send + Sync {
         fmt::Display + fmt::Debug +
         ::std::hash::Hash + Copy + Ord
         + Send + Sync
-        + Serialize;
+        + Serialize + DeserializeOwned;
 
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;

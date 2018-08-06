@@ -49,11 +49,8 @@ pub trait TCol: AnyCol {
 /// It's not possible to do a blanket implementation of indexing on `TCol`s due to orphan rules,
 /// so this is a wrapper.
 // We could ditch the wrapper by `trait TCol: Index<...>`, but this is more pleasant to deal with.
-#[derive(Serialize, Deserialize)]
 pub struct Col<C: TCol, T: GetTableName> {
-    #[serde(flatten)]
     inner: C,
-    #[serde(skip)]
     table: PhantomData<T>,
 }
 impl<C: TCol, T: GetTableName> Col<C, T> {

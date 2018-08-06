@@ -122,10 +122,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let GUARANTEES = {
         let CONSISTENT = table.consistent;
         let SORTED = table.sorted;
+        let APPEND_ONLY = table.kind == Some(::table::TableKind::Append);
         quote! {
             Guarantee {
                 consistent: #CONSISTENT,
                 sorted: #SORTED,
+                append_only: #APPEND_ONLY,
             }
         }
     };
@@ -778,12 +780,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }};
         FOREIGN_NAME_NONCE.push(i(format!("_foreign_{}", col.name)));
-        //FOREIGN_LOCAL_COL.push(i(format!("{}", col.name)));
-        FOREIGN_LOCAL_COL.push(col.name);
+        FOREIGN_LOCAL_COL.push(i(format!("{}", col.name)));
         FOREIGN_ELEMENTS.push(FOREIGN_ELEMENT);
     }
-    let FOREIGN_LOCAL_COL2 = &FOREIGN_LOCAL_COL;
-    let FOREIGN_LOCAL_COL3 = &FOREIGN_LOCAL_COL;
+    let FOREIGN_NAME_NONCE = &FOREIGN_NAME_NONCE;
+    let FOREIGN_LOCAL_COL = &FOREIGN_LOCAL_COL;
+    let FOREIGN_LOCAL_COL2 = FOREIGN_LOCAL_COL;
+    let FOREIGN_LOCAL_COL3 = FOREIGN_LOCAL_COL;
 
     out! {
         table.consistent => ["Extra drops"] {
