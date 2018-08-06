@@ -110,6 +110,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_NAME2 = COL_NAME;
     let COL_NAME3 = COL_NAME;
     let COL_NAME4 = COL_NAME;
+    let COL_NAME5 = COL_NAME;
+    let COL_NAME6 = COL_NAME;
     let COL_TYPE2 = COL_TYPE;
 
     let TABLE_NAME_STR = table.name.clone();
@@ -148,7 +150,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             use self::v11::joincore::*;
             use self::v11::map_index::BTreeIndex;
             use self::v11::Action;
-            use self::v11::tracking::{Tracker, GetParam, Select, SelectRows, SelectAny, Flush};
+            use self::v11::tracking::{Tracker, GetParam, Select, SelectOwned, SelectRows, SelectAny, Flush};
             use self::v11::event::Event;
             use std::collections::VecDeque;
             use std::cmp::Ordering;
@@ -157,7 +159,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! { ["Header info"] {
         pub const TABLE_NAME: TableName = TableName(#TABLE_NAME_STR);
         pub const TABLE_DOMAIN: DomainName = super::#TABLE_DOMAIN;
-        pub const VERSION: u64 = #TABLE_VERSION;
+        pub const VERSION: u32 = #TABLE_VERSION;
         pub const GUARANTEES: Guarantee = #GUARANTEES;
 
         #[allow(non_upper_case_globals)]
@@ -745,6 +747,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     }};
 
+    let mut FOREIGN_NAME_NONCE = Vec::new();
+    let mut FOREIGN_LOCAL_COL = Vec::new();
+    let mut FOREIGN_ELEMENTS = Vec::new();
     for col in &table.cols {
         if !col.foreign_auto { continue; }
         let TRACK_EVENTS = i(format!("track_{}_events", col.name));
@@ -772,7 +777,13 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
         }};
+        FOREIGN_NAME_NONCE.push(i(format!("_foreign_{}", col.name)));
+        //FOREIGN_LOCAL_COL.push(i(format!("{}", col.name)));
+        FOREIGN_LOCAL_COL.push(col.name);
+        FOREIGN_ELEMENTS.push(FOREIGN_ELEMENT);
     }
+    let FOREIGN_LOCAL_COL2 = &FOREIGN_LOCAL_COL;
+    let FOREIGN_LOCAL_COL3 = &FOREIGN_LOCAL_COL;
 
     out! {
         table.consistent => ["Extra drops"] {
@@ -1457,6 +1468,124 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         }
                     }
                     caught
+                }
+            }
+            use std::fmt;
+            use self::v11::de_help::Hole;
+            use self::v11::serde::de::{Visitor, MapAccess, Deserializer, Error};
+            impl<'u> Write<'u> {
+                pub fn deserialize<'de, D>(
+                    &mut self,
+                    deserializer: D
+                ) -> Result<(), D::Error>
+                where
+                    D: Deserializer<'de>
+                {
+                    deserializer.deserialize_map(self)
+                }
+            }
+            impl<'a, 'u: 'a, 'de> Visitor<'de> for &'a mut Write<'u> {
+                type Value = ();
+
+                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                    formatter.write_str("a table")
+                }
+
+                #[allow(unused_mut)]
+                fn visit_map<A>(mut self, mut _map: A) -> Result<Self::Value, A::Error>
+                where
+                    A: MapAccess<'de>
+                {
+                    // Due to lack of mangling, we must prefix *all* of our local vars with a `_`
+                    // so as to not collide with a column name!
+                    //   guicursor=n-v-c-sm:block,i-ci-ve:ver25,r-cr-o:hor20
+
+                    // FIXME: Were we this careful in other methods?
+                    let _map = &mut _map;
+                    let mut _fmt = Hole::val("table:fmt", 0u32);
+                    let mut _domain = Hole::val("table:domain", TABLE_DOMAIN.0 as &'de str);
+                    let mut _name = Hole::val("table:name", TABLE_NAME.0 as &'de str);
+                    let mut _schema_version = Hole::val("table:schema_version", 0);
+                    let mut _selection = Hole::<SelectOwned<Row>>::new("table:selection");
+                    #(
+                        let mut #COL_NAME2 = Hole::<#COL_TYPE>::new(#COL_NAME_STR);
+                    )*
+                    while let Some(_key) = _map.next_key()? {
+                        match _key {
+                            "table:fmt" => _fmt.expect(_map)?,
+                            "table:domain" => _domain.expect(_map)?,
+                            "table:name" => _name.expect(_map)?,
+                            "table:schema_version" => _schema_version.expect(_map)?,
+                            "table:selection" => _selection.fill(_map)?,
+                            #(
+                                #COL_NAME_STR => #COL_NAME3.fill(_map)?,
+                            )*
+                            _ => return Err(A::Error::custom(format!("Unknown field {:?}", _key))), // FIXME: There's a better error type.
+                        }
+                    }
+
+                    {
+                        _fmt.expected::<A>()?;
+                        _domain.expected::<A>()?;
+                        _name.expected::<A>()?;
+                    }
+                    let _selection = _selection.take::<A>()?;
+
+                    // FIXME: #[allow(dead_code)] or something?
+                    let mut prev_len = None;
+                    #(
+                        let #COL_NAME4 = {
+                            let c = #COL_NAME5.take::<A>()?;
+                            let len = c.inner().len();
+                            if let Some(prev_len) = prev_len {
+                                if prev_len != len {
+                                    return Err(A::Error::custom(format!("columns have mismatched lengths")));
+                                }
+                            } else {
+                                prev_len = Some(len);
+                            }
+                            c
+                        };
+                    )*
+                    let len = prev_len.unwrap_or(0);
+
+                    let mut remapped = Vec::with_capacity(len);
+                    let _iter = _selection
+                        .as_slice()
+                        .iter_or_all(RowRange {
+                            start: FIRST,
+                            end: GenericRowId::from_usize(len),
+                        }.iter_slow());
+                    #(
+                        type F = #FOREIGN_ELEMENTS;
+                        let gt: &RwLock<GenericTable> = F::get_generic_table(universe);
+                        let gt = gt.read().unwrap();
+                        let #FOREIGN_NAME_NONCE = (
+                            gt,
+                            gt.get_flush().downcast_ref::<Flush<F>>().unwrap(),
+                        );
+                    )*
+                    for _i in _iter {
+                        let mut row = Row {
+                            #(
+                                #COL_NAME5: #COL_NAME6[_i],
+                            )*
+                        };
+                        #(
+                            row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
+                                .remap(row.#FOREIGN_LOCAL_COL2)
+                                .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3))
+                        )*
+                        let _rowid = self.push(row);
+                        if GUARANTEES.consistent {
+                            remapped.push((_i, _rowid));
+                        }
+                    }
+                    {
+                        let mut flush: &mut Flush<Row> = self._table.get_flush().downcast_mut().unwrap();
+                        flush.set_remapping(&remapped);
+                    }
+                    Ok(())
                 }
             }
             mod serializer_factories {

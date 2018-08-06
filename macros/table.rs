@@ -31,7 +31,7 @@ pub struct Table {
 
     // Modifiers
     pub row_id: String,
-    pub version: u64,
+    pub version: u32,
     pub save: bool,
     pub derive: Derives,
     pub sort_key: Option<Ident>,
