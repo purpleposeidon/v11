@@ -279,7 +279,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             // FIXME: Unused?
 
             fn prototype(&self) -> Box<TTable> { Box::new(Self::new()) }
-            fn get_flush(&mut self) -> &mut ::std::any::Any { &mut self.flush }
+            fn get_flush_ref(&self) -> &::std::any::Any { &self.flush }
+            fn get_flush_mut(&mut self) -> &mut ::std::any::Any { &mut self.flush }
 
             fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
                 Table::remove_rows(self, universe, event, rows);
@@ -359,6 +360,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
          * The table, locked for writing.
          * */
         pub struct Write<'u> {
+            _universe: &'u Universe, // FIXME: Remove 'verse from Write's methods.
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
             _table: &'u mut Table,
             // '#COL_MUT' is either MutA or EditA
@@ -1272,7 +1274,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
 
 
-        fn convert_write_guard(mut _lock: RwLockWriteGuard<GenericTable>) -> Write {
+        fn convert_write_guard<'u>(_universe: &'u Universe, mut _lock: RwLockWriteGuard<'u, GenericTable>) -> Write<'u> {
             #(let #COL_NAME = {
                 let got = _lock.get_column_mut::<#COL_TYPE2>(#COL_NAME_STR, column_format::#COL_NAME2);
                 unsafe {
@@ -1287,6 +1289,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 unsafe { transmute(_table) }
             };
             Write {
+                _universe,
                 _lock,
                 _table,
                 #( #COL_NAME3: #COL_NAME4, )*
@@ -1301,12 +1304,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub fn write_result<'u>(universe: &'u Universe) -> LockResult<Write<'u>> {
             // FIXME: err, table is a Result, maybe we don't need wrangle_lock?
             let table = RowId::get_generic_table(universe).write();
-            intern::wrangle_lock::map_result(table, convert_write_guard)
+            intern::wrangle_lock::map_result(table, |l| convert_write_guard(universe, l))
         }
 
         pub fn try_write<'u>(universe: &'u Universe) -> TryLockResult<Write<'u>> {
             let table = RowId::get_generic_table(universe).try_write();
-            intern::wrangle_lock::map_try_result(table, convert_write_guard)
+            intern::wrangle_lock::map_try_result(table, |l| convert_write_guard(universe, l))
         }
 
         /// Register the table onto its domain.
@@ -1407,72 +1410,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         // FIXME: Use Serde, and encode by columns instead.
         table.save => ["Save"] {
-            use rustc_serialize::{Decoder, Decodable, Encoder, Encodable};
-
-            impl<'u> Read<'u> {
-                /// Row-based encoding.
-                pub fn encode_rows<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
-                    if self._table.flush.need_flush() {
-                        panic!("Encoding unflushed table!\n{}", self._table.flush.summary());
-                    }
-                    e.emit_struct(#TABLE_NAME_STR, 2, |e| {
-                        e.emit_struct_field("free_list", 0, |e| self._table.free.encode(e))?;
-                        e.emit_struct_field("rows", 1, |e| e.emit_seq(self.len(), |e| {
-                            for i in self.row_range().iter_slow() {
-                                let i = unsafe { CheckedRowId::fab(i.to_raw(), self) };
-                                let row = self.get_row_raw(i);
-                                // FIXME: This requires clone. Column-based easily would not.
-                                e.emit_seq_elt(i.to_usize(), |e| row.encode(e))?;
-                            }
-                            Ok(())
-                        }))
-                    })
-                }
-            }
-
-            impl<'u> Write<'u> {
-                /// Row-based decoding. Clears the table before reading, and clears the table if
-                /// there is an error.
-                pub fn decode_rows<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
-                    if self.len() > 0 {
-                        // If you actually do want to do this sort of thing, create a new Universe
-                        // & copy the rows over.
-                        panic!("Decoding rows into non-empty table!");
-                    }
-                    self.decode_rows_append(d)
-                }
-
-                pub fn decode_rows_append<D: Decoder>(&mut self, d: &mut D) -> Result<(), D::Error> {
-                    if self._table.flush.need_flush() {
-                        panic!("Decoding unflushed table!\n{}", self._table.flush.summary());
-                    }
-                    let caught = d.read_struct(#TABLE_NAME_STR, 2, |d| {
-                        self._table.free = d.read_struct_field("free_list", 0, ::std::collections::BTreeMap::decode)?;
-                        d.read_struct_field("rows", 1, |d| d.read_seq(|e, count| {
-                            self.reserve(count);
-                            for i in 0..count {
-                                let row = e.read_seq_elt(i, Row::decode)?;
-                                self.push_only_unchecked(row);
-                            }
-                            Ok(())
-                        }))
-                    });
-                    if caught.is_err() {
-                        self.clear();
-                    }
-                    // De-index deleted things.
-                    // Bit lame.
-                    let to_free: Vec<_> = self._table.free.keys().map(|i| *i).collect();
-                    for free in to_free.into_iter() {
-                        let free = free.to_usize();
-                        assert!(free < self.len());
-                        unsafe {
-                            self.delete_raw(free);
-                        }
-                    }
-                    caught
-                }
-            }
             use std::fmt;
             use self::v11::de_help::Hole;
             use self::v11::serde::de::{Visitor, MapAccess, Deserializer, Error};
@@ -1561,11 +1498,19 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         }.iter_slow());
                     #(
                         type F = #FOREIGN_ELEMENTS;
-                        let gt: &RwLock<GenericTable> = F::get_generic_table(universe);
+                        use std::marker::PhantomData;
+                        fn get_flush<T: GetTableName>(
+                            _: PhantomData<GenericRowId<T>>,
+                            gt: &GenericTable,
+                        ) -> &Flush<T> {
+                            gt.table.get_flush_ref().downcast_ref().unwrap()
+                        }
+                        let gt: &RwLock<GenericTable> = F::get_generic_table(self._universe);
                         let gt = gt.read().unwrap();
+                        let phantom: PhantomData<F> = PhantomData;
                         let #FOREIGN_NAME_NONCE = (
-                            gt,
-                            gt.get_flush().downcast_ref::<Flush<F>>().unwrap(),
+                            &*gt,
+                            get_flush(phantom, &*gt),
                         );
                     )*
                     for _i in _iter {
@@ -1577,7 +1522,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         #(
                             row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
                                 .remap(row.#FOREIGN_LOCAL_COL2)
-                                .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3))
+                                .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3));
                         )*
                         let _rowid = self.push(row);
                         if GUARANTEES.consistent {
@@ -1585,7 +1530,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         }
                     }
                     {
-                        let mut flush: &mut Flush<Row> = self._table.get_flush().downcast_mut().unwrap();
+                        let mut flush: &mut Flush<Row> = self._table.get_flush_mut().downcast_mut().unwrap();
                         flush.set_remapping(&remapped);
                     }
                     Ok(())
@@ -1650,8 +1595,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         ["Saveless stubs"] {
             mod serializer_factories {
                 #(
-                    pub fn #COL_NAME(c: &AnyCol, s: &SelectAny) -> BoxedSerialize {
-                        super::v11::tables::no_serializer_factory(c, s)
+                    pub fn #COL_NAME<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> BoxedSerialize<'a> {
+                        super::v11::tables::no_serializer_factory(col, sel)
                     }
                 )*
             }

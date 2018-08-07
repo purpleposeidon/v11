@@ -4,7 +4,6 @@
 extern crate v11;
 #[macro_use]
 extern crate v11_macros;
-extern crate rustc_serialize;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NotCopy;

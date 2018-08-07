@@ -24,6 +24,19 @@ pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
     pub table: PhantomData<T>,
 }
+/*
+use domain::DomainName;
+impl<T: GetTableName> GetTableName for GenericRowId<T> {
+    type Idx = T::Idx;
+
+    fn get_domain() -> DomainName { T::get_domain() }
+    fn get_name() -> TableName { T::get_name() }
+    fn get_guarantee() -> Guarantee { T::get_guarantee() }
+    fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> { T::get_generic_table(universe) }
+    // FIXME: This trait implementation was done too late; there's probably stuff that could be
+    // cleaned up by using it.
+}
+*/
 use serde::ser::{Serialize, Serializer};
 impl<T: GetTableName> Serialize for GenericRowId<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -171,23 +184,6 @@ where T::Idx: Hash
     }
 }
 
-use rustc_serialize::{Encoder, Encodable, Decoder, Decodable};
-impl<T: GetTableName> Encodable for GenericRowId<T>
-where T::Idx: Encodable
-{
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        self.i.encode(s)
-    }
-}
-
-impl<T: GetTableName> Decodable for GenericRowId<T>
-where T::Idx: Decodable
-{
-    fn decode<D: Decoder>(d: &mut D) -> Result<Self, D::Error> {
-        Ok(Self::new(T::Idx::decode(d)?))
-    }
-}
-
 
 
 
@@ -229,7 +225,7 @@ mod test {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("test_domain") }
         fn get_name() -> TableName { TableName("test_table") }
-        fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false } }
+        fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false, append_only: false } }
         fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
     }
     struct TestTable;
@@ -284,7 +280,6 @@ mod test {
 
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
-#[derive(RustcDecodable, RustcEncodable)]
 #[derive(Serialize, Deserialize)]
 pub struct RowRange<R> {
     pub start: R,
@@ -392,7 +387,7 @@ mod row_range_test {
         type Idx = usize;
         fn get_domain() -> DomainName { DomainName("TEST_DOMAIN") }
         fn get_name() -> TableName { TableName("test_table") }
-        fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false } }
+        fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false, append_only: false } }
         fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
     }
     type RR = RowRange<GenericRowId<TestTable>>;

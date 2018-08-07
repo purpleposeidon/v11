@@ -4,8 +4,6 @@
 extern crate v11;
 //extern crate v11_macros;
 
-extern crate rustc_serialize;
-
 
 domain! { TEST }
 

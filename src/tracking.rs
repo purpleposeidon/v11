@@ -198,7 +198,7 @@ impl<T: GetTableName> Flush<T> {
             selected: vec![],
             select_all: false,
 
-            remapped: HashMap::new(),
+            remapped: mem::replace(&mut self.remapped, HashMap::new()),
         };
         mem::replace(self, new)
     }
@@ -212,10 +212,11 @@ impl<T: GetTableName> Flush<T> {
     }
 
     pub fn set_remapping(&mut self, remap: &[(GenericRowId<T>, GenericRowId<T>)]) {
+        // FIXME: Mapping never gets reset; basically a memory leak.
+        self.remapped.clear();
         let remap = remap
             .iter()
             .map(|&(o, n)| (o, n));
-        self.remapped.clear();
         self
             .remapped
             .extend(remap);
@@ -382,7 +383,7 @@ impl Universe {
     pub fn register_tracker<R: Tracker>(&self, tracker: R) {
         let gt = <R::Foreign as GetTableName>::get_generic_table(self);
         let mut gt = gt.write().unwrap();
-        let flush = gt.table.get_flush();
+        let flush = gt.table.get_flush_mut();
         let flush: &mut Flush<R::Foreign> = flush.downcast_mut().expect("wrong foreign table type");
         flush.register_tracker(tracker)
     }

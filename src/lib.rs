@@ -22,7 +22,6 @@
 extern crate v11_macros;
 #[macro_use]
 extern crate procedural_masquerade;
-extern crate rustc_serialize;
 pub extern crate serde;
 #[macro_use]
 extern crate serde_derive;

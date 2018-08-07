@@ -6,7 +6,6 @@ use columns::TCol;
 /// Stores data contiguously using the standard rust `Vec`.
 /// This is ideal for tables that do not have rows added to them often.
 #[derive(Debug)]
-#[derive(RustcEncodable, RustcDecodable)]
 pub struct VecCol<E: Storable> {
     data: Vec<E>,
 }
@@ -132,8 +131,6 @@ impl TCol for BoolCol {
 
 #[cfg(test)]
 mod test {
-    use serde::de::DeserializeOwned;
-
     #[test]
     fn bool_col_unit() {
         use super::TCol;
@@ -167,75 +164,6 @@ mod test {
         unsafe {
             assert_eq!(bc.unchecked_index(0), &true);
             assert_eq!(bc.unchecked_index(1), &false);
-        }
-    }
-
-    use super::*;
-    use std::fmt::Debug;
-    extern crate serde_json;
-    extern crate bincode;
-
-    fn dupe<C>(col: &C) -> (C, C)
-    where
-        C: TCol + Serialize + DeserializeOwned,
-        C::Element: Debug + PartialEq + Clone,
-    {
-        // serialize to json + bincode, & back again
-        println!("Trying json...");
-        let b = self::serde_json::to_string_pretty(&col).unwrap();
-        println!("{}", b);
-        let b = self::serde_json::from_str(&b).unwrap();
-
-        println!("Okay, now doing bincode");
-        let c = self::bincode::serialize(&col).unwrap();
-        println!("{:?}", c);
-        let c = self::bincode::deserialize(c.as_slice()).unwrap();
-        (b, c)
-    }
-
-    fn exercise_storage<C, G>(n: usize, mut gen: G)
-    where
-        C: TCol,
-        G: FnMut() -> C::Element,
-        C: Serialize + DeserializeOwned,
-        C::Element: Debug + PartialEq + Clone,
-    {
-        let mut col = C::new();
-        for i in 0..n {
-            assert_eq!(col.len(), i);
-            col.push(gen());
-            assert_eq!(col.len(), i + 1);
-            col.truncate(i + 1);
-            assert_eq!(col.len(), i + 1);
-
-            {
-                let (b, c) = dupe::<C>(&col);
-                for d in [b, c].into_iter() {
-                    assert_eq!(col.len(), d.len());
-                    for i in 0..col.len() {
-                        unsafe {
-                            assert_eq!(col.unchecked_index(i), d.unchecked_index(i));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    extern crate rand;
-    #[test]
-    fn everything() {
-        use self::rand::Rng;
-        #[allow(deprecated)]
-        let mut rng = self::rand::XorShiftRng::new_unseeded();
-        for n in &[0, 1, 8, 16, 32, 64, 128] {
-            let n = *n;
-            println!("BoolCol");
-            exercise_storage::<BoolCol, _>(n, || rng.gen());
-            println!("VecCol<i3>");
-            exercise_storage::<VecCol<i8>, _>(n, || rng.gen());
-            println!("VecCol<bool>");
-            exercise_storage::<VecCol<bool>, _>(n, || rng.gen());
         }
     }
 }

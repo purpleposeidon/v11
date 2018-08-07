@@ -1,6 +1,6 @@
 [package]
 name = "v11"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["neptunepink <purpleposeidon@gmail.com>"]
 
 [lib]
@@ -13,7 +13,6 @@ bincode = "*"
 [dependencies]
 v11_macros = { path = "./macros" }
 procedural-masquerade = "^0.1.2"
-rustc-serialize = "*"
 serde = "1.0"
 serde_derive = "1.0"
 erased-serde = "0.3.5"
@@ -21,9 +20,7 @@ itertools = "0.4.16"
 bit-vec = "0.5.0"
 num-traits = "*"
 lazy_static = "*"
-
 mopa = "0.2.*"
-# "my own personal Any", allows downcasting or something.
 
 # OwningRef: https://kimundi.github.io/owning-ref-rs/owning_ref/struct.OwningRef.html
 

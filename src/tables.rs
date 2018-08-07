@@ -48,7 +48,8 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     // Do associated const parameters count as 'trait paramters'?
 
     fn prototype(&self) -> Box<TTable>;
-    fn get_flush(&mut self) -> &mut Any;
+    fn get_flush_ref(&self) -> &Any;
+    fn get_flush_mut(&mut self) -> &mut Any;
 
     fn remove_rows(&mut self, &Universe, ::event::Event, tracking::SelectAny);
 
