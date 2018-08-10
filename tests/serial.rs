@@ -41,8 +41,8 @@ use v11::tables::GenericTable;
 use v11::Universe;
 use std::sync::RwLock;
 
-struct FullDump;
-impl FallbackHandler for FullDump {
+struct DumpSelection;
+impl FallbackHandler for DumpSelection {
     fn needs_sort(&self, _gt: &RwLock<GenericTable>) -> bool { false }
     fn handle(&self, universe: &Universe, gt: &RwLock<GenericTable>, _event: Event, rows: SelectAny) {
         println!("Handling!");
@@ -64,7 +64,7 @@ fn test() {
     extra::register();
 
     let mut universe = Universe::new(&[TEST]);
-    universe.event_handlers.add(event::SAVE, Box::new(FullDump) as Box<FallbackHandler>);
+    universe.event_handlers.add(event::SAVE, Box::new(DumpSelection) as Box<FallbackHandler>);
     let universe = &universe;
     {
         let mut saveme = saveme::write(universe);
