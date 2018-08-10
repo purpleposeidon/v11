@@ -94,7 +94,7 @@ If you put `#[sort_key]` on a column, it will do this for you.
 
 Rows can be added with `merge`, and removed with `retain`.
 
-Sorted tables are good for `joincore`.
+Sorted tables are good for [`joincore`].
 
 ## `#[kind = "consistent"]`
 Rows in consistent tables can be used as *foreign keys* in other tables.
@@ -102,7 +102,7 @@ The main guarantee of the public table is that it is kept consistent with such t
 the main row and references to it are deleted as a unit.
 
 Since maintaining consistency requires locking other tables,
-you must call `table.flush(universe)` instead of letting the table drop.
+you must call `table.flush(universe, event)` instead of letting the table drop.
 
 ## `#[kind = "bag"]`
 NYI. (Row order would be arbitrary and there would be no consistency guarantee.)

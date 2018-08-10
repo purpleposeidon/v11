@@ -138,7 +138,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         //
 
         #[allow(unused_imports)]
-            extern crate v11;
+            use v11;
             use self::v11::Universe;
             use self::v11::domain::DomainName;
             use self::v11::intern::{self, BiRef};
