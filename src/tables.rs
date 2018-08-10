@@ -266,6 +266,7 @@ pub trait GetTableName: 'static + Send + Sync {
     fn get_name() -> TableName;
     fn get_guarantee() -> Guarantee;
     fn get_generic_table(&Universe) -> &RwLock<GenericTable>;
+    fn new_generic_table() -> GenericTable;
 }
 
 #[doc(hidden)]

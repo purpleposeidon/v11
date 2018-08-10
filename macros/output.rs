@@ -245,6 +245,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
                 RowId::get_generic_table(universe)
             }
+            fn new_generic_table() -> GenericTable { new_generic_table() }
         }
 
         /// A row of a reference to each element.
@@ -1312,8 +1313,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             intern::wrangle_lock::map_try_result(table, |l| convert_write_guard(universe, l))
         }
 
-        /// Register the table onto its domain.
-        pub fn register() {
+        fn new_generic_table() -> GenericTable {
             let table = GenericTable::new(Table::new());
             let mut table = table #(.add_column({
                 fn prototyper() -> GenericColumn {
@@ -1331,7 +1331,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 prototyper
             }))*;
             table.add_init(register_foreign_trackers);
-            table.register();
+            table
+        }
+
+        /// Register the table onto its domain.
+        pub fn register() {
+            new_generic_table().register();
         }
 
         impl<'u> Write<'u> {
@@ -1360,7 +1365,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_TRACK_EVENTS: &Vec<_> = &foreign_cols()
         .map(|x| i(format!("track_{}_events", x.name)))
         .collect();
-    let COL_TRACK_ELEMENTS: &Vec<_> = &foreign_cols()
+    let _COL_TRACK_ELEMENTS: &Vec<_> = &foreign_cols()
         .map(|x| pp::ty_to_string(&*x.element))
         .map(i)
         .collect();
@@ -1375,7 +1380,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             fn register_foreign_trackers(_universe: &Universe) {
                 #({
-                    type E = #COL_TRACK_ELEMENTS;
                     _universe.register_tracker(
                         #COL_TRACK_EVENTS,
                     );

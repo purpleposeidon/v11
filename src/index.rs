@@ -227,6 +227,7 @@ mod test {
         fn get_name() -> TableName { TableName("test_table") }
         fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false, append_only: false } }
         fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
+        fn new_generic_table() -> GenericTable { unimplemented!() }
     }
     struct TestTable;
     impl LockedTable for TestTable {
@@ -389,6 +390,7 @@ mod row_range_test {
         fn get_name() -> TableName { TableName("test_table") }
         fn get_guarantee() -> Guarantee { Guarantee { consistent: false, sorted: false, append_only: false } }
         fn get_generic_table(_: &Universe) -> &::std::sync::RwLock<GenericTable> { unimplemented!() }
+        fn new_generic_table() -> GenericTable { unimplemented!() }
     }
     type RR = RowRange<GenericRowId<TestTable>>;
 
