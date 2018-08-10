@@ -1369,6 +1369,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         .map(|x| pp::ty_to_string(&*x.element))
         .map(i)
         .collect();
+    let ADD_TRACKERS: &Vec<_> = &table
+        .add_trackers
+        .iter()
+        .map(i)
+        .collect();
     out! {
         true || table.consistent => ["tracking"] {
             #(
@@ -1380,9 +1385,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             fn register_foreign_trackers(_universe: &Universe) {
                 #({
-                    _universe.register_tracker(
-                        #COL_TRACK_EVENTS,
-                    );
+                    _universe.register_tracker(#COL_TRACK_EVENTS);
+                })*
+                #({
+                    _universe.register_tracker(#ADD_TRACKERS);
                 })*
             }
         };

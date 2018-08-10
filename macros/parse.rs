@@ -75,6 +75,13 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             "version" => {
                 table.version = str::parse(meta_arg(&attr.value).as_str()).unwrap();
             },
+            "add_tracker" => if let MetaItemKind::NameValue(lit) = attr.value.node {
+                // #[add_tracker = "expression"]
+                let lit = &lit.node;
+                if let LitKind::Str(sym, _) = lit {
+                    table.add_trackers.push(format!("{}", sym.as_str()));
+                }
+            },
             _ => {
                 // other attrs go on the module
                 table.module_attrs.push(attr);

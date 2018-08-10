@@ -28,6 +28,7 @@ pub struct Table {
     pub name: String,
     pub kind: Option<TableKind>,
     pub cols: Vec<Col>,
+    pub add_trackers: Vec<String>,
 
     // Modifiers
     pub row_id: String,

@@ -120,7 +120,7 @@ use event::Event;
 
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
 /// guarantee on the foreign table, which is provided by `#[kind = "consistent"]`.
-/// You use `#[foreign_auto]` to derive an implementation.
+/// You can use `#[foreign_auto]` to derive an implementation.
 // FIXME: https://github.com/rust-lang/rust/issues/29628
 // https://doc.rust-lang.org/beta/unstable-book/language-features/on-unimplemented.html
 // #[rustc_on_unimplemented = "You must implement `Tracker` on `{Self}` so that it can react
