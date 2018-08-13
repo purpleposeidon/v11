@@ -1317,6 +1317,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             let table = GenericTable::new(Table::new());
             let mut table = table #(.add_column({
                 fn prototyper() -> GenericColumn {
+                    fn serializer_factory<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> BoxedSerialize<'a> {
+                        Box::new(serializer_factories::#COL_NAME2(col, sel))
+                    }
                     GenericColumn {
                         name: #COL_NAME_STR,
                         stored_type_name: column_format::#COL_NAME,
@@ -1325,7 +1328,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             Box::new(CT::new()) as Box<AnyCol>
                         },
                         prototyper,
-                        serializer_factory: serializer_factories::#COL_NAME2,
+                        serializer_factory,
                     }
                 }
                 prototyper
@@ -1423,6 +1426,17 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             use std::fmt;
             use self::v11::de_help::Hole;
             use self::v11::serde::de::{Visitor, MapAccess, Deserializer, Error};
+            use self::v11::serde::ser::Serializer;
+            use self::v11::serial::TableDeserial;
+
+            impl TableDeserial for Row {
+                fn deserialize_rows<'de, D: Deserializer<'de>>(universe: &Universe, deserializer: D) -> Result<(), D::Error> {
+                    let mut table = write(universe);
+                    table.deserialize(deserializer)
+                }
+            }
+
+
             impl<'u> Write<'u> {
                 pub fn deserialize<'de, D>(
                     &mut self,
@@ -1551,7 +1565,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 use super::v11::erased_serde::Serialize as ErasedSer;
                 use super::v11::tracking::{Select, SelectAny, SelectOwned};
                 #(
-                    pub fn #COL_NAME<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> BoxedSerialize<'a> {
+                    pub fn #COL_NAME<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> impl ErasedSer + 'a {
                         type ColType = #COL_TYPE;
 
                         let col = col.data.downcast_ref::<ColType>().expect("Column mismatch");
@@ -1595,9 +1609,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                                 }
                             }
                         }
-                        Box::new(CS { col, sel }) // There are many things that need to be erased.
-                        // FIXME: We return a Box. However! We could return a SmallBox instead.
-                        // Always just the two pointers!
+                        CS { col, sel }
                     }
                 )*
             }

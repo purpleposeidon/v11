@@ -26,7 +26,7 @@ pub extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
-pub extern crate erased_serde;
+pub extern crate erased_serde; // There are many things that need to be erased.
 extern crate itertools;
 #[doc(hidden)]
 pub extern crate num_traits;

@@ -95,3 +95,10 @@ where
         Ok(self)
     }
 }
+
+
+use Universe;
+pub trait TableDeserial: GetTableName {
+    /// Serialization can be done through `TTable`.
+    fn deserialize_rows<'de, D: Deserializer<'de>>(universe: &Universe, deserializer: D) -> Result<(), D::Error>;
+}
