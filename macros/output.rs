@@ -286,14 +286,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
                 Table::remove_rows(self, universe, event, rows);
             }
-
-            fn serial_selection<'a>(&self, rows: &'a SelectAny) -> BoxedSerialize<'a> {
-                Box::new(rows.as_ref().map(|rows| {
-                    rows
-                        .downcast::<RowId>()
-                        .expect("selection element type mismatch")
-                })) as BoxedSerialize
-            }
         }
     }};
     out! {
@@ -1317,9 +1309,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             let table = GenericTable::new(Table::new());
             let mut table = table #(.add_column({
                 fn prototyper() -> GenericColumn {
-                    fn serializer_factory<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> BoxedSerialize<'a> {
-                        Box::new(serializer_factories::#COL_NAME2(col, sel))
-                    }
                     GenericColumn {
                         name: #COL_NAME_STR,
                         stored_type_name: column_format::#COL_NAME,
@@ -1328,7 +1317,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             Box::new(CT::new()) as Box<AnyCol>
                         },
                         prototyper,
-                        serializer_factory,
                     }
                 }
                 prototyper
@@ -1419,211 +1407,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }};
 
     if table.save && !table.derive.clone { panic!("#[save] requires #[row_derive(Clone)]"); }
-
-    out! {
-        // FIXME: Use Serde, and encode by columns instead.
-        table.save => ["Save"] {
-            use std::fmt;
-            use self::v11::de_help::Hole;
-            use self::v11::serde::de::{Visitor, MapAccess, Deserializer, Error};
-            use self::v11::serde::ser::Serializer;
-            use self::v11::serial::TableDeserial;
-
-            impl TableDeserial for Row {
-                fn deserialize_rows<'de, D: Deserializer<'de>>(universe: &Universe, deserializer: D) -> Result<(), D::Error> {
-                    let mut table = write(universe);
-                    table.deserialize(deserializer)
-                }
-            }
-
-
-            impl<'u> Write<'u> {
-                pub fn deserialize<'de, D>(
-                    &mut self,
-                    deserializer: D
-                ) -> Result<(), D::Error>
-                where
-                    D: Deserializer<'de>
-                {
-                    deserializer.deserialize_map(self)
-                }
-            }
-            impl<'a, 'u: 'a, 'de> Visitor<'de> for &'a mut Write<'u> {
-                type Value = ();
-
-                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("a table")
-                }
-
-                #[allow(unused_mut)]
-                fn visit_map<A>(mut self, mut _map: A) -> Result<Self::Value, A::Error>
-                where
-                    A: MapAccess<'de>
-                {
-                    // Due to lack of mangling, we must prefix *all* of our local vars with a `_`
-                    // so as to not collide with a column name!
-                    //   guicursor=n-v-c-sm:block,i-ci-ve:ver25,r-cr-o:hor20
-
-                    // FIXME: Were we this careful in other methods?
-                    let _map = &mut _map;
-                    let mut _fmt = Hole::val("table:fmt", 0u32);
-                    let mut _domain = Hole::val("table:domain", TABLE_DOMAIN.0 as &'de str);
-                    let mut _name = Hole::val("table:name", TABLE_NAME.0 as &'de str);
-                    let mut _schema_version = Hole::val("table:schema_version", 0);
-                    let mut _selection = Hole::<SelectOwned<Row>>::new("table:selection");
-                    #(
-                        let mut #COL_NAME2 = Hole::<#COL_TYPE>::new(#COL_NAME_STR);
-                    )*
-                    while let Some(_key) = _map.next_key()? {
-                        match _key {
-                            "table:fmt" => _fmt.expect(_map)?,
-                            "table:domain" => _domain.expect(_map)?,
-                            "table:name" => _name.expect(_map)?,
-                            "table:schema_version" => _schema_version.expect(_map)?,
-                            "table:selection" => _selection.fill(_map)?,
-                            #(
-                                #COL_NAME_STR => #COL_NAME3.fill(_map)?,
-                            )*
-                            _ => return Err(A::Error::custom(format!("Unknown field {:?}", _key))), // FIXME: There's a better error type.
-                        }
-                    }
-
-                    {
-                        _fmt.expected::<A>()?;
-                        _domain.expected::<A>()?;
-                        _name.expected::<A>()?;
-                    }
-                    let _selection = _selection.take::<A>()?;
-
-                    // FIXME: #[allow(dead_code)] or something?
-                    let mut prev_len = None;
-                    #(
-                        let #COL_NAME4 = {
-                            let c = #COL_NAME5.take::<A>()?;
-                            let len = c.inner().len();
-                            if let Some(prev_len) = prev_len {
-                                if prev_len != len {
-                                    return Err(A::Error::custom(format!("columns have mismatched lengths")));
-                                }
-                            } else {
-                                prev_len = Some(len);
-                            }
-                            c
-                        };
-                    )*
-                    let len = prev_len.unwrap_or(0);
-
-                    let mut remapped = Vec::with_capacity(len);
-                    let _iter = _selection
-                        .as_slice()
-                        .iter_or_all(RowRange {
-                            start: FIRST,
-                            end: GenericRowId::from_usize(len),
-                        }.iter_slow());
-                    #(
-                        type F = #FOREIGN_ELEMENTS;
-                        use std::marker::PhantomData;
-                        fn get_flush<T: GetTableName>(
-                            _: PhantomData<GenericRowId<T>>,
-                            gt: &GenericTable,
-                        ) -> &Flush<T> {
-                            gt.table.get_flush_ref().downcast_ref().unwrap()
-                        }
-                        let gt: &RwLock<GenericTable> = F::get_generic_table(self._universe);
-                        let gt = gt.read().unwrap();
-                        let phantom: PhantomData<F> = PhantomData;
-                        let #FOREIGN_NAME_NONCE = (
-                            &*gt,
-                            get_flush(phantom, &*gt),
-                        );
-                    )*
-                    for _i in _iter {
-                        let mut row = Row {
-                            #(
-                                #COL_NAME5: #COL_NAME6[_i],
-                            )*
-                        };
-                        #(
-                            row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
-                                .remap(row.#FOREIGN_LOCAL_COL2)
-                                .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3));
-                        )*
-                        let _rowid = self.push(row);
-                        if GUARANTEES.consistent {
-                            remapped.push((_i, _rowid));
-                        }
-                    }
-                    {
-                        let mut flush: &mut Flush<Row> = self._table.get_flush_mut().downcast_mut().unwrap();
-                        flush.set_remapping(&remapped);
-                    }
-                    Ok(())
-                }
-            }
-            mod serializer_factories {
-                use super::v11::serde::ser::{Serialize, Serializer, SerializeSeq};
-                use super::v11::erased_serde::Serialize as ErasedSer;
-                use super::v11::tracking::{Select, SelectAny, SelectOwned};
-                #(
-                    pub fn #COL_NAME<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> impl ErasedSer + 'a {
-                        type ColType = #COL_TYPE;
-
-                        let col = col.data.downcast_ref::<ColType>().expect("Column mismatch");
-                        let sel = match sel {
-                            Select::All => Select::All,
-                            Select::These(rows) => Select::These(rows.downcast().expect("RowId mismatch")),
-                        };
-                        struct CS<'a> {
-                            col: &'a ColType,
-                            sel: Select<&'a [super::RowId]>,
-                        }
-                        impl<'a> Serialize for CS<'a> {
-                            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-                            where
-                                S: Serializer,
-                            {
-                                // FIXME: Specialize.
-                                match self.sel {
-                                    Select::All => {
-                                        // FIXME: This ougtha be `transmute`.
-                                        let col = self.col.inner();
-                                        let len = col.len();
-                                        let mut seq = serializer.serialize_seq(Some(len))?;
-
-                                        for i in 0..col.len() {
-                                            let e = unsafe { col.unchecked_index(i) };
-                                            seq.serialize_element(e)?;
-                                        }
-                                        seq.end()
-                                    },
-                                    Select::These(rows) => {
-                                        let mut seq = serializer.serialize_seq(Some(rows.len()))?;
-                                        let col = self.col.inner();
-                                        for i in rows {
-                                            // We don't have a guarantee here!
-                                            let e = col.checked_index(i.to_usize());
-                                            seq.serialize_element(e)?;
-                                        }
-                                        seq.end()
-                                    },
-                                }
-                            }
-                        }
-                        CS { col, sel }
-                    }
-                )*
-            }
-        };
-        ["Saveless stubs"] {
-            mod serializer_factories {
-                #(
-                    pub fn #COL_NAME<'a, 'b>(col: &'a GenericColumn, sel: &'a SelectAny<'b>) -> BoxedSerialize<'a> {
-                        super::v11::tables::no_serializer_factory(col, sel)
-                    }
-                )*
-            }
-        };
-    }
 
     Ok(())
 }

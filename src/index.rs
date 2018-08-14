@@ -24,19 +24,6 @@ pub struct GenericRowId<T: GetTableName> {
     #[doc(hidden)]
     pub table: PhantomData<T>,
 }
-/*
-use domain::DomainName;
-impl<T: GetTableName> GetTableName for GenericRowId<T> {
-    type Idx = T::Idx;
-
-    fn get_domain() -> DomainName { T::get_domain() }
-    fn get_name() -> TableName { T::get_name() }
-    fn get_guarantee() -> Guarantee { T::get_guarantee() }
-    fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> { T::get_generic_table(universe) }
-    // FIXME: This trait implementation was done too late; there's probably stuff that could be
-    // cleaned up by using it.
-}
-*/
 use serde::ser::{Serialize, Serializer};
 impl<T: GetTableName> Serialize for GenericRowId<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

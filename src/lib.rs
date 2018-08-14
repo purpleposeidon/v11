@@ -53,7 +53,6 @@ pub mod map_index;
 pub mod storage;
 pub mod tracking;
 pub mod event;
-pub mod serial;
 
 #[macro_use]
 pub mod context;
@@ -62,7 +61,6 @@ pub mod context;
 pub mod joincore;
 mod assert_sorted;
 pub mod any_slice;
-pub mod de_help;
 
 #[cfg(feature = "doc")]
 pub mod examples;

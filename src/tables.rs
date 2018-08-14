@@ -26,14 +26,6 @@ impl Universe {
 
 /// A function that creates a new `GenericColumn`.
 pub type Prototyper = fn() -> GenericColumn;
-// FIXME: SmallBox!
-pub type BoxedSerialize<'a> = Box<::erased_serde::Serialize + 'a>;
-/// A function that, given a generic column and a selection, returns a `Serialize`able object that
-/// can serialize that selection.
-pub type SelectionSerializerFactory = for<'a> fn(&'a GenericColumn, &'a SelectAny) -> BoxedSerialize<'a>;
-pub fn no_serializer_factory(col: &GenericColumn, _: &SelectAny) -> BoxedSerialize<'static> {
-    panic!("Column {:?} can't be serialized", col.name)
-}
 
 
 use tracking;
@@ -52,8 +44,6 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     fn get_flush_mut(&mut self) -> &mut Any;
 
     fn remove_rows(&mut self, &Universe, ::event::Event, tracking::SelectAny);
-
-    fn serial_selection<'a>(&self, &'a tracking::SelectAny) -> BoxedSerialize<'a>;
 }
 mopafy!(TTable);
 
@@ -233,7 +223,6 @@ pub struct GenericColumn {
     // "FIXME: PBox here is lame." -- What? No it isn't.
     pub data: Box<AnyCol>,
     pub prototyper: Prototyper,
-    pub serializer_factory: SelectionSerializerFactory,
 }
 impl fmt::Debug for GenericColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
