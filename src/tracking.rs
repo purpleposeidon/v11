@@ -172,6 +172,12 @@ pub struct Flush<T: GetTableName> {
 
     remapped: HashMap<GenericRowId<T>, GenericRowId<T>>,
 }
+use std::fmt;
+impl<T: GetTableName> fmt::Debug for Flush<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<Flush>")
+    }
+}
 impl<T: GetTableName> Default for Flush<T> {
     fn default() -> Self {
         Flush {
@@ -212,6 +218,7 @@ impl<T: GetTableName> Flush<T> {
     }
 
     pub fn set_remapping(&mut self, remap: &[(GenericRowId<T>, GenericRowId<T>)]) {
+        println!("Okay, new remap for {:?} (self==Flush: {:?}): {:?}", T::get_name(), self as *const Self, remap);
         // FIXME: Mapping never gets reset; basically a memory leak.
         self.remapped.clear();
         let remap = remap
@@ -223,6 +230,7 @@ impl<T: GetTableName> Flush<T> {
     }
 
     pub fn remap(&self, old: GenericRowId<T>) -> Option<GenericRowId<T>> {
+        println!("remap for {:?} (self==Flush: {:?}): {:?}", T::get_name(), self as *const Self, old);
         self
             .remapped
             .get(&old)
@@ -326,6 +334,7 @@ impl<T: GetTableName> Flush<T> {
     /// 1. Conserves the allocated objects
     /// 2. Does the right thing if events have happened in the meantime.
     pub fn restore(&mut self, mut orig: Self) {
+        // FIXME: Suppose we both have remappings. Which do we keep?
         mem::swap(&mut self.trackers, &mut orig.trackers);
         fn swap_vecs<T>(my: &mut Vec<T>, orig: &mut Vec<T>) {
             if my.is_empty() {

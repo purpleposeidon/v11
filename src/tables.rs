@@ -11,7 +11,6 @@ use Universe;
 use intern;
 use domain::{DomainName, DomainId, MaybeDomain};
 use columns::AnyCol;
-use tracking::SelectAny;
 
 impl Universe {
     #[doc(hidden)]
@@ -44,6 +43,15 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     fn get_flush_mut(&mut self) -> &mut Any;
 
     fn remove_rows(&mut self, &Universe, ::event::Event, tracking::SelectAny);
+
+    /// Returns a `$table::Extraction`, if the table supports serialization.
+    /// The `Extraction` type is accessible in generic contexts via
+    /// `<$table::Row as SerialExtraction>::Extract`.
+    fn extract_serialization(
+        &self,
+        universe: &Universe,
+        selection: tracking::SelectAny,
+    ) -> Option<Box<::erased_serde::Serialize>>;
 }
 mopafy!(TTable);
 
@@ -240,7 +248,7 @@ impl fmt::Display for TableName {
     }
 }
 
-// FIXME: Rename. `TableRowId`?
+// FIXME: Rename. `TableRowId`? Difficult to say. `TableIdent`?
 #[doc(hidden)]
 pub trait GetTableName: 'static + Send + Sync {
     /// The raw index, like `u32`.
@@ -256,6 +264,10 @@ pub trait GetTableName: 'static + Send + Sync {
     fn get_guarantee() -> Guarantee;
     fn get_generic_table(&Universe) -> &RwLock<GenericTable>;
     fn new_generic_table() -> GenericTable;
+}
+
+pub trait SerialExtraction: GetTableName {
+    type Extraction: Serialize + DeserializeOwned;
 }
 
 #[doc(hidden)]

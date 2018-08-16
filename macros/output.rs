@@ -110,8 +110,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL_NAME2 = COL_NAME;
     let COL_NAME3 = COL_NAME;
     let COL_NAME4 = COL_NAME;
-    let COL_NAME5 = COL_NAME;
-    let COL_NAME6 = COL_NAME;
     let COL_TYPE2 = COL_TYPE;
 
     let TABLE_NAME_STR = table.name.clone();
@@ -156,6 +154,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             use self::v11::event::Event;
             use std::collections::VecDeque;
             use std::cmp::Ordering;
+            use std::borrow::Cow;
         use super::*;
     }}
     out! { ["Header info"] {
@@ -266,6 +265,39 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         // FIXME: Implement `struct RowMut`, would need to respect EditA.
     }};
+
+    let SAVE_EXTRACTION = if table.save {
+        quote! {
+            fn extract_serialization(
+                &self,
+                universe: &Universe,
+                selection: SelectAny,
+            ) -> Option<Box<self::v11::erased_serde::Serialize>> {
+                let selection = selection.as_ref().map(|rows| {
+                    rows
+                        .downcast::<RowId>()
+                        .expect("selection is not of our RowId")
+                });
+                let table = read(universe);
+                Some(Box::new(table.extract_selection(selection)))
+            }
+
+            impl SerialExtraction for Row {
+                type Extraction = self::Extraction;
+            }
+        }
+    } else {
+        quote! {
+            fn extract_serialization(
+                &self,
+                _universe: &Universe,
+                _selection: SelectAny,
+            ) -> Option<Box<self::v11::erased_serde::Serialize>> {
+                None
+            }
+        }
+    };
+
     out! { ["The `Table` struct"] {
         #[derive(Default)]
         pub struct Table {
@@ -286,6 +318,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
                 Table::remove_rows(self, universe, event, rows);
             }
+
+            #SAVE_EXTRACTION
         }
     }};
     out! {
@@ -338,6 +372,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         fn is_deleted(&self, idx: GenericRowId<Row>) -> bool {
             self._table.free.get(&idx).is_some()
         }
+    });
+    let DERIVE_SERDE = quote_if(table.save, quote! {
+        #[derive(Serialize, Deserialize)]
     });
     out! { ["Table locks"] {
         /**
@@ -412,6 +449,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             type Row = Row;
             fn len(&self) -> usize { self.len() }
             #LOCKED_TABLE_DELETED_ROW
+        }
+
+        #DERIVE_SERDE
+        pub struct Extraction {
+            pub fmt: u32,
+            pub domain: Cow<'static, str>,
+            pub name: Cow<'static, str>,
+            pub schema: u32,
+            pub selection: Vec<RowId>,
+            pub data: Owned,
+        }
+
+        #DERIVE_SERDE
+        pub struct Owned {
+            #(pub #COL_NAME: #COL_TYPE2,)*
         }
     }};
 
@@ -1408,5 +1460,116 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     if table.save && !table.derive.clone { panic!("#[save] requires #[row_derive(Clone)]"); }
 
+    out! { table.derive.clone && !table.sorted => ["extraction"] {
+        const FMT: u32 = 0;
+        impl<'u> Read<'u> {
+            pub fn extract_selection(&self, selection: SelectRows<Row>) -> Extraction {
+                let n = match selection {
+                    Select::All => self.iter().size_hint().0,
+                    Select::These(xs) => xs.len(),
+                };
+                let selection: Vec<RowId> = selection.iter_or_all_with(|| {
+                    self.iter().map(|row| row.uncheck())
+                }).collect();
+                let data = Owned {
+                    #(
+                        #COL_NAME: {
+                            type T = #COL_TYPE;
+                            let mut out = T::new();
+                            out.inner_mut().reserve(n);
+                            for i in &selection {
+                                out.inner_mut().push(self.#COL_NAME2[*i].clone());
+                            }
+                            out
+                        },
+                    )*
+                };
+                Extraction {
+                    fmt: FMT,
+                    domain: Cow::Borrowed(TABLE_DOMAIN.0),
+                    name: Cow::Borrowed(TABLE_NAME.0),
+                    schema: VERSION,
+                    selection,
+                    data,
+                }
+            }
+        }
+
+        impl<'u> Write<'u> {
+            pub fn restore_extract(
+                mut self,
+                universe: &Universe,
+                extract: Extraction,
+                event: Event,
+            ) -> Result<(), &'static str> {
+                {
+                    // Validate
+                    if extract.fmt != FMT {
+                        return Err("fmt mismatch");
+                    }
+                    if extract.domain != TABLE_DOMAIN.0 {
+                        return Err("wrong domain");
+                    }
+                    if extract.name != TABLE_NAME.0 {
+                        return Err("wrong name");
+                    }
+                    if extract.schema != VERSION {
+                        return Err("schema version mismatch");
+                    }
+                    // FIXME: data lens
+                }
+                // Foreign cols need to remap
+                #(
+                    type F = #FOREIGN_ELEMENTS;
+                    use std::marker::PhantomData;
+                    fn get_flush<T: GetTableName>(
+                        _: PhantomData<GenericRowId<T>>,
+                        gt: &GenericTable,
+                    ) -> &Flush<T> {
+                        println!("{:?}", gt);
+                        let r = gt
+                            .table
+                            .get_flush_ref()
+                            .downcast_ref()
+                            .unwrap();
+                        println!("remap: {:?} == {:?}", r as *const _, r);
+                        r
+                    }
+                    let gt: &RwLock<GenericTable> = F::get_generic_table(self._universe);
+                    let gt = gt.read().unwrap();
+                    let phantom: PhantomData<F> = PhantomData;
+                    let #FOREIGN_NAME_NONCE = (
+                        &*gt,
+                        get_flush(phantom, &*gt),
+                    );
+                )*
+                // Push
+                let mut remap = Vec::with_capacity(extract.data.#COL0.inner().len());
+                for old_id in &extract.selection {
+                    let mut row = Row {
+                        #(
+                            #COL_NAME: extract.data.#COL_NAME2[*old_id],
+                        )*
+                    };
+                    #(
+                        row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
+                            .remap(row.#FOREIGN_LOCAL_COL2)
+                            .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3));
+                    )*
+                    let new_id = self.push(row);
+                    remap.push((*old_id, new_id));
+                }
+
+                // Flush
+                if !self._table.flush.need_flush() { return Ok(()); }
+                let mut flush = self._table.flush.extract();
+                self._table.flush.set_remapping(&remap);
+                ::std::mem::drop(self);
+                flush.flush(universe, event);
+                write(universe)._table.flush.restore(flush);
+                Ok(())
+            }
+        }
+    };};
     Ok(())
 }

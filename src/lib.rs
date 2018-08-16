@@ -61,6 +61,7 @@ pub mod context;
 pub mod joincore;
 mod assert_sorted;
 pub mod any_slice;
+mod serial;
 
 #[cfg(feature = "doc")]
 pub mod examples;

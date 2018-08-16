@@ -66,8 +66,8 @@ impl<C: TCol, T: GetTableName> Col<C, T> {
         i
     }
 
-    #[doc(hidden)] pub fn inner(&self) -> &C { &self.inner }
-    #[doc(hidden)] pub fn inner_mut(&mut self) -> &mut C { &mut self.inner }
+    #[doc(hidden)] #[inline(always)] pub fn inner(&self) -> &C { &self.inner }
+    #[doc(hidden)] #[inline(always)] pub fn inner_mut(&mut self) -> &mut C { &mut self.inner }
 }
 impl<C: TCol, T: GetTableName> Index<GenericRowId<T>> for Col<C, T> {
     type Output = C::Element;

@@ -15,7 +15,7 @@ domain! { TEST }
 table! {
     #[kind = "consistent"]
     #[save]
-    #[row_derive(Serialize, Deserialize, Debug, Clone)]
+    #[row_derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
     [TEST/saveme] {
         foo: [i32; VecCol<i32>],
         bar: [bool; BoolCol],
@@ -49,8 +49,11 @@ impl FallbackHandler for DumpSelection {
         // This is a bit silly; with json you'd want it by row rather than by column.
         let mut out = universe[JSON_OUT].write().unwrap();
         let gt = gt.read().unwrap();
-        use v11::serial::TableSelectionSer;
-        *out += &serde_json::to_string_pretty(&TableSelectionSer::from(&*gt, &rows)).unwrap();
+        let selection = gt
+            .table
+            .extract_serialization(universe, rows)
+            .expect("table is not serializable!");
+        *out += &serde_json::to_string_pretty(&selection).unwrap();
     }
 }
 
@@ -64,7 +67,7 @@ fn test() {
     extra::register();
 
     let mut universe = Universe::new(&[TEST]);
-    universe.event_handlers.add(event::SAVE, Box::new(DumpSelection) as Box<FallbackHandler>);
+    universe.event_handlers.add(event::SERIALIZE, Box::new(DumpSelection) as Box<FallbackHandler>);
     let universe = &universe;
     {
         let mut saveme = saveme::write(universe);
@@ -94,7 +97,7 @@ fn test() {
     {
         let saveme = saveme::read(universe);
         println!("gonna save");
-        saveme.select_all(universe, event::SAVE);
+        saveme.select_all(universe, event::SERIALIZE);
         {
             let mut json_out = universe[JSON_OUT].write().unwrap();
             json1 = json_out.clone();
@@ -102,7 +105,7 @@ fn test() {
         }
         {
             let extra = extra::read(universe);
-            extra.select_all(universe, event::SAVE);
+            extra.select_all(universe, event::SERIALIZE);
             json2 = universe[JSON_OUT].read().unwrap().clone();
         }
         println!("saveme json:");
@@ -113,22 +116,25 @@ fn test() {
         println!("--End--");
         {
             let alternia = &Universe::new(&[TEST]);
-            let mut saveme2 = saveme::write(alternia);
-            let deserializer = &mut serde_json::Deserializer::from_str(&json1);
-            saveme2.deserialize(deserializer).unwrap();
+            let extraction: saveme::Extraction = serde_json::from_str(&json1).unwrap();
+            let saveme2 = saveme::write(alternia);
+            saveme2.restore_extract(alternia, extraction, event::DESERIALIZE).unwrap();
+
+
             println!("Okay, we reconstitute it:");
+            let saveme2 = saveme::read(alternia);
             for i in saveme2.iter() {
                 println!("{:?}", saveme2.get_row_ref(i));
+                assert_eq!(saveme2.get_row_ref(i), saveme.get_row_ref(i));
             }
             println!("--End--");
-            saveme2.flush(alternia, event::CREATE);
         }
     };
     {
         universe.set(JSON_OUT, String::new());
         let saveme = saveme::read(universe);
         println!("Gonna select/save just one row!");
-        saveme.select_rows(universe, event::SAVE, true, Some(::saveme::FIRST).into_iter());
+        saveme.select_rows(universe, event::SERIALIZE, true, Some(::saveme::FIRST).into_iter());
         println!("json saved:");
         let json = universe[JSON_OUT].read().unwrap();
         println!("{}", json);
@@ -144,7 +150,7 @@ fn test() {
             extra.clear();
             extra.flush(universe, event::DELETE);
         }
-        println!("Adding some new rows");
+        println!("Adding some extra new rows; hopefully we can cope with this!");
         {
             let mut saveme = saveme::write(universe);
             for foo in 0..5 {
@@ -157,15 +163,13 @@ fn test() {
         }
         println!("Regenerating everything from the saved json!");
         {
-            let mut saveme = saveme::write(universe);
-            let deserializer = &mut serde_json::Deserializer::from_str(&json1);
-            saveme.deserialize(deserializer).unwrap();
-            saveme.flush(universe, event::DESERIALIZE);
+            let extraction: saveme::Extraction = serde_json::from_str(&json1).unwrap();
+            let saveme = saveme::write(universe);
+            saveme.restore_extract(universe, extraction, event::DESERIALIZE).unwrap();
 
-            let mut extra = extra::write(universe);
-            let deserializer = &mut serde_json::Deserializer::from_str(&json2);
-            extra.deserialize(deserializer).unwrap();
-            extra.flush(universe, event::DESERIALIZE);
+            let extraction: extra::Extraction = serde_json::from_str(&json2).unwrap();
+            let extra = extra::write(universe);
+            extra.restore_extract(universe, extraction, event::DESERIALIZE).unwrap();
         }
         println!("What we have:");
         {
@@ -176,25 +180,8 @@ fn test() {
             let extra = extra::read(universe);
             for row in extra.iter() {
                 println!("{:?}", extra.get_row(row));
+                assert_eq!(saveme.foo[extra.user[row]], 200);
             }
         }
     }
-    /*{
-        {
-            let mut saveme = saveme::write(universe);
-            saveme.clear();
-            saveme.flush(universe, event::DELETE);
-        }
-        let mut saveme = saveme::write(universe);
-        let j = &mut ::serde_json::de::Deserializer::from_str(&json);
-        saveme.deserialize(j).unwrap();
-        let mut n = 0;
-        for blah in saveme.iter() {
-            println!("{:?}", saveme.get_row_ref(blah));
-            n += 1;
-        }
-        assert_eq!(n, 1);
-        println!("Okay?");
-        saveme.flush(universe, event::CREATE);
-    }*/
 }
