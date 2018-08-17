@@ -266,8 +266,13 @@ pub trait GetTableName: 'static + Send + Sync {
     fn new_generic_table() -> GenericTable;
 }
 
+use event::Event;
+use tracking::SelectAny;
 pub trait SerialExtraction: GetTableName {
     type Extraction: Serialize + DeserializeOwned;
+
+    fn extract(universe: &Universe, selection: SelectAny) -> Self::Extraction;
+    fn restore(universe: &Universe, extraction: Self::Extraction, event: Event) -> Result<(), &'static str>;
 }
 
 #[doc(hidden)]

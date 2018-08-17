@@ -273,17 +273,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 universe: &Universe,
                 selection: SelectAny,
             ) -> Option<Box<self::v11::erased_serde::Serialize>> {
-                let selection = selection.as_ref().map(|rows| {
-                    rows
-                        .downcast::<RowId>()
-                        .expect("selection is not of our RowId")
-                });
+                let selection = downcast_any_selection(&selection);
                 let table = read(universe);
                 Some(Box::new(table.extract_selection(selection)))
-            }
-
-            impl SerialExtraction for Row {
-                type Extraction = self::Extraction;
             }
         }
     } else {
@@ -297,6 +289,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
         }
     };
+    let SERIAL_EXTRACT_IMPL = quote_if(table.save, quote! {
+            impl SerialExtraction for Row {
+                type Extraction = self::Extraction;
+
+                fn extract(universe: &Universe, selection: SelectAny) -> Self::Extraction {
+                    let selection = downcast_any_selection(&selection);
+                    read(universe).extract_selection(selection)
+                }
+
+                fn restore(universe: &Universe, extraction: Self::Extraction, event: Event) -> Result<(), &'static str> {
+                    write(universe).restore_extract(universe, extraction, event)
+                }
+            }
+    });
 
     out! { ["The `Table` struct"] {
         #[derive(Default)]
@@ -321,6 +327,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
             #SAVE_EXTRACTION
         }
+
+        #SERIAL_EXTRACT_IMPL
     }};
     out! {
         table.consistent => ["`Table` consistent"] {
@@ -464,6 +472,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #DERIVE_SERDE
         pub struct Owned {
             #(pub #COL_NAME: #COL_TYPE2,)*
+        }
+
+        fn downcast_any_selection<'a>(selection: &'a SelectAny) -> SelectRows<'a, Row> {
+            selection
+                .as_ref()
+                .map(|rows| {
+                    rows
+                        .downcast::<RowId>()
+                        .expect("selection is not of our RowId")
+                })
         }
     }};
 
