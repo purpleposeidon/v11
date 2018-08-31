@@ -473,6 +473,26 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         pub struct Owned {
             #(pub #COL_NAME: #COL_TYPE2,)*
         }
+        impl Extraction {
+            fn map_owned<F>(self, mut f: F)
+            where
+                F: FnMut(RowId, Row),
+            {
+                #(
+                    let mut #COL_NAME2 = self.data.#COL_NAME.into_inner().into_iter();
+                )*
+                for old_id in self.selection.into_iter() {
+                    #(
+                        let #COL_NAME2 = #COL_NAME.next().expect("Column extraction unexpectedly ran out of elements");
+                    )*
+                    f(old_id, Row {
+                        #(
+                            #COL_NAME2: #COL_NAME,
+                        )*
+                    });
+                }
+            }
+        }
 
         fn downcast_any_selection<'a>(selection: &'a SelectAny) -> SelectRows<'a, Row> {
             selection
@@ -1563,20 +1583,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 )*
                 // Push
                 let mut remap = Vec::with_capacity(extract.data.#COL0.inner().len());
-                for old_id in &extract.selection {
-                    let mut row = Row {
-                        #(
-                            #COL_NAME: extract.data.#COL_NAME2[*old_id],
-                        )*
-                    };
+                #[allow(unused_mut)]
+                extract.map_owned(|old_id, mut row| {
                     #(
                         row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
                             .remap(row.#FOREIGN_LOCAL_COL2)
                             .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3));
                     )*
                     let new_id = self.push(row);
-                    remap.push((*old_id, new_id));
-                }
+                    remap.push((old_id, new_id));
+                });
 
                 // Flush
                 if !self._table.flush.need_flush() { return Ok(()); }

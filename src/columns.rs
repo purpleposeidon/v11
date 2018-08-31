@@ -43,6 +43,9 @@ pub trait TCol: AnyCol {
         }
         unsafe { self.unchecked_index(i) }
     }
+
+    type IntoIter: Iterator<Item=Self::Element>;
+    fn into_iter(self) -> Self::IntoIter;
 }
 
 
@@ -66,6 +69,7 @@ impl<C: TCol, T: GetTableName> Col<C, T> {
         i
     }
 
+    #[doc(hidden)] #[inline(always)] pub fn into_inner(self) -> C { self.inner }
     #[doc(hidden)] #[inline(always)] pub fn inner(&self) -> &C { &self.inner }
     #[doc(hidden)] #[inline(always)] pub fn inner_mut(&mut self) -> &mut C { &mut self.inner }
 }

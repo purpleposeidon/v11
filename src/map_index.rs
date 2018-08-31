@@ -122,4 +122,9 @@ where C::Element: Hash + Ord + Copy
         self.index.remove(&(old, native_i));
         self.inner.deleted(i);
     }
+
+    type IntoIter = C::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
 }

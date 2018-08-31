@@ -30,6 +30,11 @@ impl<E: Storable> TCol for VecCol<E> {
             ::std::ptr::swap(pa, pb);
         }
     }
+
+    type IntoIter = ::std::vec::IntoIter<Self::Element>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
+    }
 }
 
 /// Temporary (hopefully) stub for avec.
@@ -126,6 +131,12 @@ impl TCol for BoolCol {
         let bv: bool = self.data[b];
         self.data.set(a, bv);
         self.data.set(b, av);
+    }
+
+    type IntoIter = self::bit_vec::IntoIter;
+    fn into_iter(mut self) -> Self::IntoIter {
+        self.flush();
+        self.data.into_iter()
     }
 }
 
