@@ -872,6 +872,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let FOREIGN_LOCAL_COL = &FOREIGN_LOCAL_COL;
     let FOREIGN_LOCAL_COL2 = FOREIGN_LOCAL_COL;
     let FOREIGN_LOCAL_COL3 = FOREIGN_LOCAL_COL;
+    let FOREIGN_ELEMENTS = &FOREIGN_ELEMENTS;
+    let FOREIGN_ELEMENTS2 = FOREIGN_ELEMENTS;
 
     out! {
         table.consistent => ["Extra drops"] {
@@ -1558,28 +1560,30 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
                 // Foreign cols need to remap
                 #(
-                    type F = #FOREIGN_ELEMENTS;
-                    use std::marker::PhantomData;
-                    fn get_flush<T: GetTableName>(
-                        _: PhantomData<GenericRowId<T>>,
-                        gt: &GenericTable,
-                    ) -> &Flush<T> {
-                        println!("{:?}", gt);
-                        let r = gt
-                            .table
-                            .get_flush_ref()
-                            .downcast_ref()
-                            .unwrap();
-                        println!("remap: {:?} == {:?}", r as *const _, r);
-                        r
-                    }
-                    let gt: &RwLock<GenericTable> = F::get_generic_table(self._universe);
+                    let gt: &RwLock<GenericTable> = {
+                        type F = #FOREIGN_ELEMENTS;
+                        F::get_generic_table(self._universe)
+                    };
                     let gt = gt.read().unwrap();
-                    let phantom: PhantomData<F> = PhantomData;
-                    let #FOREIGN_NAME_NONCE = (
-                        &*gt,
-                        get_flush(phantom, &*gt),
-                    );
+                    let #FOREIGN_NAME_NONCE = {
+                        type F = #FOREIGN_ELEMENTS2;
+                        use std::marker::PhantomData;
+                        fn get_flush<T: GetTableName>(
+                            _: PhantomData<GenericRowId<T>>,
+                            gt: &GenericTable,
+                        ) -> &Flush<T> {
+                            // FIXME: Explain what explodes if this function is removed.
+                            gt.table
+                                .get_flush_ref()
+                                .downcast_ref()
+                                .unwrap()
+                        }
+                        let phantom: PhantomData<F> = PhantomData;
+                        (
+                            &*gt,
+                            get_flush(phantom, &*gt),
+                        )
+                    };
                 )*
                 // Push
                 let mut remap = Vec::with_capacity(extract.data.#COL0.inner().len());
