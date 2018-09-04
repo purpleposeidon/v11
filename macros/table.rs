@@ -91,6 +91,9 @@ impl Table {
             assert!(!self.sorted);
             assert!(!self.secret);
         }
+        if self.save {
+            assert!(self.derive.clone);
+        }
     }
     pub fn new() -> Self {
         Table {

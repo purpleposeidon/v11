@@ -139,7 +139,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             use v11;
             use self::v11::Universe;
             use self::v11::domain::DomainName;
-            use self::v11::intern::{self, BiRef};
+            use self::v11::intern::{self, BiRef, GenerativeIter};
             use self::v11::tables::*;
             use self::v11::columns::*;
             use self::v11::index::{CheckedIter, Checkable};
@@ -290,18 +290,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     };
     let SERIAL_EXTRACT_IMPL = quote_if(table.save, quote! {
-            impl SerialExtraction for Row {
-                type Extraction = self::Extraction;
+        impl SerialExtraction for Row {
+            type Extraction = self::Extraction;
 
-                fn extract(universe: &Universe, selection: SelectAny) -> Self::Extraction {
-                    let selection = downcast_any_selection(&selection);
-                    read(universe).extract_selection(selection)
-                }
-
-                fn restore(universe: &Universe, extraction: Self::Extraction, event: Event) -> Result<(), &'static str> {
-                    write(universe).restore_extract(universe, extraction, event)
-                }
+            fn extract(universe: &Universe, selection: SelectAny) -> Self::Extraction {
+                let selection = downcast_any_selection(&selection);
+                read(universe).extract_selection(selection)
             }
+
+            fn restore(universe: &Universe, extraction: Self::Extraction, event: Event) -> Result<(), &'static str> {
+                write(universe).restore_extract(universe, extraction, event)
+            }
+        }
     });
 
     out! { ["The `Table` struct"] {
@@ -459,12 +459,17 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #LOCKED_TABLE_DELETED_ROW
         }
 
+        const EXTRACTION_FMT: u32 = 0;
+
         #DERIVE_SERDE
         pub struct Extraction {
-            pub fmt: u32,
+            /// v11's format version.
+            pub extraction_fmt: u32,
             pub domain: Cow<'static, str>,
             pub name: Cow<'static, str>,
+            /// The schema's revision number, `#[version = "0"]`
             pub schema: u32,
+            /// The original indices of the rows.
             pub selection: Vec<RowId>,
             pub data: Owned,
         }
@@ -474,23 +479,41 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(pub #COL_NAME: #COL_TYPE2,)*
         }
         impl Extraction {
-            fn map_owned<F>(self, mut f: F)
-            where
-                F: FnMut(RowId, Row),
-            {
+            fn validate(&self) -> Result<(), &'static str> {
+                // Validate
+                if self.extraction_fmt != EXTRACTION_FMT {
+                    return Err("fmt mismatch");
+                }
+                if self.domain != TABLE_DOMAIN.0 {
+                    return Err("wrong domain");
+                }
+                if self.name != TABLE_NAME.0 {
+                    return Err("wrong name");
+                }
+                if self.schema != VERSION {
+                    return Err("schema version mismatch");
+                }
+                Ok(())
+                // FIXME: validate data lengths
+                // FIXME: If we require sort, assure sort?
+            }
+
+            fn into_iter(self) -> impl Iterator<Item=(RowId, Row)> {
+                let mut selection = self.selection.into_iter();
                 #(
                     let mut #COL_NAME2 = self.data.#COL_NAME.into_inner().into_iter();
                 )*
-                for old_id in self.selection.into_iter() {
-                    #(
-                        let #COL_NAME2 = #COL_NAME.next().expect("Column extraction unexpectedly ran out of elements");
-                    )*
-                    f(old_id, Row {
-                        #(
-                            #COL_NAME2: #COL_NAME,
-                        )*
-                    });
-                }
+                GenerativeIter(move || {
+                    let i = selection.next();
+                    if i.is_none() { return None; }
+                    let msg = "early termination in column extraction";
+                    Some((
+                        i.unwrap(),
+                        Row {
+                            #(#COL_NAME: #COL_NAME2.next().expect(msg),)*
+                        },
+                    ))
+                })
             }
         }
 
@@ -1500,41 +1523,43 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
     if table.save && !table.derive.clone { panic!("#[save] requires #[row_derive(Clone)]"); }
 
-    out! { table.derive.clone && !table.sorted => ["extraction"] {
-        const FMT: u32 = 0;
-        impl<'u> Read<'u> {
-            pub fn extract_selection(&self, selection: SelectRows<Row>) -> Extraction {
-                let n = match selection {
-                    Select::All => self.iter().size_hint().0,
-                    Select::These(xs) => xs.len(),
-                };
-                let selection: Vec<RowId> = selection.iter_or_all_with(|| {
-                    self.iter().map(|row| row.uncheck())
-                }).collect();
-                let data = Owned {
-                    #(
-                        #COL_NAME: {
-                            type T = #COL_TYPE;
-                            let mut out = T::new();
-                            out.inner_mut().reserve(n);
-                            for i in &selection {
-                                out.inner_mut().push(self.#COL_NAME2[*i].clone());
-                            }
-                            out
-                        },
-                    )*
-                };
-                Extraction {
-                    fmt: FMT,
-                    domain: Cow::Borrowed(TABLE_DOMAIN.0),
-                    name: Cow::Borrowed(TABLE_NAME.0),
-                    schema: VERSION,
-                    selection,
-                    data,
+    let UPDATE_ROW = quote! {
+        #(
+            row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
+                .remap(row.#FOREIGN_LOCAL_COL2)
+                .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3));
+        )*
+    };
+    let MERGE_EXTRACT = if table.sorted {
+        quote! {
+            if no_trackers {
+                let rows = extract
+                    .into_iter()
+                    .map(|(_i, row)| row)
+                    .collect::<Vec<_>>();
+                self.merge(rows);
+            } else {
+                // FIXME: This is terrible. But also it is annoying.
+                // Might have to modify merge_logged?
+                for (old_id, mut row) in extract.into_iter() {
+                    #UPDATE_ROW
+                    let new_id = self.merge_in_a_single_row(row);
+                    remap.push((old_id, new_id));
                 }
             }
         }
-
+    } else {
+        quote! {
+            for (old_id, mut row) in extract.into_iter() {
+                #UPDATE_ROW
+                let new_id = self.push(row);
+                if !no_trackers {
+                    remap.push((old_id, new_id));
+                }
+            }
+        }
+    };
+    out! { table.derive.clone => ["Extraction"] {
         impl<'u> Write<'u> {
             pub fn restore_extract(
                 mut self,
@@ -1542,22 +1567,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 extract: Extraction,
                 event: Event,
             ) -> Result<(), &'static str> {
-                {
-                    // Validate
-                    if extract.fmt != FMT {
-                        return Err("fmt mismatch");
-                    }
-                    if extract.domain != TABLE_DOMAIN.0 {
-                        return Err("wrong domain");
-                    }
-                    if extract.name != TABLE_NAME.0 {
-                        return Err("wrong name");
-                    }
-                    if extract.schema != VERSION {
-                        return Err("schema version mismatch");
-                    }
-                    // FIXME: data lens
-                }
+                extract.validate()?;
                 // Foreign cols need to remap
                 #(
                     let gt: &RwLock<GenericTable> = {
@@ -1585,18 +1595,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         )
                     };
                 )*
+                let no_trackers = self._table.flush.trackers_is_empty();
                 // Push
-                let mut remap = Vec::with_capacity(extract.data.#COL0.inner().len());
-                #[allow(unused_mut)]
-                extract.map_owned(|old_id, mut row| {
-                    #(
-                        row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
-                            .remap(row.#FOREIGN_LOCAL_COL2)
-                            .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3));
-                    )*
-                    let new_id = self.push(row);
-                    remap.push((old_id, new_id));
-                });
+                let mut remap: Vec<(RowId, RowId)> = Vec::with_capacity(extract.data.#COL0.inner().len());
+
+                #MERGE_EXTRACT
 
                 // Flush
                 if !self._table.flush.need_flush() { return Ok(()); }
@@ -1606,6 +1609,39 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 flush.flush(universe, event);
                 write(universe)._table.flush.restore(flush);
                 Ok(())
+            }
+        }
+
+        impl<'u> Read<'u> {
+            pub fn extract_selection(&self, selection: SelectRows<Row>) -> Extraction {
+                let n = match selection {
+                    Select::All => self.iter().size_hint().0,
+                    Select::These(xs) => xs.len(),
+                };
+                let selection: Vec<RowId> = selection.iter_or_all_with(|| {
+                    self.iter().map(|row| row.uncheck())
+                }).collect();
+                let data = Owned {
+                    #(
+                        #COL_NAME: {
+                            type T = #COL_TYPE;
+                            let mut out = T::new();
+                            out.inner_mut().reserve(n);
+                            for i in &selection {
+                                out.inner_mut().push(self.#COL_NAME2[*i].clone());
+                            }
+                            out
+                        },
+                    )*
+                };
+                Extraction {
+                    extraction_fmt: EXTRACTION_FMT,
+                    domain: Cow::Borrowed(TABLE_DOMAIN.0),
+                    name: Cow::Borrowed(TABLE_NAME.0),
+                    schema: VERSION,
+                    selection,
+                    data,
+                }
             }
         }
     };};

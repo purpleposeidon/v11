@@ -81,3 +81,13 @@ where
         }
     }
 }
+
+pub struct GenerativeIter<F>(pub F);
+impl<F, R> Iterator for GenerativeIter<F>
+where F: FnMut() -> Option<R>
+{
+    type Item = R;
+    fn next(&mut self) -> Option<R> {
+        self.0()
+    }
+}
