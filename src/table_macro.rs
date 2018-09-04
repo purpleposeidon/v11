@@ -144,6 +144,15 @@ Puts `#[derive(Foo, Bar)]` on the generated `Row` and `RowRef` structs.
 ## `#[version = "0"]`
 A version number for the table. The default is `0`. It is a `u32`.
 
+## `#[add_tracker = "expression"]`
+Register a user tracker automatically when the table is initialized using the given expression.
+For example, `#[add_tracker = "BirdWatch"]`.
+You would then need to define `BirdWatch` and implement [`tracking::Tracker`] on it.
+
+Can be repeated.
+The trackers from `#[foreign]` and `#[foreign_auto]` take care of themselves;
+using this on the trackers they define would duplicate it.
+
 # Column Attributes
 
 ```no_compile
@@ -163,7 +172,7 @@ This generates a `struct track_$COL_events`, for which `Tracker` must be impleme
 
 ## `#[foreign_auto]`
 This automatically implements `Tracker`. Rows corresponding to deleted foreign rows will be removed.
-This requires `#[index]` or `#[sort_key]` on the local table.
+This requires `#[index]` or `#[sort_key]` on the local column.
 
 ## `#[index]`
 Creates an index of the column, using a `BTreeMap`.
@@ -172,20 +181,11 @@ Indexed elements are immutable, and are duplicated.
 ## `#[sort_key]`
 Use the element's comparision order to derive `Ord` for `RowRef`.
 
-## `#[add_tracker = "expression"]`
-Register a user tracker automatically when the table is initialized using the given expression.
-For example, `#[add_tracker = "BirdWatch"]`.
-You would then need to define `BirdWatch` and implement [`tracking::Tracker`] on it.
-
-Can be repeated.
-The trackers from `#[foreign]` and `#[foreign_auto]` take care of themselves;
-using this on the trackers they define would duplicate it.
-
 # Debugging Macro Output
 If there is an error in the macro's output, it will give opaque errors and thus be impossible to debug... *UNTIL NOW*!
-Simply define the `V11_MACRO_DUMP=*` environment variable before compilation,
+Simply define the `V11_MACRO_DUMP=*` environment variable prior to compilation,
 and *ALL* `table!` macro output will be written to & loaded from a convenient file!!
-You can also obtain the output of a specific table using its name, like `V11_MACRO_DUMP=heyo`!
+You can also obtain the output of a specific table using its name, like `V11_MACRO_DUMP=hayo`!
 `V11_MACRO_DUMP_DIR` can be used to write files to a specific directory!
 If you don't specify this environmental variable, that's OKAY,
 files are written to `target/v11_dump` by default!! It doesn't get ANY EASIER than HAYO-Corp!!!!
@@ -197,7 +197,7 @@ Such duplicate table names may result in explosions.
 Do not compile multiple profiles with this feature enabled.
 Simultaneous cargo/rustc invokations are unsupported, and may result in explosions.
 
-HAYO-Corp is not liable for any loss of life, liberty, property, or data consistency due to misuse of product.
+HAYO-Corp is not liable for any loss of life, liberty, property, or data consistency due to misuse of `V11_MACRO_DUMP`.
 </small>
 
 **/
