@@ -686,22 +686,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["Change tracking"] {
             impl<'a> Write<'a> {
-                /// Propagate all changes
-                pub fn flush(self, universe: &Universe, event: Event) {
-                    if !self._table.flush.need_flush() { return; }
-                    let mut flush = self._table.flush.extract();
-                    ::std::mem::drop(self);
-                    flush.flush(universe, event);
-                    write(universe)._table.flush.restore(flush);
-                }
-
-                /// Flush table without releasing the lock. This will of course cause a deadlock if
-                /// the table has trackers that need to look at values.
-                pub fn live_flush(&mut self, universe: &Universe, event: Event) {
-                    if !self._table.flush.need_flush() { return; }
-                    self._table.flush.flush(universe, event);
-                }
-
                 pub fn delete<I: CheckId>(&mut self, row: I) {
                     unsafe {
                         let i = row.check(self).uncheck();
@@ -723,21 +707,31 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     self._table.flush.remove_tracker::<T>()
                 }
                 */
-                /// This method is here as a convenience for macros.
-                pub fn flush_or_close(self, universe: &Universe, event: Event) { self.flush(universe, event) }
+            }
 
-                /// Mark a row. Calling `flush` will then propagate the selection.
-                pub fn select(&mut self, row: RowId) {
-                    self._table.flush.select(row);
-                }
-
-                /// Mark every row. Calling `flush` will then propagate the selection.
-                pub fn select_all(&mut self) {
-                    self._table.flush.select_all();
+            /// Makes sure the flush requirement has been acknowledged
+            impl<'a> Drop for Write<'a> {
+                fn drop(&mut self) {
+                    if self._table.flush.need_flush() {
+                        panic!("Changes to {} were not flushed", TABLE_NAME);
+                    }
                 }
             }
+        };
+        ["fake flush"] {
+            impl<'u> Write<'u> {
+                // "shouldn't" get called; could happen if the table kind changes between
+                // serializations. This is a stub.
+                unsafe fn delete_raw(&mut self, _i: usize) {
+                    panic!("Unexpected call to delete_raw");
+                }
+            }
+        };
+    }
+    out! {
+        ["selecting"] {
             impl<'a> Read<'a> {
-                /// Select every row. (Immutable version; also defined for [`Write`].)
+                /// Select every row. (Immutable version; a slightly different mutable version is defined for [`Write`].)
                 pub fn select_all(
                     &self,
                     universe: &Universe,
@@ -764,25 +758,34 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     )
                 }
             }
-
-            /// Makes sure the flush requirement has been acknowledged
-            impl<'a> Drop for Write<'a> {
-                fn drop(&mut self) {
-                    if self._table.flush.need_flush() {
-                        panic!("Changes to {} were not flushed", TABLE_NAME);
-                    }
+            impl<'a> Write<'a> {
+                /// Propagate all changes
+                pub fn flush(self, universe: &Universe, event: Event) {
+                    if !self._table.flush.need_flush() { return; }
+                    let mut flush = self._table.flush.extract();
+                    ::std::mem::drop(self);
+                    flush.flush(universe, event);
+                    write(universe)._table.flush.restore(flush);
                 }
-            }
-        };
-        ["fake flush"] {
-            impl<'u> Write<'u> {
-                /// This method is here as a convenience for macros.
-                pub fn flush_or_close(self, _: &Universe, _: Event) {}
 
-                // "shouldn't" get called; could happen if the table kind changes between
-                // serializations. This is a stub.
-                unsafe fn delete_raw(&mut self, _i: usize) {
-                    panic!("Unexpected call to delete_raw");
+                /// Flush table without releasing the lock. This will of course cause a deadlock if
+                /// the table has trackers that need to look at values.
+                pub fn live_flush(&mut self, universe: &Universe, event: Event) {
+                    if !self._table.flush.need_flush() { return; }
+                    self._table.flush.flush(universe, event);
+                }
+
+                /// This method is here as a convenience for macros.
+                pub fn flush_or_close(self, universe: &Universe, event: Event) { self.flush(universe, event) }
+
+                /// Mark a row. Calling `flush` will then propagate the selection.
+                pub fn select(&mut self, row: RowId) {
+                    self._table.flush.select(row);
+                }
+
+                /// Mark every row. Calling `flush` will then propagate the selection.
+                pub fn select_all(&mut self) {
+                    self._table.flush.select_all();
                 }
             }
         };
