@@ -63,6 +63,7 @@ mod assert_sorted;
 pub mod any_slice;
 mod serial;
 
+// FIXME: #[cfg(rustdoc)] will be a thing eventually.
 #[cfg(feature = "doc")]
 pub mod examples;
 

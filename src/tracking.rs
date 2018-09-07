@@ -218,8 +218,7 @@ impl<T: GetTableName> Flush<T> {
     }
 
     pub fn set_remapping(&mut self, remap: &[(GenericRowId<T>, GenericRowId<T>)]) {
-        println!("Okay, new remap for {:?} (self==Flush: {:?}): {:?}", T::get_name(), self as *const Self, remap);
-        // FIXME: Mapping never gets reset; basically a memory leak.
+        // FIXME: Mapping never gets reset; kind of a memory leak but not super serious.
         self.remapped.clear();
         let remap = remap
             .iter()
@@ -230,7 +229,6 @@ impl<T: GetTableName> Flush<T> {
     }
 
     pub fn remap(&self, old: GenericRowId<T>) -> Option<GenericRowId<T>> {
-        println!("remap for {:?} (self==Flush: {:?}): {:?}", T::get_name(), self as *const Self, old);
         self
             .remapped
             .get(&old)
