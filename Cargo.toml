@@ -11,7 +11,7 @@ serde_json = "*"
 bincode = "*"
 
 [dependencies]
-v11_macros = { path = "./macros" }
+v11_macros = { path = "./macros", version = "0.0.5" }
 procedural-masquerade = "^0.1.2"
 serde = "1.0"
 serde_derive = "1.0"
