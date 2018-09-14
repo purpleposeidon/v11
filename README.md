@@ -1,5 +1,5 @@
 # v11
-`v11` is a library for Data Oriented Design.
+`v11` is a data engine for Data Oriented Design.
 The general idea is to minimize wasted CPU cache by operating exactly on the data needed to solve a particular problem.
 At the first level, this is done by storing data in column-oriented tables (["Structs Of Arrays"](https://gamedevelopment.tutsplus.com/articles/what-is-data-oriented-game-engine-design--cms-21052)).
 At the second level, this is done by applying [database normalization](https://en.wikipedia.org/wiki/Database_normalization) [techniques](http://www.dataorienteddesign.com/).

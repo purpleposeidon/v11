@@ -5,6 +5,7 @@ authors = ["neptunepink <purpleposeidon@gmail.com>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/purpleposeidon/v11"
 homepage = "https://github.com/purpleposeidon/v11"
+description = "A data engine for Data Oriented Design"
 readme = "README.md"
 
 [lib]
