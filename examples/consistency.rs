@@ -1,15 +1,3 @@
-# v11
-`v11` is a library for Data Oriented Design.
-The general idea is to minimize wasted CPU cache by operating exactly on the data needed to solve a particular problem.
-At the first level, this is done by storing data in column-oriented tables (["Structs Of Arrays"](https://gamedevelopment.tutsplus.com/articles/what-is-data-oriented-game-engine-design--cms-21052)).
-At the second level, this is done by applying [database normalization](https://en.wikipedia.org/wiki/Database_normalization) [techniques](http://www.dataorienteddesign.com/).
-
-`v11` ensures consistency using `Tracker`s: when a row is deleted, any dependents on that row are given a chance to react.
-
-This crate is still heavily WIP.
-
-
-```rust
 #[macro_use] extern crate v11_macros;
 #[macro_use] extern crate v11;
 
@@ -106,26 +94,3 @@ fn show(universe: &Universe) {
         println!("{:?} = {:?}", sailor, sailors.get_row_ref(sailor));
     }
 }
-```
-
-This is the output:
-
-```
-ships[0] = Row { name: "SS Mont-Blanc", cargo: 11 }
-ships[1] = Row { name: "RMS Lusitania", cargo: 237 }
-ships[2] = Row { name: "RMS Titanic", cargo: 42 }
-ships[3] = Row { name: "Boaty McBoatface", cargo: 24 }
-sailors[0] = RowRef { ship: ships[2], name: "Alice" }
-sailors[1] = RowRef { ship: ships[3], name: "Bob" }
-sailors[2] = RowRef { ship: ships[1], name: "Charles" }
-sailors[3] = RowRef { ship: ships[0], name: "Dave" }
-
-The Boaty McBoatface is sinking! Oh, the humanity!
-
-ships[0] = Row { name: "SS Mont-Blanc", cargo: 11 }
-ships[1] = Row { name: "RMS Lusitania", cargo: 237 }
-ships[2] = Row { name: "RMS Titanic", cargo: 42 }
-sailors[0] = RowRef { ship: ships[2], name: "Alice" }
-sailors[2] = RowRef { ship: ships[1], name: "Charles" }
-sailors[3] = RowRef { ship: ships[0], name: "Dave" }
-```
