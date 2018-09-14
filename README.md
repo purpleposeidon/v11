@@ -4,9 +4,9 @@ The general idea is to minimize wasted CPU cache by operating exactly on the dat
 At the first level, this is done by storing data in column-oriented tables (["Structs Of Arrays"](https://gamedevelopment.tutsplus.com/articles/what-is-data-oriented-game-engine-design--cms-21052)).
 At the second level, this is done by applying [database normalization](https://en.wikipedia.org/wiki/Database_normalization) [techniques](http://www.dataorienteddesign.com/).
 
-`v11` ensures consistency using `Tracker`s: when a row is deleted, any dependents on that row are given a chance to react.
+This crate is still WIP.
 
-This crate is still heavily WIP.
+`v11` ensures consistency using `Tracker`s: when a row is deleted, any dependents on that row are given a chance to react.
 
 
 ```rust
@@ -129,3 +129,5 @@ sailors[0] = RowRef { ship: ships[2], name: "Alice" }
 sailors[2] = RowRef { ship: ships[1], name: "Charles" }
 sailors[3] = RowRef { ship: ships[0], name: "Dave" }
 ```
+
+Row indices are strongly typed, so `ships.cargo[sailor]` is a compiler error.
