@@ -49,7 +49,8 @@ impl<V> fmt::Debug for PropertyIndex<V> {
 }
 
 pub trait ToPropRef<V: Sync>: Sync {
-    fn name(&self) -> &'static str;
+    fn domain(&self) -> DomainName;
+    fn name(&self) -> PropertyName;
     unsafe fn get(&self) -> &Prop<V>;
     fn register(&self);
 }
@@ -219,7 +220,8 @@ macro_rules! property {
         #[doc(hidden)]
         pub struct PropRef;
         impl ToPropRef<Type> for PropRef {
-            fn name(&self) -> &'static str { NAME.0 }
+            fn domain(&self) -> DomainName { DOMAIN_NAME }
+            fn name(&self) -> PropertyName { NAME }
             // Unsafe as register could being called simultaneously.
             // Could have a lock thing to make things actually-safe, but, well...
             // That's overhead. Just do things in proper life-cycles.
