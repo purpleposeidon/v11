@@ -29,7 +29,7 @@ use property::{GlobalPropertyId, PropertyName, DomainedPropertyId};
 pub struct DomainName(pub &'static str);
 impl fmt::Display for DomainName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{}", self.0)
         // requires a lock: write!(f, "{:?} ({:?})", self.0, self.get_id())
     }
 }
