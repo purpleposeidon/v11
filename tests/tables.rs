@@ -219,7 +219,7 @@ fn contains() {
 
 table! {
     #[kind = "append"]
-    #[derive(Save, Clone)]
+    #[row_derive(Clone)]
     pub [TEST/compile_serialization] {
         random_number: [usize; VecCol<usize>],
     }

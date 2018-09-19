@@ -82,9 +82,12 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                     table.add_trackers.push(format!("{}", sym.as_str()));
                 }
             },
-            _ => {
+            "doc" => {
                 // other attrs go on the module
                 table.module_attrs.push(attr);
+            }
+            e => {
+                panic!("Unknown attribute {:?}", e);
             },
         }
     }
