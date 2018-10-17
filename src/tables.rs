@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::sync::*;
 use std::fmt;
+use std::borrow::Cow;
 
 use serde::ser::{Serialize};
 use serde::de::{DeserializeOwned};
@@ -122,10 +123,10 @@ impl GenericTable {
 
     pub fn add_column(mut self, prototyper: Prototyper) -> Self {
         let col = prototyper();
-        intern::check_name(col.name);
+        intern::check_name(&col.meta.name);
         for c in &self.columns {
-            if c.name == col.name {
-                panic!("Duplicate column name {}", col.name);
+            if c.meta.name == col.meta.name {
+                panic!("Duplicate column name {}", col.meta.name);
             }
         }
         self.columns.push(col);
@@ -139,15 +140,15 @@ impl GenericTable {
     ) -> &C
     where C: Any + Send + Sync
     {
-        let c = self.columns.iter().find(|c| c.name == name).unwrap_or_else(|| {
+        let c = self.columns.iter().find(|c| c.meta.name == name).unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", self.name, name);
         });
-        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
+        if c.meta.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.meta.stored_type_name, type_name); }
         let cdata: &AnyCol = &*c.data;
         match cdata.downcast_ref() {
             Some(ret) => ret,
             None => {
-                panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
+                panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.meta.stored_type_name, type_name);
             },
         }
     }
@@ -160,15 +161,15 @@ impl GenericTable {
     where C: Any + Send + Sync
     {
         let my_name = &self.name;
-        let c = self.columns.iter_mut().find(|c| c.name == name).unwrap_or_else(|| {
+        let c = self.columns.iter_mut().find(|c| c.meta.name == name).unwrap_or_else(|| {
             panic!("Table {} doesn't have a {} column.", my_name, name);
         });
-        if c.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.stored_type_name, type_name); }
+        if c.meta.stored_type_name != type_name { panic!("Column {}/{} has datatype {:?}, not {:?}", self.name, name, c.meta.stored_type_name, type_name); }
         let cdata: &mut AnyCol = &mut *c.data;
         match cdata.downcast_mut() {
             Some(ret) => ret,
             None => {
-                panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.stored_type_name, type_name);
+                panic!("Column {}/{}: type conversion from {:?} to {:?} failed", self.name, name, c.meta.stored_type_name, type_name);
             },
         }
     }
@@ -176,7 +177,7 @@ impl GenericTable {
     pub fn info(&self) -> String {
         let mut ret = format!("{}:", self.name);
         for col in &self.columns {
-            ret.push_str(&format!(" {}:[{}]", col.name, col.stored_type_name));
+            ret.push_str(&format!(" {}:[{}]", col.meta.name, col.meta.stored_type_name));
         }
         ret
     }
@@ -211,8 +212,7 @@ impl GenericTable {
             && self.columns.len() == other.columns.len()
             && {
                 for (a, b) in self.columns.iter().zip(other.columns.iter()) {
-                    if a.name != b.name { return false; }
-                    if a.stored_type_name != b.stored_type_name { return false; }
+                    if a.meta != b.meta { return false; }
                 }
                 true
             };
@@ -226,17 +226,25 @@ impl fmt::Debug for GenericTable {
 
 #[doc(hidden)]
 pub struct GenericColumn {
-    pub name: &'static str,
-    pub stored_type_name: &'static str,
+    pub meta: ColumnMeta,
     // "FIXME: PBox here is lame." -- What? No it isn't.
     pub data: Box<AnyCol>,
     pub prototyper: Prototyper,
 }
 impl fmt::Debug for GenericColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "GenericColumn(name: {:?}, stored_type_name: {:?})", self.name, self.stored_type_name)
+        write!(f, "{:?}", self.meta)
     }
 }
+
+#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize)]
+pub struct ColumnMeta {
+    pub name: Cow<'static, str>,
+    pub stored_type_name: Cow<'static, str>,
+    pub version: usize,
+}
+
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

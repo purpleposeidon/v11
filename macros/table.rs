@@ -129,5 +129,6 @@ pub struct Col {
     pub indexed: bool,
     pub foreign: bool,
     pub foreign_auto: bool,
+    pub version: usize,
     // just use BTreeMap for now; might want HashMap later tho
 }

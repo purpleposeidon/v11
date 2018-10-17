@@ -114,6 +114,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
             let mut foreign = false;
             let mut foreign_auto = false;
             let mut sort_key = false;
+            let mut version = 0;
             let attrs = parser.parse_outer_attributes()?
                 .into_iter()
                 .filter(|attr| {
@@ -124,6 +125,10 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                         "foreign_auto" => {
                             foreign = true;
                             foreign_auto = true;
+                        },
+                        "version" => {
+                            let v = meta_arg(&attr.value);
+                            version = v.parse().unwrap_or_else(|e| panic!("invalid version number {:?}: {}", v, e));
                         },
                         _ => return true,
                     }
@@ -153,6 +158,7 @@ pub fn parse_table<'a>(parser: &mut Parser<'a>) -> Result<Table, DiagnosticBuild
                 indexed,
                 foreign,
                 foreign_auto,
+                version,
             })
         })?
     };

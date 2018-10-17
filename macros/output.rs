@@ -75,6 +75,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     // "name": ["element"; "col_type"],
     use ::table::Col;
     let COL_NAME_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ident_to_string(x.name)).collect();
+    let COL_VERSION: &Vec<_> = &table.cols.iter().map(|x| x.version).collect();
     let COL_ELEMENT_STR: &Vec<_> = &table.cols.iter().map(|x| pp::ty_to_string(&*x.element)).collect();
     let COL_TYPE_STR: &Vec<_> = &table.cols.iter()
         .map(|x| {
@@ -469,6 +470,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             pub name: Cow<'static, str>,
             /// The schema's revision number, `#[version = "0"]`
             pub schema: u32,
+            pub columns: Vec<ColumnMeta>,
             /// The original indices of the rows.
             pub selection: Vec<RowId>,
             pub data: Owned,
@@ -492,6 +494,22 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
                 if self.schema != VERSION {
                     return Err("schema version mismatch");
+                }
+                let mut mismatch = false;
+                let mut col_count = 0;
+                #(
+                    let mine = ColumnMeta {
+                        name: Cow::Borrowed(#COL_NAME_STR),
+                        stored_type_name: Cow::Borrowed(#COL_TYPE_STR),
+                        version: #COL_VERSION,
+                    };
+                    if &mine != &self.columns[col_count] {
+                        mismatch = true;
+                    }
+                    col_count += 1;
+                )*
+                if mismatch || col_count != self.columns.len() {
+                    return Err("column format mismatch");
                 }
                 Ok(())
                 // FIXME: validate data lengths
@@ -1428,8 +1446,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             let mut table = table #(.add_column({
                 fn prototyper() -> GenericColumn {
                     GenericColumn {
-                        name: #COL_NAME_STR,
-                        stored_type_name: column_format::#COL_NAME,
+                        meta: ColumnMeta {
+                            name: Cow::Borrowed(#COL_NAME_STR),
+                            stored_type_name: Cow::Borrowed(column_format::#COL_NAME),
+                            version: #COL_VERSION,
+                        },
                         data: {
                             type CT = #COL_TYPE2;
                             Box::new(CT::new()) as Box<AnyCol>
@@ -1642,6 +1663,15 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     domain: Cow::Borrowed(TABLE_DOMAIN.0),
                     name: Cow::Borrowed(TABLE_NAME.0),
                     schema: VERSION,
+                    columns: vec![
+                        #(
+                            ColumnMeta {
+                                name: Cow::Borrowed(#COL_NAME_STR),
+                                stored_type_name: Cow::Borrowed(#COL_TYPE_STR),
+                                version: #COL_VERSION,
+                            },
+                        )*
+                    ],
                     selection,
                     data,
                 }
