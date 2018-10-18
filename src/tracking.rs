@@ -287,16 +287,12 @@ impl<T: GetTableName> Flush<T> {
         &self,
         universe: &Universe,
         event: Event,
-        selection_sorted: bool,
+        mut selection_sorted: bool,
         selection: I,
     )
     where
         I: Iterator<Item=GenericRowId<T>>,
     {
-        let assert_nosort = |b| if b && !selection_sorted {
-            panic!("Tracker requires sorted a sorted selection, but the selection can not be sorted");
-        };
-
         let mut collection = Vec::new();
         let mut selection = Some(selection);
         macro_rules! select {
@@ -312,14 +308,19 @@ impl<T: GetTableName> Flush<T> {
             let trackers = self.trackers.read().unwrap();
             for tracker in trackers.iter() {
                 if !tracker.consider(event) { continue; }
-                assert_nosort(tracker.sort());
+                if !selection_sorted && tracker.sort() {
+                    selection_sorted = true;
+                    collection.sort();
+                }
                 tracker.handle(universe, event, select!());
             }
         }
         {
             let fallback = universe.event_handlers.get(event);
             let gt = T::get_generic_table(universe);
-            assert_nosort(fallback.needs_sort(gt));
+            if !selection_sorted && fallback.needs_sort(gt) {
+                collection.sort();
+            }
             let rows = select!();
             let rows = rows
                 .as_ref()
