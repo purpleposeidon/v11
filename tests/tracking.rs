@@ -34,8 +34,6 @@ table! {
 impl Tracker for sailors::track_ship_events {
     type Foreign = ships::Row;
 
-    fn consider(&self, event: Event) -> bool { event.is_removal }
-
     fn sort(&self) -> bool { false }
 
     fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
@@ -68,6 +66,7 @@ fn test() {
         let _mont_blanc = ships.push(ships::Row {
             name: "SS Mont-Blanc",
         });
+        ships.live_flush(universe, event::CREATE);
         let mut sailors = sailors::write(universe);
         sailors.push(sailors::Row {
             ship: titanic,
@@ -93,6 +92,7 @@ fn test() {
             ship: lusitania,
             name: "Charles",
         });
+        sailors.live_flush(universe, event::CREATE);
         {
             let (mut ships, ship_iter) = ships.editing();
             for ship in ship_iter {

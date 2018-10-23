@@ -55,6 +55,7 @@ fn test() {
         let _mont_blanc = ships.push(ships::Row {
             name: "SS Mont-Blanc",
         });
+        ships.live_flush(universe, event::CREATE);
         let mut sailors = sailors::write(universe);
         sailors.push(sailors::Row {
             ship: titanic,
@@ -80,6 +81,7 @@ fn test() {
             ship: lusitania,
             name: "Charles",
         });
+        sailors.live_flush(universe, event::CREATE);
         {
             let (mut ships, ship_iter) = ships.editing();
             for ship in ship_iter {

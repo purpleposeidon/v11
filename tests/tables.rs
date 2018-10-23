@@ -58,7 +58,6 @@ table! {
 impl Tracker for test_foreign::track_id_events {
     type Foreign = easy::Row;
 
-    fn consider(&self, event: Event) -> bool { event.is_removal }
     fn sort(&self) -> bool { false }
 
     fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {

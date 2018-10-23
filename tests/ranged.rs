@@ -45,9 +45,6 @@ table! {
 
 impl Tracker for arrays::track_range_start_events {
     type Foreign = elements::Row;
-    fn consider(&self, event: Event) -> bool {
-        event.is_removal
-    }
 
     fn sort(&self) -> bool { false }
 

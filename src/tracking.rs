@@ -130,8 +130,8 @@ pub trait Tracker: 'static + Send + Sync {
     type Foreign: GetTableName;
 
     /// Indicate if the Tracker is interested in the given [`Event`] type.
-    /// A typical implementation is `event.is_removal`.
-    fn consider(&self, event: Event) -> bool;
+    /// You probably are tho!
+    fn consider(&self, _event: Event) -> bool { true }
 
     /// If this returns `true`, then the rows given to `handle` will be sorted.
     /// Otherwise, the order is undefined.

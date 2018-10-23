@@ -898,7 +898,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 // We need to get at the TableRow...
                 type Foreign = <#FOREIGN_ELEMENT as GetParam>::T;
 
-                fn consider(&self, event: Event) -> bool { event.is_removal }
                 fn sort(&self) -> bool { GUARANTEES.sorted }
 
                 fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
