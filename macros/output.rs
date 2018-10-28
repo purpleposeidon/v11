@@ -98,15 +98,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let COL0 = &COL_NAME[0];
     //let COL_COUNT: usize = table.cols.len();
 
-    let COL_FORMAT: &Vec<String> = &table.cols.iter().map(|x| {
-        // table.column: [element; column]
-        format!("{}.{}: [{}; {}]",
-                table.name,
-                x.name,
-                pp::ty_to_string(&*x.element),
-                pp::ty_to_string(&*x.colty))
-    }).collect();
-
     // Work around for things like #(#COL_NAME: row.#COL_NAME)* triggering a weird bug in `quote!`.
     let COL_NAME2 = COL_NAME;
     let COL_NAME3 = COL_NAME;
@@ -169,7 +160,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
         #[allow(non_upper_case_globals)]
         mod column_format {
-            #(pub const #COL_NAME: &'static str = #COL_FORMAT;)*
+            #(pub const #COL_NAME: &'static str = #COL_ELEMENT_STR;)*
         }
     }}
 
@@ -512,7 +503,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 #(
                     let mine = ColumnMeta {
                         name: Cow::Borrowed(#COL_NAME_STR),
-                        stored_type_name: Cow::Borrowed(#COL_TYPE_STR),
+                        stored_type_name: Cow::Borrowed(column_format::#COL_NAME),
                         version: #COL_VERSION,
                     };
                     if &mine != &self.columns[col_count] {
@@ -1770,7 +1761,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         #(
                             ColumnMeta {
                                 name: Cow::Borrowed(#COL_NAME_STR),
-                                stored_type_name: Cow::Borrowed(#COL_TYPE_STR),
+                                stored_type_name: Cow::Borrowed(column_format::#COL_NAME),
                                 version: #COL_VERSION,
                             },
                         )*
