@@ -926,7 +926,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             let mut out = vec![];
                             let mut core = JoinCore::new(remove.iter().map(|x| *x));
                             for rowid in self.iter() {
-                                let foreign = me.#TRACKED_SORTED_COL[rowid];
+                                let foreign = self.#TRACKED_SORTED_COL[rowid];
                                 match core.cmp(&foreign) {
                                     Join::Match(_) => out.push(rowid.uncheck()),
                                     Join::Next => continue,
