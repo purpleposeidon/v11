@@ -48,10 +48,21 @@ impl Tracker for arrays::track_range_start_events {
 
     fn sort(&self) -> bool { false }
 
-    fn handle(&self, universe: &Universe, event: Event, selected: SelectRows<Self::Foreign>) {
-        let mut arrays = arrays::write(universe);
-        arrays.track_range_start_removal(selected);
-        arrays.flush(universe, event);
+    fn handle(
+        &self,
+        universe: &Universe,
+        event: Event,
+        selected: SelectRows<Self::Foreign>,
+        function: &dyn v11::event::Function,
+    ) {
+        let mut rows = arrays::read(universe).select_range_start(selected);
+        let gt = arrays::get_generic_table(universe);
+        if function.needs_sort(gt) {
+            rows.sort();
+        }
+        let rows = rows.as_slice();
+        let rows = rows.as_any();
+        function.handle(universe, gt, event, rows);
     }
 }
 

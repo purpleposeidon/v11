@@ -1,7 +1,7 @@
 //! This crate contains internal (but still public) items that are used by the macros.
 //! User-code should not use this directly.
 
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 pub fn check_name(name: &str) {
     match name.chars().next() {
@@ -89,5 +89,45 @@ where F: FnMut() -> Option<R>
     type Item = R;
     fn next(&mut self) -> Option<R> {
         self.0()
+    }
+}
+
+pub enum MaybeBorrow<'a, T: 'a> {
+    Owned(T),
+    Nothing,
+    Borrow(&'a mut T),
+}
+impl<'a, T: 'a> MaybeBorrow<'a, T> {
+    pub fn is_owned(&self) -> bool {
+        // 🌽🌽🌽🌽🌽🌽🌽
+        match self {
+            MaybeBorrow::Owned(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_missing(&self) -> bool {
+        match self {
+            MaybeBorrow::Nothing => true,
+            _ => false,
+        }
+    }
+}
+impl<'a, T: 'a> Deref for MaybeBorrow<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        match self {
+            MaybeBorrow::Owned(ref t) => t,
+            MaybeBorrow::Nothing => panic!("neither borrowed nor owned"),
+            MaybeBorrow::Borrow(t) => t,
+        }
+    }
+}
+impl<'a, T: 'a> DerefMut for MaybeBorrow<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        match self {
+            MaybeBorrow::Owned(ref mut t) => t,
+            MaybeBorrow::Nothing => panic!("neither borrowed nor owned"),
+            MaybeBorrow::Borrow(t) => t,
+        }
     }
 }

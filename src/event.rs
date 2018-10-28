@@ -3,6 +3,7 @@
 //!
 //! If you need another name, submit a PR, or create a custom `const Event`.
 
+use std::mem;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Event {
@@ -79,10 +80,26 @@ use tracking::SelectAny;
 use std::sync::RwLock;
 
 
-pub trait FallbackHandler: 'static + Send + Sync {
+// FIXME: Rename to, I dunno, ::tracking::Function;
+pub trait Function: 'static + Send + Sync {
     fn needs_sort(&self, gt: &RwLock<GenericTable>) -> bool;
+    /// # Usage
+    ///
+    /// ```no_compile
+    /// let gt = T::get_generic_table(universe);
+    /// if !sorted && function.needs_sort(gt) {
+    ///     self.selected.sort();
+    /// }
+    /// let rows = self.selection();
+    /// let rows = rows.as_any();
+    /// function.handle(universe, gt, event, rows);
+    /// ```
     fn handle(&self, universe: &Universe, gt: &RwLock<GenericTable>, event: Event, rows: SelectAny);
 }
+// FIXME: tracking::Function?
+
+#[deprecated(note = "Renamed to Function")]
+pub use self::Function as FallbackHandler;
 
 pub struct NullHandler;
 impl FallbackHandler for NullHandler {
@@ -97,8 +114,19 @@ impl FallbackHandler for DeleteHandler {
         gt.guarantee.sorted
     }
     fn handle(&self, universe: &Universe, gt: &RwLock<GenericTable>, event: Event, rows: SelectAny) {
-        let mut gt = gt.write().unwrap();
-        gt.table.remove_rows(universe, event, rows);
+        let remove_rows = gt.read().unwrap().table.get_row_remover();
+        (remove_rows)(universe, event, rows);
+    }
+}
+
+pub struct PanickingHandler;
+impl FallbackHandler for PanickingHandler {
+    fn needs_sort(&self, _gt: &RwLock<GenericTable>) -> bool { false }
+    fn handle(&self, _universe: &Universe, _gt: &RwLock<GenericTable>, event: Event, _rows: SelectAny) {
+        // Sorry. Sometimes it triggers a double panic,
+        // which would cause the message to get lost.
+        eprintln!("No handler specified for {:?}", event);
+        panic!("No handler specified for {:?}", event);
     }
 }
 
@@ -111,7 +139,16 @@ impl Default for EventHandlers {
     fn default() -> Self {
         EventHandlers {
             fallbacks: (0..MAX_EVENT_TYPES)
-                .map(|_| Box::new(NullHandler) as Box<FallbackHandler>)
+                .map(|i| {
+                    let e = EVENT_LIST.get(i).unwrap_or(&INVALID_EVENT);
+                    if e.is_removal {
+                        Box::new(DeleteHandler) as Box<FallbackHandler>
+                    } else if e.is_creation {
+                        Box::new(NullHandler) as Box<FallbackHandler>
+                    } else {
+                        Box::new(PanickingHandler) as Box<FallbackHandler>
+                    }
+                })
                 .collect(),
         }
     }
@@ -121,7 +158,7 @@ impl EventHandlers {
         if event == INVALID_EVENT {
             panic!("Can't set the INVALID_EVENT handler");
         }
-        ::std::mem::swap(
+        mem::swap(
             &mut self.fallbacks[event.id as usize],
             &mut handler,
         );

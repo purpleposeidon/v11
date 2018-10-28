@@ -31,9 +31,6 @@ table! {
     }
 }
 
-//pub mod ships { include!("/tmp/b.rs"); }
-//pub mod sailors { include!("/tmp/a.rs"); }
-
 #[test]
 fn test() {
     TEST.register();
@@ -121,3 +118,4 @@ fn test() {
         assert_eq!(hcount, 5);
     }
 }
+

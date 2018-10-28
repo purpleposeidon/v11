@@ -53,6 +53,12 @@ impl FallbackHandler for DumpSelection {
             .table
             .extract_serialization(universe, rows)
             .expect("table is not serializable!");
+        {
+            // Okay, this is a bit dumb. This example wants separate json blobs.
+            // It could just serialize the tables manually...
+            // But it's just an example.
+            out.clear();
+        }
         *out += &serde_json::to_string_pretty(&selection).unwrap();
     }
 }
@@ -83,6 +89,7 @@ fn test() {
             foo: 300,
             bar: true,
         });
+        println!("Here's saveme:");
         for blah in saveme.iter() {
             println!("{:?}", saveme.get_row_ref(blah));
         }
@@ -91,6 +98,12 @@ fn test() {
         extra.push(extra::Row {
             user: mid,
         });
+        extra.flush(universe, event::CREATE);
+        let extra = extra::read(universe);
+        println!("Here's extra:");
+        for blah in extra.iter() {
+            println!("{:?}", extra.get_row_ref(blah));
+        }
     }
     let json1: String;
     let json2: String;
@@ -143,9 +156,11 @@ fn test() {
     {
         println!("Clearing the tables");
         {
+            println!("clearing saveme");
             let mut saveme = saveme::write(universe);
             saveme.clear();
             saveme.flush(universe, event::DELETE);
+            println!("clearing extra");
             let mut extra = extra::write(universe);
             extra.clear();
             extra.flush(universe, event::DELETE);

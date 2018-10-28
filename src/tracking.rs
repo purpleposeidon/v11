@@ -1,14 +1,13 @@
-use std::mem;
-use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use Universe;
 use tables::GetTableName;
 use index::GenericRowId;
+use std::sync::{Arc, RwLock};
 
 /// Everything you need to define a [`Tracker`].
 pub mod prelude {
     pub use ::Universe;
-    pub use ::tracking::{Tracker, SelectRows};
+    pub use ::tracking::{Tracker, SelectRows, SelectAny};
     pub use ::event::{self, Event};
 }
 
@@ -54,6 +53,13 @@ impl<I> Select<I> {
             Select::These(i) => i,
         }
     }
+
+    pub fn is_all(&self) -> bool {
+        match self {
+            Select::All => true,
+            _ => false,
+        }
+    }
 }
 impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
     /// Returns an iterator over the `Select::These` rows,
@@ -74,12 +80,45 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
             Select::These(rows) => SelectIter::These(rows.iter()),
         }
     }
+
+    pub fn as_any(&self) -> SelectAny where T: ::std::any::Any + Send + Sync {
+        self
+            .as_ref()
+            .map(|s| {
+                ::any_slice::AnySliceRef::from(s)
+            })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Select::All => false,
+            Select::These(ref rows) => rows.is_empty(),
+        }
+    }
 }
 impl<T: GetTableName> Select<Vec<GenericRowId<T>>> {
     pub fn as_slice<'a>(&'a self) -> SelectRows<'a, T> {
         self
             .as_ref()
             .map(|rows| rows.as_slice())
+    }
+
+    pub fn sort(&mut self) {
+        self
+            .as_mut()
+            .map(|s| s.sort());
+    }
+
+    pub fn push(&mut self, row: GenericRowId<T>) {
+        self
+            .as_mut()
+            .map(|s| s.push(row));
+    }
+
+    pub fn reserve(&mut self, n: usize) {
+        self
+            .as_mut()
+            .map(|s| s.reserve(n));
     }
 }
 
@@ -116,7 +155,7 @@ where
     }
 }
 
-use event::Event;
+use event::{self, Event};
 
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
 /// guarantee on the foreign table, which is provided by `#[kind = "consistent"]`.
@@ -155,21 +194,36 @@ pub trait Tracker: 'static + Send + Sync {
     /// flush completes.
     ///
     /// Any newly created rows are valid.
-    fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>);
+    ///
+    /// # Implementing
+    /// You can use `#[foreign_auto]` to derive the Tracker automatically. Otherwise, an
+    /// implementation might start out something like this:
+    ///
+    /// ```ignore
+    /// let mut rows = $table::read(universe).select_$column(selected);
+    /// let gt = $table::get_generic_table(universe);
+    /// if function.needs_sort(gt) {
+    ///     rows.sort();
+    /// }
+    /// let rows = rows.as_slice();
+    /// let rows = rows.as_any();
+    /// function.handle(universe, gt, event, rows);
+    /// ```
+    fn handle(
+        &self,
+        universe: &Universe,
+        event: Event,
+        rows: SelectRows<Self::Foreign>,
+        handler: &dyn event::Function,
+    );
 }
 
+#[doc(hidden)]
+pub type GuardedFlush<T> = Arc<RwLock<Flush<T>>>;
 
 #[doc(hidden)]
 pub struct Flush<T: GetTableName> {
-    // All the other fields don't need locks, but this one does because we need to continue holding
-    // it after releasing the lock on `GenericTable`.
-    // We manage borrowing on the other stuff via mem::swap
-    trackers: Arc<RwLock<Vec<Box<Tracker<Foreign=T>>>>>,
-    trackers_is_empty: bool, // don't want to lock!
-
-    selected: Vec<GenericRowId<T>>,
-    select_all: bool,
-
+    trackers: Vec<Box<Tracker<Foreign=T>>>,
     remapped: HashMap<GenericRowId<T>, GenericRowId<T>>,
 }
 use std::fmt;
@@ -182,43 +236,54 @@ impl<T: GetTableName> Default for Flush<T> {
     fn default() -> Self {
         Flush {
             trackers: Default::default(),
-            trackers_is_empty: true,
-
-            selected: vec![],
-            select_all: false,
-
             remapped: HashMap::new(),
         }
     }
 }
 #[doc(hidden)]
 impl<T: GetTableName> Flush<T> {
-    /// Swap the values out, returning them in a temporary `Flush` that is used for doing actual
-    /// flushing. This is required because we need to release the lock on Table to flush, in case
-    /// someone wants it.
-    pub fn extract(&mut self) -> Self {
-        let new = Flush {
-            trackers: self.trackers.clone(),
-            trackers_is_empty: self.trackers_is_empty,
-
-            selected: vec![],
-            select_all: false,
-
-            remapped: mem::replace(&mut self.remapped, HashMap::new()),
-        };
-        mem::replace(self, new)
-    }
-
-    fn selection(&self) -> SelectRows<T> {
-        if self.select_all {
-            Select::All
-        } else {
-            Select::These(&self.selected[..])
+    pub fn do_flush(
+        &self,
+        universe: &Universe,
+        event: Event,
+        pushed: bool,
+        delete: bool,
+        mut select: SelectOwned<T>,
+        include_self: bool,
+    ) -> SelectOwned<T> {
+        if pushed && delete {
+            panic!("Can't interleave pushes & deletes");
         }
+        // either way, send to trackers first
+        let function = universe.event_handlers.get(event);
+        let mut sorted = select.is_all();
+        {
+            for tracker in &self.trackers {
+                if !tracker.consider(event) { continue; }
+                if !sorted && tracker.sort() {
+                    sorted = true;
+                    select.as_mut().map(|s| s.sort());
+                }
+                tracker.handle(
+                    universe,
+                    event,
+                    select.as_slice(),
+                    function,
+                );
+            }
+        }
+        if !include_self {
+            let gt = T::get_generic_table(universe);
+            if !sorted && function.needs_sort(gt) {
+                select.sort();
+            }
+            let select = select.as_slice();
+            let select = select.as_any();
+            function.handle(universe, gt, event, select);
+        }
+        select
     }
-
     pub fn set_remapping(&mut self, remap: &[(GenericRowId<T>, GenericRowId<T>)]) {
-        // FIXME: Mapping never gets reset; kind of a memory leak but not super serious.
         self.remapped.clear();
         let remap = remap
             .iter()
@@ -227,160 +292,25 @@ impl<T: GetTableName> Flush<T> {
             .remapped
             .extend(remap);
     }
-
     pub fn remap(&self, old: GenericRowId<T>) -> Option<GenericRowId<T>> {
         self
             .remapped
             .get(&old)
             .map(|&i| i)
     }
+    pub fn has_remapping(&self) -> bool { !self.remapped.is_empty() }
 
-    pub fn reserve(&mut self, n: usize) { self.selected.reserve(n) }
-
-    pub fn flush(&mut self, universe: &Universe, event: Event) {
-        let mut sorted = false;
-        {
-            let mut trackers = self.trackers.write().unwrap();
-            for tracker in trackers.iter_mut() {
-                if !tracker.consider(event) { continue; }
-                if !sorted && tracker.sort() {
-                    sorted = true;
-                    self.selected.sort();
-                }
-                tracker.handle(universe, event, self.selection());
-            }
-        }
-        {
-            let fallback = universe.event_handlers.get(event);
-            let gt = T::get_generic_table(universe);
-            if !sorted && fallback.needs_sort(gt) {
-                self.selected.sort();
-            }
-            let rows = self
-                .selection()
-                .as_ref()
-                .map(|i| ::any_slice::AnySliceRef::from(i));
-            fallback.handle(universe, gt, event, rows);
-        }
-        self.selected.clear();
-    }
-
-    pub fn flush_all(
-        &self,
-        universe: &Universe,
-        event: Event,
-    ) {
-        {
-            let trackers = self.trackers.read().unwrap();
-            for tracker in trackers.iter() {
-                if !tracker.consider(event) { continue; }
-                tracker.handle(universe, event, Select::All);
-            }
-        }
-        {
-            let fallback = universe.event_handlers.get(event);
-            let gt = T::get_generic_table(universe);
-            fallback.handle(universe, gt, event, Select::All);
-        }
-    }
-    pub fn flush_selection<I>(
-        &self,
-        universe: &Universe,
-        event: Event,
-        mut selection_sorted: bool,
-        selection: I,
-    )
-    where
-        I: Iterator<Item=GenericRowId<T>>,
-    {
-        let mut collection = Vec::new();
-        let mut selection = Some(selection);
-        macro_rules! select {
-            () => {{
-                if let Some(selection) = selection.take() {
-                    collection.extend(selection);
-                }
-                Select::These(collection.as_slice())
-            }};
-        }
-
-        {
-            let trackers = self.trackers.read().unwrap();
-            for tracker in trackers.iter() {
-                if !tracker.consider(event) { continue; }
-                if !selection_sorted && tracker.sort() {
-                    selection_sorted = true;
-                    collection.sort();
-                }
-                tracker.handle(universe, event, select!());
-            }
-        }
-        {
-            let fallback = universe.event_handlers.get(event);
-            let gt = T::get_generic_table(universe);
-            if !selection_sorted && fallback.needs_sort(gt) {
-                collection.sort();
-            }
-            let rows = select!();
-            let rows = rows
-                .as_ref()
-                .map(|i| ::any_slice::AnySliceRef::from(i));
-            fallback.handle(universe, gt, event, rows);
-        }
-    }
-
-    /// Return values from a `Flush::extract`. This accomplishes two things:
-    /// 1. Conserves the allocated objects
-    /// 2. Does the right thing if events have happened in the meantime.
-    pub fn restore(&mut self, mut orig: Self) {
-        // FIXME: Suppose we both have remappings. Which do we keep?
-        mem::swap(&mut self.trackers, &mut orig.trackers);
-        fn swap_vecs<T>(my: &mut Vec<T>, orig: &mut Vec<T>) {
-            if my.is_empty() {
-                mem::swap(my, orig);
-            }
-        }
-        swap_vecs(&mut self.selected, &mut orig.selected);
-    }
-
-    pub fn need_flush(&self) -> bool {
-        if self.trackers_is_empty { return false; }
-        !self.selected.is_empty() || self.select_all
-    }
-
-    pub fn summary(&self) -> String {
-        format!("selected: {}, select_all: {}",
-                self.selected.len(), self.select_all)
-    }
 
     pub fn register_tracker<R: Tracker<Foreign=T>>(&mut self, tracker: R) {
         if !R::Foreign::get_guarantee().consistent {
             panic!("Tried to add tracker to inconsistent table, {}/{}",
                    R::Foreign::get_domain(), R::Foreign::get_name());
         }
-        let mut trackers = self.trackers.write().unwrap();
-        trackers.push(Box::new(tracker));
-        self.trackers_is_empty = false;
+        self.trackers.push(Box::new(tracker));
     }
 
-    pub fn trackers_is_empty(&self) -> bool { self.trackers_is_empty }
+    pub fn trackers_is_empty(&self) -> bool { self.trackers.is_empty() }
 }
-/// $Table notifies us of events via this impl.
-#[doc(hidden)]
-impl<T: GetTableName> Flush<T> {
-    #[inline]
-    pub fn select(&mut self, i: GenericRowId<T>) {
-        self.selected.push(i);
-    }
-
-    #[inline]
-    pub fn select_all(&mut self) {
-        self.select_all = true;
-        self.selected.clear();
-    }
-}
-
-
 
 impl Universe {
     /// Add a custom tracker.
@@ -392,7 +322,8 @@ impl Universe {
         let gt = <R::Foreign as GetTableName>::get_generic_table(self);
         let mut gt = gt.write().unwrap();
         let flush = gt.table.get_flush_mut();
-        let flush: &mut Flush<R::Foreign> = flush.downcast_mut().expect("wrong foreign table type");
+        let flush: &mut GuardedFlush<R::Foreign> = flush.downcast_mut().expect("wrong foreign table type");
+        let mut flush = flush.write().unwrap();
         flush.register_tracker(tracker)
     }
 }

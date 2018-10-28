@@ -43,7 +43,7 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     fn get_flush_ref(&self) -> &Any;
     fn get_flush_mut(&mut self) -> &mut Any;
 
-    fn remove_rows(&mut self, &Universe, ::event::Event, tracking::SelectAny);
+    fn get_row_remover(&self) -> fn(&Universe, Event, SelectAny);
 
     /// Returns a `$table::Extraction`, if the table supports serialization.
     /// The `Extraction` type is accessible in generic contexts via

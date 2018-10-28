@@ -47,6 +47,7 @@ fn indexing() {
         variety: TreeType::Apple,
         branch_count: 1337,
     });
+    orchard.live_flush(universe, ::v11::event::CREATE);
     let orchard = orchard.as_read();
     assert_eq!(
         Some(orchard::FIRST),

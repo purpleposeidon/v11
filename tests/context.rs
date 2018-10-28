@@ -87,6 +87,7 @@ fn main() {
     full.stinkiness.push(stenches::Row {
         stinkiness: 238.0,
     });
+    full.stinkiness.live_flush(universe, ::v11::event::CREATE);
     let reduced = ReducedCtx::from(universe, full);
     for row in reduced.cheeses.iter() {
         panic!("Well that's odd. {:?}", row);

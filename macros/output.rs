@@ -132,30 +132,33 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     };
     //: bool = table.sort_key.is_some();
     out! { ["Imports"] {
-        // These imports are messy. It's complex because some of them are imported in multiple
-        // ways. However, nobody cares.
-        //
+        // These imports are messy.
+        // This is difficult to cleanup because sections can't import their own requirements,
+        // because another section might also do so.
+        // However... nobody cares.
 
         #[allow(unused_imports)]
-            use v11;
-            use self::v11::Universe;
-            use self::v11::domain::DomainName;
-            use self::v11::intern::{self, BiRef, GenerativeIter};
-            use self::v11::tables::*;
-            use self::v11::columns::*;
-            use self::v11::index::{CheckedIter, Checkable};
+        use v11;
+        use self::v11::{Universe, Action};
+        use self::v11::columns::*;
+        use self::v11::domain::DomainName;
+        use self::v11::event::{self, Event};
+        use self::v11::index::{Checkable, CheckedIter};
+        use self::v11::intern::{self, BiRef, GenerativeIter, MaybeBorrow};
+        use self::v11::joincore::*;
+        use self::v11::map_index::BTreeIndex;
+        use self::v11::tables::*;
+        use self::v11::tracking::{Flush, GetParam, GuardedFlush, Select, SelectAny, SelectOwned, SelectRows, Tracker};
 
-            // This is a reasonable convenience for the user.
-            use self::v11::storage::*;
+        use std::collections::VecDeque;
+        use std::cmp::Ordering;
+        use std::borrow::Cow;
+        use std::sync::{Arc, RwLock};
 
-            use self::v11::joincore::*;
-            use self::v11::map_index::BTreeIndex;
-            use self::v11::Action;
-            use self::v11::tracking::{Tracker, GetParam, Select, SelectOwned, SelectRows, SelectAny, Flush};
-            use self::v11::event::Event;
-            use std::collections::VecDeque;
-            use std::cmp::Ordering;
-            use std::borrow::Cow;
+        // This is a reasonable convenience for the user.
+        use self::v11::storage::*;
+
+        // When the user says `col: SomeType`, we need to have access to `SomeType`.
         use super::*;
     }}
     out! { ["Header info"] {
@@ -228,7 +231,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }).collect();
 
     out! { ["The `Row` struct"] {
-        use std::sync::RwLock;
         /**
          * A structure holding a copy of each column's data. This is used to pass entire rows around through methods;
          * the actual table is column-based, so eg `read.column[index]` is the standard method of accessing rows.
@@ -308,7 +310,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! { ["The `Table` struct"] {
         #[derive(Default)]
         pub struct Table {
-            flush: Flush<Row>,
+            flush: GuardedFlush<Row>,
             free: FreeList<Row>,
         }
         impl TTable for Table {
@@ -322,8 +324,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             fn get_flush_ref(&self) -> &::std::any::Any { &self.flush }
             fn get_flush_mut(&mut self) -> &mut ::std::any::Any { &mut self.flush }
 
-            fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
-                Table::remove_rows(self, universe, event, rows);
+            fn get_row_remover(&self) -> fn(&Universe, Event, SelectAny) {
+                Table::remove_rows
             }
 
             #SAVE_EXTRACTION
@@ -334,19 +336,26 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["`Table` consistent"] {
             impl Table {
-                fn remove_rows(&mut self, universe: &Universe, event: Event, rows: SelectAny) {
+                fn remove_rows(universe: &Universe, event: Event, rows: SelectAny) {
                     let mut table = write(universe);
                     match rows {
                         Select::These(rows) => {
                             if let Some(rows) = rows.downcast::<RowId>() {
+                                let len = table.len();
                                 for row in rows {
-                                    table.delete(*row);
+                                    unsafe {
+                                        let row = row.to_usize();
+                                        assert!(row < len);
+                                        table.delete_raw(row);
+                                    }
                                 }
                             } else {
                                 panic!("wrong rows type");
                             }
                         },
-                        Select::All => table.clear(),
+                        Select::All => {
+                            table.clear_raw()
+                        },
                     }
                     table.flush(universe, event);
                 }
@@ -355,7 +364,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         // FIXME: We can remove if we're `#[kind = "sorted"]`, but the rows'll have to be sorted...
         true => ["`Table` inconsistent"] {
             impl Table {
-                fn remove_rows(&mut self, _: &Universe, _: Event, _: SelectAny) {
+                fn remove_rows(_: &Universe, _: Event, _: SelectAny) {
                     panic!("Rows can not be removed on this table.");
                 }
             }
@@ -402,6 +411,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             _universe: &'u Universe, // FIXME: Remove 'verse from Write's methods.
             _lock: ::std::sync::RwLockWriteGuard<'u, GenericTable>,
             _table: &'u mut Table,
+            _changes: SelectOwned<Row>,
+            _pushed: bool,
+            _delete: bool,
             // '#COL_MUT' is either MutA or EditA
             #(pub #COL_NAME: #COL_MUT<'u, #COL_TYPE>,)*
         }
@@ -705,18 +717,16 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         table.consistent => ["Change tracking"] {
             impl<'a> Write<'a> {
                 pub fn delete<I: CheckId>(&mut self, row: I) {
-                    unsafe {
-                        let i = row.check(self).uncheck();
-                        self.delete_raw(i.to_usize());
-                        self.event_del(i);
-                        self._table.free.insert(i, ());
-                    }
+                    // We don't actually delete the row here! The tracker'll manage.
+                    let i = row.check(self).uncheck();
+                    self.event_del(i);
                 }
 
                 unsafe fn delete_raw(&mut self, i: usize) {
                     #(
                         self.#COL_NAME.deref_mut().inner_mut().deleted(i);
                     )*
+                    self._table.free.insert(RowId::from_usize(i), ());
                 }
 
                 /*
@@ -730,7 +740,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             /// Makes sure the flush requirement has been acknowledged
             impl<'a> Drop for Write<'a> {
                 fn drop(&mut self) {
-                    if self._table.flush.need_flush() {
+                    if !self._changes.as_slice().is_empty() {
                         panic!("Changes to {} were not flushed", TABLE_NAME);
                     }
                 }
@@ -749,48 +759,112 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         ["selecting"] {
             impl<'a> Read<'a> {
+                pub fn select(
+                    &self,
+                    universe: &Universe,
+                    event: Event,
+                    selection: SelectOwned<Row>,
+                ) {
+                    let flush = self._table.flush.read().unwrap();
+                    flush.do_flush(
+                        universe,
+                        event,
+                        false, // pushed
+                        false, // delete
+                        selection,
+                        false,
+                    );
+                }
                 /// Select every row. (Immutable version; a slightly different mutable version is defined for [`Write`].)
                 pub fn select_all(
                     &self,
                     universe: &Universe,
                     event: Event,
                 ) {
-                    self._table.flush.flush_all(universe, event)
+                    self.select(universe, event, Select::All);
                 }
 
                 pub fn select_rows<I>(
                     &self,
                     universe: &Universe,
                     event: Event,
-                    selection_sorted: bool,
+                    _selection_sorted: bool, // FIXME: We'll survive.
                     selection: I,
                 )
                 where
                     I: Iterator<Item=RowId>,
                 {
-                    self._table.flush.flush_selection(
-                        universe,
-                        event,
-                        selection_sorted,
-                        selection,
-                    )
+                    self.select(universe, event, Select::These(selection.collect::<Vec<RowId>>()));
                 }
             }
             impl<'a> Write<'a> {
                 /// Propagate all changes
-                pub fn flush(self, universe: &Universe, event: Event) {
-                    if !self._table.flush.need_flush() { return; }
-                    let mut flush = self._table.flush.extract();
-                    ::std::mem::drop(self);
-                    flush.flush(universe, event);
-                    write(universe)._table.flush.restore(flush);
+                pub fn flush(self, universe: &'a Universe, event: Event) {
+                    Write::flush0(
+                        MaybeBorrow::Owned(self),
+                        universe,
+                        event,
+                    )
                 }
 
                 /// Flush table without releasing the lock. This will of course cause a deadlock if
                 /// the table has trackers that need to look at values.
-                pub fn live_flush(&mut self, universe: &Universe, event: Event) {
-                    if !self._table.flush.need_flush() { return; }
-                    self._table.flush.flush(universe, event);
+                pub fn live_flush(&mut self, universe: &'a Universe, event: Event) {
+                    Write::flush0(
+                        MaybeBorrow::Borrow(self),
+                        universe,
+                        event,
+                    )
+                }
+
+                fn flush0(mut table: MaybeBorrow<Self>, universe: &'a Universe, event: Event) {
+                    if table._changes.as_slice().is_empty() { return; }
+                    use std::mem;
+                    let pushed = table._pushed;
+                    let delete = table._delete;
+                    let changes = mem::replace(&mut table._changes, Select::These(vec![]));
+                    let flush_lock = table._table.flush.clone();
+                    if table.is_owned() {
+                        table = MaybeBorrow::Nothing;
+                    }
+                    let flush = flush_lock.read().unwrap();
+                    let changes = flush.do_flush(
+                        universe,
+                        event,
+                        pushed,
+                        delete,
+                        changes,
+                        false,
+                    );
+                    if event.is_removal && !changes.as_slice().is_empty() {
+                        if table.is_missing() {
+                            table = MaybeBorrow::Owned(write(universe));
+                        }
+                        match changes {
+                            Select::All => table.clear_raw(),
+                            Select::These(rows) => {
+                                let len = table.len();
+                                for row in rows {
+                                    unsafe {
+                                        let row = row.to_usize();
+                                        assert!(row < len);
+                                        table.delete_raw(row);
+                                    }
+                                }
+                            },
+                        }
+                    }
+                    if !table.is_missing() {
+                        if !table._changes.as_slice().is_empty() {
+                            panic!("more changes added during flush");
+                        }
+                    }
+                    if flush.has_remapping() {
+                        mem::forget(flush);
+                        if let Ok(mut flush) = flush_lock.try_write() {
+                            flush.set_remapping(&[]);
+                        }
+                    }
                 }
 
                 /// This method is here as a convenience for macros.
@@ -798,12 +872,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
                 /// Mark a row. Calling `flush` will then propagate the selection.
                 pub fn select(&mut self, row: RowId) {
-                    self._table.flush.select(row);
+                    self._changes.push(row);
                 }
 
                 /// Mark every row. Calling `flush` will then propagate the selection.
                 pub fn select_all(&mut self) {
-                    self._table.flush.select_all();
+                    self._changes = Select::All;
                 }
             }
         };
@@ -814,8 +888,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let IFC: Vec<_> = ifcs()
         .map(|x| i(pp::ident_to_string(x.name)))
         .collect();
-    let TRACK_IFC_REMOVAL: Vec<_> = ifcs()
-        .map(|x| i(format!("track_{}_removal", x.name)))
+    let SELECT_IFC: Vec<_> = ifcs()
+        .map(|x| i(format!("select_{}", x.name)))
         .collect();
     let IFC_ELEMENT: Vec<_> = ifcs()
         .map(|x| i(pp::ty_to_string(&*x.element)))
@@ -825,31 +899,28 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     let TRACKED_SORTED_COL: &Vec<_> = &sorted_foreign()
         .map(|x| i(pp::ident_to_string(x.name)))
         .collect();
-    let TRACK_SORTED_COL_EVENTS: &Vec<_> = &sorted_foreign()
-        .map(|x| i(format!("track_sorted_{}_removal", x.name)))
+    let SELECT_SORTED_IFC: &Vec<_> = &sorted_foreign()
+        .map(|x| i(format!("select_sorted_{}", x.name)))
         .collect();
     let TRACK_SORTED_COL_ELEMENT: &Vec<_> = &sorted_foreign()
         .map(|x| i(pp::ty_to_string(&*x.element)))
         .collect();
-    out! { ["foreign row removal"] {
-        impl<'u> Write<'u> {
+    out! { ["foreign selection"] {
+        impl<'u> Read<'u> {
             #(
                 /// `deleted` is a list of removed foreign keys.
-                pub fn #TRACK_IFC_REMOVAL(&mut self, selected: Select<&[#IFC_ELEMENT]>) {
+                pub fn #SELECT_IFC(&self, selected: Select<&[#IFC_ELEMENT]>) -> SelectOwned<Row> {
                     match selected {
-                        Select::All => self.clear(),
-                        Select::These(deleted) => {
-                            for deleted_foreign in deleted {
+                        Select::All => Select::All,
+                        Select::These(selected) => {
+                            let mut out = vec![];
+                            for foreign in selected {
                                 // It'd be nicer to keep the iterator around, but we immediately
                                 // invalidate it. We could collect it into a Vec?
-                                while let Some(kill) = self.#IFC.deref().inner().find(*deleted_foreign).next() {
-                                    // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
-                                    self.delete(kill);
-                                    if cfg!(test) && self.contains(kill) {
-                                        panic!("Deletion failed");
-                                    }
-                                }
+                                out.extend(self.#IFC.deref().inner().find(*foreign));
+                                // FIXME: Add a 'Sorted' wrapping TCol that exposes find() using binary search.
                             }
+                            Select::These(out)
                         },
                     }
                 }
@@ -857,20 +928,21 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             #(
                 /// This is a table sorted by a foreign key. This function removes all the keys
                 /// listed in `remove`, which must also be sorted.
-                pub fn #TRACK_SORTED_COL_EVENTS(&mut self, select: Select<&[#TRACK_SORTED_COL_ELEMENT]>) {
+                pub fn #SELECT_SORTED_IFC(&self, select: Select<&[#TRACK_SORTED_COL_ELEMENT]>) -> SelectOwned<Row> {
                     match select {
-                        Select::All => self.clear(),
+                        Select::All => Select::All,
                         Select::These(remove) => {
+                            let mut out = vec![];
                             let mut core = JoinCore::new(remove.iter().map(|x| *x));
-                            self.merge0(move |me, rowid| {
-                                use std::iter::empty;
+                            for rowid in self.iter() {
                                 let foreign = me.#TRACKED_SORTED_COL[rowid];
                                 match core.cmp(&foreign) {
-                                    Join::Match(_) => Action::Continue { remove: true, add: empty() },
-                                    Join::Next => Action::Continue { remove: false, add: empty() },
-                                    Join::Stop => Action::Break,
+                                    Join::Match(_) => out.push(rowid.uncheck()),
+                                    Join::Next => continue,
+                                    Join::Stop => break,
                                 }
-                            });
+                            }
+                            Select::These(out)
                         },
                     }
                 }
@@ -884,10 +956,10 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     for col in &table.cols {
         if !col.foreign_auto { continue; }
         let TRACK_EVENTS = i(format!("track_{}_events", col.name));
-        let TRACK_REMOVAL = i(if Some(col.name) == table.sort_key {
-            format!("track_sorted_{}_removal", col.name)
+        let SELECT = i(if Some(col.name) == table.sort_key {
+            format!("select_sorted_{}", col.name)
         } else if col.indexed {
-            format!("track_{}_removal", col.name)
+            format!("select_{}", col.name)
         } else {
             panic!("`#[foreign_auto]` can only be used on columns with `#[index]` or `#[sort_key]`.");
         });
@@ -900,10 +972,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
                 fn sort(&self) -> bool { GUARANTEES.sorted }
 
-                fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
-                    let mut table = write(universe);
-                    table.#TRACK_REMOVAL(rows);
-                    table.flush_or_close(universe, event);
+                fn handle(
+                    &self,
+                    universe: &Universe,
+                    event: Event,
+                    rows: SelectRows<Self::Foreign>,
+                    handler: &event::Function,
+                )
+                {
+                    let mut rows = read(universe).#SELECT(rows);
+                    let gt = &get_generic_table(universe);
+                    if handler.needs_sort(gt) {
+                        rows.sort();
+                    }
+                    handler.handle(universe, gt, event, rows.as_slice().as_any());
                 }
             }
         }};
@@ -941,11 +1023,23 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["event logging for consistent tables"] {
             impl<'u> Write<'u> {
-                #[inline] fn event_cleared(&mut self) { self._table.flush.select_all() }
-                #[inline] fn event_add(&mut self, i: RowId) { self._table.flush.select(i) }
-                #[inline] fn event_del(&mut self, i: RowId) { self._table.flush.select(i) }
-                #[inline] fn event_add_reserve(&mut self, n: usize) { self._table.flush.reserve(n) }
-                #[inline] fn event_del_reserve(&mut self, n: usize) { self._table.flush.reserve(n) }
+                #[inline]
+                fn event_cleared(&mut self) {
+                    self._delete = true;
+                    self._changes = Select::All;
+                }
+                #[inline]
+                fn event_add(&mut self, i: RowId) {
+                    self._pushed = true;
+                    self._changes.push(i);
+                }
+                #[inline]
+                fn event_del(&mut self, i: RowId) {
+                    self._delete = true;
+                    self._changes.push(i);
+                }
+                #[inline] fn event_add_reserve(&mut self, n: usize) { self._changes.reserve(n) }
+                #[inline] fn event_del_reserve(&mut self, n: usize) { self._changes.reserve(n) }
             }
         };
         ["event ignoring for inconsistent_columns tables"] {
@@ -970,8 +1064,11 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             }
 
             /// Removes every row from the table.
-            pub fn clear(&mut self) {
+            pub fn clear_raw(&mut self) {
                 #(self.#COL_NAME.deref_mut().inner_mut().clear();)*
+            }
+
+            pub fn clear(&mut self) {
                 self.event_cleared();
             }
 
@@ -1420,6 +1517,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 _universe,
                 _lock,
                 _table,
+                _pushed: false,
+                _delete: false,
+                _changes: Select::These(vec![]),
                 #( #COL_NAME3: #COL_NAME4, )*
             }
         }
@@ -1486,6 +1586,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     )*
                 }
             }
+        }
+
+        /// If you are manually implementing a [`Tracker`], you'll need to pass along this weird
+        /// thing. It oughtn't be visible tho!
+        pub fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
+            Row::get_generic_table(universe)
         }
     }};
 
@@ -1604,33 +1710,31 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         fn get_flush<T: GetTableName>(
                             _: PhantomData<GenericRowId<T>>,
                             gt: &GenericTable,
-                        ) -> &Flush<T> {
+                        ) -> &Arc<RwLock<Flush<T>>> {
                             // FIXME: Explain what explodes if this function is removed.
                             gt.table
                                 .get_flush_ref()
                                 .downcast_ref()
-                                .unwrap()
+                                .expect("downcast failed")
                         }
                         let phantom: PhantomData<F> = PhantomData;
-                        (
+                        let r = (
                             &*gt,
                             get_flush(phantom, &*gt),
-                        )
+                        );
+                        (r.0, r.1.read().unwrap())
                     };
                 )*
-                let no_trackers = self._table.flush.trackers_is_empty();
+                let no_trackers = self._table.flush.read().unwrap().trackers_is_empty();
                 // Push
                 let mut remap: Vec<(RowId, RowId)> = Vec::with_capacity(extract.data.#COL0.inner().len());
 
                 #MERGE_EXTRACT
 
                 // Flush
-                if !self._table.flush.need_flush() { return Ok(()); }
-                let mut flush = self._table.flush.extract();
-                self._table.flush.set_remapping(&remap);
-                ::std::mem::drop(self);
-                flush.flush(universe, event);
-                write(universe)._table.flush.restore(flush);
+                if self._changes.as_slice().is_empty() { return Ok(()); }
+                self._table.flush.write().unwrap().set_remapping(&remap);
+                self.flush(universe, event);
                 Ok(())
             }
         }

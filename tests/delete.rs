@@ -15,7 +15,7 @@ type Name = &'static str;
 table! {
     #[kind = "consistent"]
     #[row_derive(Clone, Debug)]
-    [TEST/ships] {
+    [TEST/delete_ships] {
         name: [Name; VecCol<Name>],
     }
 }
@@ -24,38 +24,38 @@ table! {
 #[test]
 fn test() {
     TEST.register();
-    ships::register();
+    delete_ships::register();
     let universe = &Universe::new(&[TEST]);
 
     let boaty_mcboatface = {
-        let mut ships = ships::write(universe);
-        let _titanic = ships.push(ships::Row {
+        let mut delete_ships = delete_ships::write(universe);
+        let _titanic = delete_ships.push(delete_ships::Row {
             name: "RMS Titanic",
         });
-        let boaty_mcboatface = ships.push(ships::Row {
+        let boaty_mcboatface = delete_ships.push(delete_ships::Row {
             name: "Boaty McBoatface",
         });
-        let _lusitania = ships.push(ships::Row {
+        let _lusitania = delete_ships.push(delete_ships::Row {
             name: "RMS Lusitania",
         });
-        let _mont_blanc = ships.push(ships::Row {
+        let _mont_blanc = delete_ships.push(delete_ships::Row {
             name: "SS Mont-Blanc",
         });
-        ships.flush(universe, event::CREATE);
+        delete_ships.flush(universe, event::CREATE);
         boaty_mcboatface
     };
     {
-        let mut ships = ships::write(universe);
+        let mut delete_ships = delete_ships::write(universe);
         println!("The Boaty McBoatface is sinking! Oh, the humanity!");
-        ships.delete(boaty_mcboatface);
-        ships.flush(universe, event::DELETE);
+        delete_ships.delete(boaty_mcboatface);
+        delete_ships.flush(universe, event::DELETE);
     }
     {
-        let ships = ships::read(universe);
+        let delete_ships = delete_ships::read(universe);
         let mut tcount = 0;
-        println!("{}", ships.len());
-        for ship in ships.iter() {
-            println!("{:?}", ships.get_row(ship));
+        println!("{}", delete_ships.len());
+        for ship in delete_ships.iter() {
+            println!("{:?}", delete_ships.get_row(ship));
             tcount += 1;
         }
         assert_eq!(tcount, 3);

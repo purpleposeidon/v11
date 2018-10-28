@@ -60,10 +60,15 @@ impl Tracker for test_foreign::track_id_events {
 
     fn sort(&self) -> bool { false }
 
-    fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
-        let mut table = test_foreign::write(universe);
-        table.track_id_removal(rows);
-        table.flush(universe, event);
+    fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>, function: &dyn event::Function) {
+        let mut rows = test_foreign::read(universe).select_id(rows);
+        let gt = test_foreign::get_generic_table(universe);
+        if function.needs_sort(gt) {
+            rows.sort();
+        }
+        let rows = rows.as_slice();
+        let rows = rows.as_any();
+        function.handle(universe, gt, event, rows);
     }
 }
 
@@ -100,6 +105,7 @@ fn small_table() {
             holes: 20,
             kind: CheeseKind::Stinky,
         });
+        cheese.flush(&universe, ::v11::event::CREATE);
     }
 }
 
@@ -114,6 +120,7 @@ fn large_table() {
             kind: CheeseKind::Swiss,
         });
     }
+    cheese.flush(&universe, ::v11::event::CREATE);
 }
 
 #[test]
@@ -128,6 +135,7 @@ fn walk_table() {
                 kind: CheeseKind::Swiss,
             });
         }
+        cheese.flush(&universe, ::v11::event::CREATE);
     }
     let cheese = cheese::read(&universe);
     for i in cheese.iter() {
@@ -307,3 +315,5 @@ fn table_columns_are_unswappable() {
     println!("whelp...");
     mem::drop(t1);
 }
+
+// /etc/passwd

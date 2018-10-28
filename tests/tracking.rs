@@ -36,11 +36,22 @@ impl Tracker for sailors::track_ship_events {
 
     fn sort(&self) -> bool { false }
 
-    fn handle(&self, universe: &Universe, event: Event, rows: SelectRows<Self::Foreign>) {
-        println!("deleted: {:?}", rows);
-        let mut sailors = sailors::write(universe);
-        sailors.track_ship_removal(rows);
-        sailors.flush(universe, event);
+    fn handle(
+        &self,
+        universe: &Universe,
+        event: Event,
+        selected: SelectRows<Self::Foreign>,
+        function: &dyn v11::event::Function,
+    ) {
+        println!("selected: {:?}", selected);
+        let mut rows = sailors::read(universe).select_ship(selected);
+        let gt = sailors::get_generic_table(universe);
+        if function.needs_sort(gt) {
+            rows.sort();
+        }
+        let rows = rows.as_slice();
+        let rows = rows.as_any();
+        function.handle(universe, gt, event, rows);
     }
 }
 
