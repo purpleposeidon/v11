@@ -791,24 +791,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             impl<'a> Write<'a> {
                 /// Propagate all changes
                 pub fn flush(self, universe: &'a Universe, event: Event) {
-                    Write::flush0(
-                        MaybeBorrow::Owned(self),
-                        universe,
-                        event,
-                    )
-                }
-
-                /// Flush table without releasing the lock. This will of course cause a deadlock if
-                /// the table has trackers that need to look at values.
-                pub fn live_flush(&mut self, universe: &'a Universe, event: Event) {
-                    Write::flush0(
-                        MaybeBorrow::Borrow(self),
-                        universe,
-                        event,
-                    )
-                }
-
-                fn flush0(mut table: MaybeBorrow<Self>, universe: &'a Universe, event: Event) {
+                    // FIXME: Ditching MaybeBorrow should be *easy*. But it isn't. Deadlocks
+                    // happen. This is stupid.
+                    let mut table = MaybeBorrow::Owned(self);
                     if table._changes.as_slice().is_empty() { return; }
                     use std::mem;
                     let pushed = table._pushed;
@@ -849,6 +834,51 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         if !table._changes.as_slice().is_empty() {
                             panic!("more changes added during flush");
                         }
+                    }
+                    if flush.has_remapping() {
+                        mem::forget(flush);
+                        if let Ok(mut flush) = flush_lock.try_write() {
+                            flush.set_remapping(&[]);
+                        }
+                    }
+                }
+
+                /// Flush table without releasing the lock. This will of course cause a deadlock if
+                /// the table has trackers that need to look at values.
+                pub fn live_flush(&mut self, universe: &'a Universe, event: Event) {
+                    let table = self;
+                    if table._changes.as_slice().is_empty() { return; }
+                    use std::mem;
+                    let pushed = table._pushed;
+                    let delete = table._delete;
+                    let changes = mem::replace(&mut table._changes, Select::These(vec![]));
+                    let flush_lock = table._table.flush.clone();
+                    let flush = flush_lock.read().unwrap();
+                    let changes = flush.do_flush(
+                        universe,
+                        event,
+                        pushed,
+                        delete,
+                        changes,
+                        false,
+                    );
+                    if event.is_removal && !changes.as_slice().is_empty() {
+                        match changes {
+                            Select::All => table.clear_raw(),
+                            Select::These(rows) => {
+                                let len = table.len();
+                                for row in rows {
+                                    unsafe {
+                                        let row = row.to_usize();
+                                        assert!(row < len);
+                                        table.delete_raw(row);
+                                    }
+                                }
+                            },
+                        }
+                    }
+                    if !table._changes.as_slice().is_empty() {
+                        panic!("more changes added during flush");
                     }
                     if flush.has_remapping() {
                         mem::forget(flush);
