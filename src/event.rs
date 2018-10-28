@@ -75,8 +75,8 @@ events! {
 // through &Any.
 
 use Universe;
-use tables::GenericTable;
-use tracking::SelectAny;
+use tables::{GenericTable, GetTableName};
+use tracking::{SelectAny, SelectOwned};
 use std::sync::RwLock;
 
 
@@ -95,6 +95,15 @@ pub trait Function: 'static + Send + Sync {
     /// function.handle(universe, gt, event, rows);
     /// ```
     fn handle(&self, universe: &Universe, gt: &RwLock<GenericTable>, event: Event, rows: SelectAny);
+}
+impl Function {
+    pub fn run<T: GetTableName>(&self, universe: &Universe, event: Event, mut rows: SelectOwned<T>) {
+        let gt = &T::get_generic_table(universe);
+        if self.needs_sort(gt) {
+            rows.sort();
+        }
+        self.handle(universe, gt, event, rows.as_slice().as_any());
+    }
 }
 // FIXME: tracking::Function?
 

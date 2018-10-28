@@ -177,38 +177,32 @@ pub trait Tracker: 'static + Send + Sync {
     fn sort(&self) -> bool;
 
     /// Something has happened to the indicated foreign rows.
+    /// There are two sorts of actions you may take here:
+    /// 1. Propagate the selection to any dependent rows.
+    /// 2. Change things under the advisement of the indicated rows.
     ///
-    /// You may lock the foreign table for editing, but making structural changes will likely
-    /// cause you trouble.
-    ///
-    /// # Deletion
-    /// The most common behavior of a tracker is to respond to deletion events.
-    ///
-    /// If the column has an `#[index]`, you can call `$table.track_$col_events(deleted)`.
-    /// Or, if the table is `#[kind = "sorted"]` and has a `#[sort_key]` column, you can call
-    /// `$table.track_sorted_$col_events(deleted)`.
-    ///
-    /// # Just-in-time
-    /// Any deleted rows in the foreign table will still be valid (at least so far as you'll be
-    /// able to access their contents without error), but will become actually-deleted after the
-    /// flush completes.
-    ///
-    /// Any newly created rows are valid.
-    ///
-    /// # Implementing
-    /// You can use `#[foreign_auto]` to derive the Tracker automatically. Otherwise, an
-    /// implementation might start out something like this:
+    /// # 1. Implementing Propagation
+    /// You can use `#[foreign_auto]` to derive the Tracker automatically.
+    /// Its implementation looks like this:
     ///
     /// ```ignore
     /// let mut rows = $table::read(universe).select_$column(selected);
-    /// let gt = $table::get_generic_table(universe);
-    /// if function.needs_sort(gt) {
-    ///     rows.sort();
-    /// }
-    /// let rows = rows.as_slice();
-    /// let rows = rows.as_any();
-    /// function.handle(universe, gt, event, rows);
+    /// handler.run(universe, event, rows);
     /// ```
+    ///
+    /// # 2. Implementing Changes
+    /// In this case, you will want to override `fn consider()`, and you will ignore the `handler`
+    /// argument.
+    ///
+    /// # Just-in-time
+    /// Any newly created rows are already valid.
+    ///
+    /// Any deleted rows in the foreign table will still be valid (at least so far as you'll be
+    /// able to access their contents without a panic), but will become actually-deleted after the
+    /// flush completes.
+    ///
+    /// You may lock the foreign table for editing, but making structural changes to it
+    /// will likely cause trouble.
     fn handle(
         &self,
         universe: &Universe,

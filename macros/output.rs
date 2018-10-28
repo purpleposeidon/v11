@@ -971,12 +971,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     handler: &event::Function,
                 )
                 {
-                    let mut rows = read(universe).#SELECT(rows);
-                    let gt = &get_generic_table(universe);
-                    if handler.needs_sort(gt) {
-                        rows.sort();
-                    }
-                    handler.handle(universe, gt, event, rows.as_slice().as_any());
+                    let rows = read(universe).#SELECT(rows);
+                    handler.run(universe, event, rows);
                 }
             }
         }};
