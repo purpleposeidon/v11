@@ -845,7 +845,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
 
                 /// Flush table without releasing the lock. This will of course cause a deadlock if
                 /// the table has trackers that need to look at values.
-                pub fn live_flush(&mut self, universe: &'a Universe, event: Event) {
+                pub fn live_flush<'b>(&mut self, universe: &'b Universe, event: Event) {
                     let table = self;
                     if table._changes.as_slice().is_empty() { return; }
                     use std::mem;
