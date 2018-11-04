@@ -266,7 +266,7 @@ impl<T: GetTableName> Flush<T> {
                 );
             }
         }
-        if !include_self {
+        if include_self {
             let gt = T::get_generic_table(universe);
             if !sorted && function.needs_sort(gt) {
                 select.sort();

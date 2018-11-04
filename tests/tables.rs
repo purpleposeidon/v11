@@ -315,5 +315,3 @@ fn table_columns_are_unswappable() {
     println!("whelp...");
     mem::drop(t1);
 }
-
-// /etc/passwd

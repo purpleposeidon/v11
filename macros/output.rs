@@ -328,16 +328,20 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         table.consistent => ["`Table` consistent"] {
             impl Table {
                 fn remove_rows(universe: &Universe, event: Event, rows: SelectAny) {
-                    let mut table = write(universe);
+                    write(universe).remove_rows(universe, event, rows);
+                }
+            }
+            impl<'u> Write<'u> {
+                fn remove_rows(mut self, universe: &Universe, event: Event, rows: SelectAny) {
                     match rows {
                         Select::These(rows) => {
                             if let Some(rows) = rows.downcast::<RowId>() {
-                                let len = table.len();
+                                let len = self.len();
                                 for row in rows {
                                     unsafe {
                                         let row = row.to_usize();
                                         assert!(row < len);
-                                        table.delete_raw(row);
+                                        self.delete_raw(row);
                                     }
                                 }
                             } else {
@@ -345,10 +349,74 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             }
                         },
                         Select::All => {
-                            table.clear_raw()
+                            self.clear_raw();
+                            self.clear();
+                        },
+                    }
+                    self.flush(universe, event);
+                }
+            }
+        };
+        table.sorted => ["`Table` sorted"] {
+            impl Table {
+                fn remove_rows(universe: &Universe, event: Event, rows: SelectAny) {
+                    let mut table = write(universe);
+                    match rows {
+                        Select::These(rows) => {
+                            if let Some(rows) = rows.downcast::<RowId>() {
+                                table.remove_rows(rows);
+                            } else {
+                                panic!("wrong rows type");
+                            }
+                        },
+                        Select::All => {
+                            table.clear_raw();
+                            table.clear();
                         },
                     }
                     table.flush(universe, event);
+                }
+            }
+            impl<'u> Write<'u> {
+                pub fn remove_rows(&mut self, to_remove: &[RowId]) {
+                    {
+                        if to_remove.is_empty() { return; }
+                        // We can't use AssertSorted here because it's only a speedbump,
+                        // and we do an unchecked swap.
+                        let mut prev = FIRST;
+                        let mut to_remove = to_remove;
+                        if to_remove[0] == prev {
+                            to_remove = &to_remove[1..];
+                        }
+                        for r in to_remove.iter() {
+                            assert!(prev < *r, "array of indices to remove is not sorted or has dupes");
+                            prev = *r;
+                        }
+                        assert!(to_remove.last().unwrap().to_usize() < self.len());
+                    }
+                    let len = self.len();
+                    #({
+                        let col = self.#COL_NAME.deref_mut().inner_mut();
+                        let mut to_remove = &to_remove[..];
+                        // The good, the bad, and the ugly.
+                        // The good start at 0.
+                        // The bad come after the good.
+                        // The ugly have yet to be categorized.
+                        let mut bad = 0;
+                        for ugly in 0..len {
+                            let is_bad = Some(ugly) == to_remove.first().map(GenericRowId::to_usize);
+                            if is_bad {
+                                to_remove = &to_remove[1..];
+                            } else {
+                                if bad != ugly {
+                                    unsafe { col.unchecked_swap(bad, ugly); }
+                                }
+                                bad += 1;
+                                // if _first_col { log_remap(bad, ugly); }
+                            }
+                        }
+                        col.truncate(bad);
+                    })*
                 }
             }
         };
@@ -810,7 +878,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         pushed,
                         delete,
                         changes,
-                        false,
+                        true,
                     );
                     if event.is_removal && !changes.as_slice().is_empty() {
                         if table.is_missing() {
