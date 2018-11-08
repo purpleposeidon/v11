@@ -111,6 +111,7 @@ fn test() {
         let saveme = saveme::read(universe);
         println!("gonna save");
         saveme.select_all(universe, event::SERIALIZE);
+        let saveme = saveme::read(universe);
         {
             let mut json_out = universe[JSON_OUT].write().unwrap();
             json1 = json_out.clone();

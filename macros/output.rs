@@ -327,12 +327,12 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     out! {
         table.consistent => ["`Table` consistent"] {
             impl Table {
-                fn remove_rows(universe: &Universe, event: Event, rows: SelectAny) {
+                pub fn remove_rows(universe: &Universe, event: Event, rows: SelectAny) {
                     write(universe).remove_rows(universe, event, rows);
                 }
             }
             impl<'u> Write<'u> {
-                fn remove_rows(mut self, universe: &Universe, event: Event, rows: SelectAny) {
+                pub fn remove_rows(mut self, universe: &Universe, event: Event, rows: SelectAny) {
                     match rows {
                         Select::These(rows) => {
                             if let Some(rows) = rows.downcast::<RowId>() {
@@ -359,7 +359,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         };
         table.sorted => ["`Table` sorted"] {
             impl Table {
-                fn remove_rows(universe: &Universe, event: Event, rows: SelectAny) {
+                pub fn remove_rows(universe: &Universe, event: Event, rows: SelectAny) {
                     let mut table = write(universe);
                     match rows {
                         Select::These(rows) => {
@@ -817,34 +817,36 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
     }
     out! {
         ["selecting"] {
+            fn select(
+                universe: &Universe,
+                flush: GuardedFlush<Row>,
+                event: Event,
+                selection: SelectOwned<Row>,
+            ) {
+                let flush = flush.read().unwrap();
+                flush.do_flush(
+                    universe,
+                    event,
+                    false, // pushed
+                    false, // delete
+                    selection,
+                    false,
+                );
+            }
             impl<'a> Read<'a> {
-                pub fn select(
-                    &self,
-                    universe: &Universe,
-                    event: Event,
-                    selection: SelectOwned<Row>,
-                ) {
-                    let flush = self._table.flush.read().unwrap();
-                    flush.do_flush(
-                        universe,
-                        event,
-                        false, // pushed
-                        false, // delete
-                        selection,
-                        false,
-                    );
-                }
                 /// Select every row. (Immutable version; a slightly different mutable version is defined for [`Write`].)
                 pub fn select_all(
-                    &self,
+                    self,
                     universe: &Universe,
                     event: Event,
                 ) {
-                    self.select(universe, event, Select::All);
+                    let flush = self._table.flush.clone();
+                    {self};
+                    select(universe, flush, event, Select::All);
                 }
 
                 pub fn select_rows<I>(
-                    &self,
+                    self,
                     universe: &Universe,
                     event: Event,
                     _selection_sorted: bool, // FIXME: We'll survive.
@@ -853,7 +855,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 where
                     I: Iterator<Item=RowId>,
                 {
-                    self.select(universe, event, Select::These(selection.collect::<Vec<RowId>>()));
+                    let flush = self._table.flush.clone();
+                    {self};
+                    select(universe, flush, event, Select::These(selection.collect::<Vec<RowId>>()));
                 }
             }
             impl<'a> Write<'a> {
@@ -878,7 +882,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         pushed,
                         delete,
                         changes,
-                        true,
+                        false, // include self
                     );
                     if event.is_removal && !changes.as_slice().is_empty() {
                         if table.is_missing() {

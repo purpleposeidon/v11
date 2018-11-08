@@ -8,7 +8,7 @@ use std::any::{TypeId, Any};
 use std::slice;
 
 /// A homogeneous slice of uncertain type.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct AnySliceRef<'a> {
     _lifetime: &'a PhantomData<()>,
     id: TypeId,
