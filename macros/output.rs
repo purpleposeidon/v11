@@ -958,6 +958,8 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             flush.set_remapping(&[]);
                         }
                     }
+                    table._pushed = false;
+                    table._delete = false;
                 }
 
                 /// This method is here as a convenience for macros.
