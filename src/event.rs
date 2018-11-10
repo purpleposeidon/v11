@@ -76,7 +76,7 @@ events! {
 
 use Universe;
 use tables::{GenericTable, GetTableName};
-use tracking::{SelectAny, SelectOwned};
+use tracking::{SelectAny, SelectOwned, GuardedFlush};
 use std::sync::RwLock;
 
 
@@ -103,6 +103,19 @@ impl Function {
             rows.sort();
         }
         self.handle(universe, gt, event, rows.as_slice().as_any());
+        // if somehow we end up in a recursive loop, well... Just pass in more paramaters!
+        let gt = gt.read().unwrap();
+        let flush = gt.table.get_flush_ref();
+        let flush: &GuardedFlush<T> = flush.downcast_ref().expect("wrong foreign table type");
+        let flush = flush.read().unwrap();
+        flush.do_flush(
+            universe,
+            event,
+            event.is_creation,
+            event.is_removal,
+            rows,
+            false,
+        );
     }
 }
 // FIXME: tracking::Function?

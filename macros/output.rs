@@ -1799,7 +1799,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                         fn get_flush<T: GetTableName>(
                             _: PhantomData<GenericRowId<T>>,
                             gt: &GenericTable,
-                        ) -> &Arc<RwLock<Flush<T>>> {
+                        ) -> &GuardedFlush<T> {
                             // FIXME: Explain what explodes if this function is removed.
                             gt.table
                                 .get_flush_ref()

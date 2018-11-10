@@ -245,7 +245,7 @@ impl<T: GetTableName> Flush<T> {
         mut select: SelectOwned<T>,
         include_self: bool,
     ) -> SelectOwned<T> {
-        if pushed && delete {
+        if (pushed && delete) || (event.is_removal && event.is_creation) {
             panic!("Can't interleave pushes & deletes");
         }
         // either way, send to trackers first
