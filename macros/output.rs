@@ -392,7 +392,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             assert!(prev < *r, "array of indices to remove is not sorted or has dupes");
                             prev = *r;
                         }
-                        assert!(to_remove.last().unwrap().to_usize() < self.len());
+                    }
+                    {
+                        assert!(to_remove.last().unwrap().to_usize() < self.len(), "indices out of range");
                     }
                     let len = self.len();
                     #({
