@@ -62,6 +62,7 @@ impl DomainName {
                     tables: HashMap::new(),
                     locked: false,
                     name2did: HashMap::new(),
+                    tables_registration_order: vec![],
                 }
             });
         }
@@ -160,6 +161,7 @@ pub struct DomainInfo {
     pub name: DomainName,
     pub property_members: Vec<GlobalPropertyId>,
     pub tables: HashMap<TableName, GenericTable>,
+    pub tables_registration_order: Vec<TableName>,
     pub name2did: HashMap<PropertyName, DomainedPropertyId>,
     locked: bool,
 }
@@ -193,6 +195,7 @@ impl DomainInfo {
             name: self.name,
             property_members: properties,
             tables,
+            tables_registration_order: self.tables_registration_order.clone(),
         }
     }
 
@@ -249,7 +252,8 @@ impl Universe {
     pub(crate) fn init_domain(&mut self, domain: DomainName) {
         let did = domain.get_id();
         if let &MaybeDomain::Domain(ref domain) = &self.domains[did.0] {
-            for table in domain.tables.values() {
+            for table_name in &domain.tables_registration_order {
+                let table = domain.tables.get(table_name).unwrap();
                 let table = table.read().unwrap();
                 table.init(self);
             }
@@ -301,6 +305,7 @@ pub struct DomainInstance {
     pub property_members: Vec<PBox>,
     // FIXME: Tables can have domained_index as well, so we can ditch the HashMap for O(1).
     pub tables: HashMap<TableName, RwLock<GenericTable>>,
+    pub tables_registration_order: Vec<TableName>,
 }
 impl fmt::Debug for DomainInstance {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

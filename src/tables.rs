@@ -194,7 +194,10 @@ impl GenericTable {
                     panic!("Adding {}/{} to a locked domain\n", self.domain, self.name);
                 }
                 match info.tables.entry(self.name) {
-                    Entry::Vacant(entry) => { entry.insert(self); },
+                    Entry::Vacant(entry) => {
+                        info.tables_registration_order.push(self.name);
+                        entry.insert(self);
+                    },
                     Entry::Occupied(entry) => {
                         let entry = entry.get();
                         if !self.equivalent(entry) {
