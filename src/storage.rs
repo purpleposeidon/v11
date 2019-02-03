@@ -78,11 +78,20 @@ where E: FnOnce(usize, &'static str) -> R
 */
 
 /// Densely packed booleans.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BoolCol {
     ref_val: bool,
     ref_idx: usize,
     data: BitVec,
+}
+impl Default for BoolCol {
+    fn default() -> Self {
+        BoolCol {
+            ref_val: false,
+            ref_idx: ::std::usize::MAX,
+            data: BitVec::default(),
+        }
+    }
 }
 impl BoolCol {
     fn flush(&mut self) {
@@ -142,10 +151,10 @@ impl TCol for BoolCol {
 
 #[cfg(test)]
 mod test {
+    use super::{TCol, BoolCol};
     #[test]
     fn bool_col_unit() {
-        use super::TCol;
-        let mut bc = super::BoolCol::new();
+        let mut bc = BoolCol::new();
         let v = &[true, false, true];
         for i in v {
             bc.data.push(*i);
@@ -175,6 +184,22 @@ mod test {
         unsafe {
             assert_eq!(bc.unchecked_index(0), &true);
             assert_eq!(bc.unchecked_index(1), &false);
+        }
+    }
+
+    #[test]
+    fn simple() {
+        unsafe {
+            let mut bc = BoolCol::new();
+            println!("{:?}", bc.ref_idx);
+            println!("{:?}", bc.ref_val);
+            bc.data.push(true);
+            println!("{:?}", bc.ref_idx);
+            println!("{:?}", bc.ref_val);
+            assert_eq!(bc.unchecked_index(0), &true);
+            let mut bc = BoolCol::new();
+            bc.data.push(false);
+            assert_eq!(bc.unchecked_index(0), &false);
         }
     }
 }
