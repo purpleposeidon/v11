@@ -3,7 +3,7 @@ use std::io::Write;
 use quote::{Ident, Tokens};
 use syntex_syntax::print::pprust as pp;
 
-use super::table::Table;
+use super::table::{Table, TableKind};
 
 /// Convert a string into a quote `Ident`.
 fn i<S: AsRef<str>>(s: S) -> Ident {
@@ -877,8 +877,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                     if table.is_owned() {
                         table = MaybeBorrow::Nothing;
                     }
-                    let flush = flush_lock.read().unwrap();
-                    let changes = flush.do_flush(
+                    let changes = flush_lock.read().unwrap().do_flush(
                         universe,
                         event,
                         pushed,
@@ -909,6 +908,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             panic!("more changes added during flush");
                         }
                     }
+                    let flush = flush_lock.read().unwrap();
                     if flush.has_remapping() {
                         mem::forget(flush);
                         if let Ok(mut flush) = flush_lock.try_write() {
@@ -1133,6 +1133,18 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
                 #[inline] fn event_add_reserve(&mut self, n: usize) { self._changes.reserve(n) }
                 #[inline] fn event_del_reserve(&mut self, n: usize) { self._changes.reserve(n) }
+            }
+        };
+        table.kind == Some(TableKind::Append) => ["event loggint for append tables"] {
+            impl<'u> Write<'u> {
+                #[inline]
+                fn event_cleared(&mut self) {
+                    self.clear_raw();
+                }
+                #[inline] fn event_add(&mut self, _: RowId) {}
+                #[inline] fn event_del(&mut self, _: RowId) {}
+                #[inline] fn event_add_reserve(&mut self, _: usize) {}
+                #[inline] fn event_del_reserve(&mut self, _: usize) {}
             }
         };
         ["event ignoring for inconsistent_columns tables"] {
