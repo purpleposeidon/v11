@@ -254,8 +254,10 @@ impl Universe {
         if let &MaybeDomain::Domain(ref domain) = &self.domains[did.0] {
             for table_name in &domain.tables_registration_order {
                 let table = domain.tables.get(table_name).unwrap();
-                let table = table.read().unwrap();
-                table.init(self);
+                let inits = table.read().unwrap().get_inits();
+                for f in inits {
+                    f(self);
+                }
             }
         } else {
             panic!("Domain {} not set!?", domain);

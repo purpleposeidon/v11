@@ -96,10 +96,8 @@ impl GenericTable {
         self.init_fns.push(init);
     }
 
-    pub(crate) fn init(&self, universe: &Universe) {
-        for init in &self.init_fns {
-            init(universe);
-        }
+    pub(crate) fn get_inits(&self) -> Vec<fn(&Universe)> {
+        self.init_fns.clone()
     }
 
     pub fn guard(self) -> RwLock<GenericTable> {
