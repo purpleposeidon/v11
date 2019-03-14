@@ -116,6 +116,9 @@ impl Table {
         if self.derive.copy && !self.derive.clone {
             return Some("deriving copy, but not clone");
         }
+        if !self.consistent && !self.add_trackers.is_empty() {
+            return Some("only consistent tables can have trackers");
+        }
         None
     }
 }

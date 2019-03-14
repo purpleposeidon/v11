@@ -1135,7 +1135,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 #[inline] fn event_del_reserve(&mut self, n: usize) { self._changes.reserve(n) }
             }
         };
-        table.kind == Some(TableKind::Append) => ["event loggint for append tables"] {
+        table.kind == Some(TableKind::Append) => ["event logging for append tables"] {
             impl<'u> Write<'u> {
                 #[inline]
                 fn event_cleared(&mut self) {
