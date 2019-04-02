@@ -179,6 +179,12 @@ mod searching {
                 {
                     self.deref().inner().find(e)
                 }
+
+                pub fn range<'b>(&'a self, lo: C::Element, hi: C::Element) -> Indexes<'b, C, T>
+                where 'a: 'b
+                {
+                    self.deref().inner().range(e)
+                }
             }
         };
     }

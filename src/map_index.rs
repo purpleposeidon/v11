@@ -47,6 +47,16 @@ where C::Element: Hash + Ord + Copy
             range: self.index.range((key, zero)..(key, max))
         }
     }
+
+    pub fn range(&self, lo: C::Element, hi: C::Element) -> Indexes<C, T> {
+        use num_traits::{Zero, Bounded};
+        let zero = T::Idx::zero();
+        let max = T::Idx::max_value();
+        Indexes {
+            // This excludes MAX. Unlikely! Can be fixed when `collections_range` lands.
+            range: self.index.range((lo, zero)..(hi, max))
+        }
+    }
 }
 use serde::{Serialize, Serializer};
 impl<C: TCol, T: GetTableName> Serialize for BTreeIndex<C, T>
