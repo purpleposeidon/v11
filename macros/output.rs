@@ -531,6 +531,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             type Row = Row;
             fn len(&self) -> usize { self.len() }
             #LOCKED_TABLE_DELETED_ROW
+            fn delete_row(&mut self, i: RowId) { self.delete(i) }
         }
 
         const EXTRACTION_FMT: u32 = 0;
@@ -645,6 +646,30 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         }
     });
     out! {
+        table.kind == Some(TableKind::Bag) => ["iter bag"] {
+            impl<'u> Read<'u> {
+                /// Returns a pre-checking iterator over each row in the table.
+                pub fn iter(&self) -> CheckedIter<Self> {
+                    self.range(self.row_range())
+                }
+            }
+            impl<'u> Write<'u> {
+                /// Returns a pre-checking iterator over each row in the table.
+                pub fn iter(&self) -> CheckedIter<Self> {
+                    self.range(self.row_range())
+                }
+
+                /// Iterating over a Bag.
+                pub fn iter_mut(&mut self) -> BagIter<Self> {
+                    BagIter {
+                        table: self,
+                        delete: ::std::cell::Cell::new(false),
+                        i: 0,
+                        last: None,
+                    }
+                }
+            }
+        };
         !table.consistent => ["inconsistent iterators"] {
             impl<'u> Read<'u> {
                 /// Returns a pre-checking iterator over each row in the table.
@@ -807,8 +832,30 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 }
             }
         };
+        table.kind == Some(TableKind::Bag) => ["bag delete"] {
+            impl<'a> Write<'a> {
+                pub fn delete<I: CheckId>(&mut self, row: I) {
+                    // We don't actually delete the row here! The tracker'll manage.
+                    let i = row.check(self).uncheck();
+                    unsafe { self.delete_raw(i.to_usize()) }
+                }
+                unsafe fn delete_raw(&mut self, i: usize) {
+                    let len = self.len();
+                    let len1 = len - 1;
+                    if i < len1 {
+                        #(self.#COL_NAME.deref_mut().inner_mut().unchecked_swap(i, len1);)*
+                    }
+                    #(
+                        self.#COL_NAME.deref_mut().inner_mut().truncate(len1);
+                    )*
+                }
+            }
+        };
         ["fake flush"] {
             impl<'u> Write<'u> {
+                fn delete<I: CheckId>(&mut self, _: I) {
+                    unimplemented!("delete row")
+                }
                 // "shouldn't" get called; could happen if the table kind changes between
                 // serializations. This is a stub.
                 unsafe fn delete_raw(&mut self, _i: usize) {
@@ -1135,7 +1182,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 #[inline] fn event_del_reserve(&mut self, n: usize) { self._changes.reserve(n) }
             }
         };
-        table.kind == Some(TableKind::Append) => ["event logging for append tables"] {
+        table.kind == Some(TableKind::Append) || table.kind == Some(TableKind::Bag) => ["event logging for basic tables"] {
             impl<'u> Write<'u> {
                 #[inline]
                 fn event_cleared(&mut self) {

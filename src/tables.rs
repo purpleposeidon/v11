@@ -262,7 +262,7 @@ impl fmt::Display for TableName {
 pub trait GetTableName: 'static + Send + Sync {
     /// The raw index, like `u32`.
     type Idx: 'static +
-        ::num_traits::PrimInt +
+        ::num_traits::PrimInt + ::num_traits::FromPrimitive +
         fmt::Display + fmt::Debug +
         ::std::hash::Hash + Copy + Ord
         + Send + Sync
@@ -289,6 +289,7 @@ pub trait LockedTable: Sized {
     type Row: GetTableName;
     fn len(&self) -> usize;
     fn is_deleted(&self, _idx: GenericRowId<Self::Row>) -> bool { false }
+    fn delete_row(&mut self, _idx: GenericRowId<Self::Row>) { unimplemented!("LockedTable::delete") }
 }
 
 // FIXME: Why?

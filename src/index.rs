@@ -7,6 +7,8 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::cmp::{Ordering, Eq, PartialEq, PartialOrd, Ord};
 use std::sync::RwLock;
+use std::cell::Cell;
+use std::ops::Deref;
 
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
@@ -589,5 +591,63 @@ impl<'w, T: GetTableName + 'w> Iterator for EditIter<'w, T> {
             }
         }
         None
+    }
+}
+
+pub struct Deletable<'a, T: GetTableName + 'a> {
+    inner: GenericRowId<T>,
+    mark: &'a Cell<bool>,
+}
+impl<'a, T: GetTableName + 'a> Deref for Deletable<'a, T> {
+    type Target = GenericRowId<T>;
+    fn deref(&self) -> &Self::Target { &self.inner }
+}
+impl<'a, T: GetTableName + 'a> Deletable<'a, T> {
+    pub fn delete(self) {
+        self.mark.set(true);
+    }
+}
+
+pub struct BagIter<'w, T: LockedTable + 'w> {
+    #[doc(hidden)] pub table: &'w mut T,
+    #[doc(hidden)] pub delete: Cell<bool>,
+    #[doc(hidden)] pub i: usize,
+    #[doc(hidden)] pub last: Option<usize>,
+}
+impl<'a, T: LockedTable + 'a> Iterator for BagIter<'a, T> {
+    type Item = (&'a mut T, Deletable<'a, T::Row>);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.i >= self.table.len() {
+            return None;
+        }
+        if self.delete.get() {
+            self.delete.set(false);
+            self.table.delete_row(GenericRowId::from_usize(self.last.unwrap()));
+        } else {
+            self.last = Some(self.i);
+            self.i += 1;
+        }
+        let this_i = self.last.unwrap();
+        let this_i = GenericRowId::from_usize(this_i);
+        unsafe {
+            // FIXME: IM IN A RUSH OK???
+            // (Tho this API might not be tractible...)
+            use std::mem;
+            Some((
+                mem::transmute(&mut *self.table),
+                Deletable {
+                    inner: this_i,
+                    mark: mem::transmute(&self.delete),
+                },
+            ))
+        }
+    }
+}
+impl<'a, T: LockedTable + 'a> Drop for BagIter<'a, T> {
+    fn drop(&mut self) {
+        if let (Some(i), true) = (self.last, self.delete.get()) {
+            let i = GenericRowId::from_usize(i);
+            self.table.delete_row(i);
+        }
     }
 }

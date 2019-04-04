@@ -65,7 +65,6 @@ impl Table {
             },
             TableKind::Bag => {
                 self.secret = true;
-                panic!("Bags are NYI");
             },
             TableKind::List => {
                 self.secret = true;

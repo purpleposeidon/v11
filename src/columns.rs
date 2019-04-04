@@ -75,6 +75,7 @@ impl<C: TCol, T: GetTableName> Col<C, T> {
 }
 impl<C: TCol, T: GetTableName> Index<GenericRowId<T>> for Col<C, T> {
     type Output = C::Element;
+    #[inline]
     fn index(&self, i: GenericRowId<T>) -> &Self::Output {
         unsafe {
             let i = self.check(i.to_usize());
@@ -83,6 +84,7 @@ impl<C: TCol, T: GetTableName> Index<GenericRowId<T>> for Col<C, T> {
     }
 }
 impl<C: TCol, T: GetTableName> IndexMut<GenericRowId<T>> for Col<C, T> {
+    #[inline]
     fn index_mut(&mut self, i: GenericRowId<T>) -> &mut Self::Output {
         unsafe {
             let i = self.check(i.to_usize());
@@ -92,6 +94,7 @@ impl<C: TCol, T: GetTableName> IndexMut<GenericRowId<T>> for Col<C, T> {
 }
 impl<'a, C: TCol, T: LockedTable + 'a> Index<CheckedRowId<'a, T>> for Col<C, T::Row> {
     type Output = C::Element;
+    #[inline]
     fn index(&self, index: CheckedRowId<T>) -> &Self::Output {
         unsafe {
             self.inner.unchecked_index(index.to_usize())
@@ -99,6 +102,7 @@ impl<'a, C: TCol, T: LockedTable + 'a> Index<CheckedRowId<'a, T>> for Col<C, T::
     }
 }
 impl<'a, C: TCol, T: LockedTable + 'a> IndexMut<CheckedRowId<'a, T>> for Col<C, T::Row> {
+    #[inline]
     fn index_mut(&mut self, index: CheckedRowId<T>) -> &mut Self::Output {
         unsafe {
             self.inner.unchecked_index_mut(index.to_usize())
@@ -146,18 +150,22 @@ impl<'a, T: 'a> EditA<'a, T> {
 // Forward indexing operations to `Col`.
 impl<'a, I, T: Index<I> + 'a> Index<I> for RefA<'a, T> {
     type Output = T::Output;
+    #[inline]
     fn index(&self, i: I) -> &T::Output { &self.0[i] }
 }
 impl<'a, I, T: Index<I> + 'a> Index<I> for MutA<'a, T> {
     type Output = T::Output;
+    #[inline]
     fn index(&self, i: I) -> &T::Output { &self.0[i] }
 }
 impl<'a, I, T: Index<I> + 'a> Index<I> for EditA<'a, T> {
     type Output = T::Output;
+    #[inline]
     fn index(&self, i: I) -> &T::Output { &self.0[i] }
 }
 
 impl<'a, I, T: IndexMut<I> + 'a> IndexMut<I> for MutA<'a, T> {
+    #[inline]
     fn index_mut(&mut self, i: I) -> &mut T::Output { &mut self.0[i] }
 }
 
@@ -183,7 +191,7 @@ mod searching {
                 pub fn range<'b>(&'a self, lo: C::Element, hi: C::Element) -> Indexes<'b, C, T>
                 where 'a: 'b
                 {
-                    self.deref().inner().range(e)
+                    self.deref().inner().range(lo, hi)
                 }
             }
         };
