@@ -8,9 +8,9 @@ use std::fmt;
 use std::collections::HashMap;
 use std::sync::{RwLock, Arc};
 
-use intern;
-use intern::PBox;
-use property::{GlobalPropertyId, PropertyName, DomainedPropertyId};
+use crate::intern;
+use crate::intern::PBox;
+use crate::property::{GlobalPropertyId, PropertyName, DomainedPropertyId};
 
 /// A single-level namespace.
 /// # Usage
@@ -153,7 +153,7 @@ macro_rules! domain {
 #[doc(hidden)]
 pub struct DomainId(pub usize);
 
-use tables::{TableName, GenericTable};
+use crate::tables::{TableName, GenericTable};
 
 #[doc(hidden)]
 pub struct DomainInfo {
@@ -224,7 +224,7 @@ impl MaybeDomain {
     }
 }
 
-use Universe;
+use crate::Universe;
 /// Domain introspection methods.
 impl Universe {
     pub fn get_domains(domains: &[DomainName]) -> Vec<MaybeDomain> {

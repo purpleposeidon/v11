@@ -3,9 +3,9 @@ use std::any::Any;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt;
 
-use Universe;
-use intern;
-use domain::*;
+use crate::Universe;
+use crate::intern;
+use crate::domain::*;
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 #[derive(Serialize, Deserialize)]
@@ -263,7 +263,7 @@ impl<V> Prop<V> {
     fn get_index_within_domain(&self) -> DomainedPropertyId { self.index.domained_index }
     fn get_global_index(&self) -> GlobalPropertyId { self.index.global_index }
 
-    pub fn init(&mut self, producer: Box<::domain::Producer>) {
+    pub fn init(&mut self, producer: Box<crate::domain::Producer>) {
         let globals = clone_globals();
         let pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
         // We must acquire the global lock at the beginning of this function. If we wait, and a
@@ -281,7 +281,7 @@ impl<V> Prop<V> {
         self.check_name();
         let mut first_instance = false;
         let domain_info = pmap.domains.get_mut(&self.domain_name).unwrap_or_else(|| panic!("Property {} is for an undefined domain", self));
-        if ::domain::check_lock() && domain_info.locked() {
+        if crate::domain::check_lock() && domain_info.locked() {
             panic!("Adding {:?} on a locked domain", self);
         }
         let global_index = {
@@ -351,7 +351,6 @@ impl<V> fmt::Display for Prop<V> {
 impl Universe {
     /// Returns a copy of the value of the given property. Only works for properties that are `Copy`.
     pub fn get<V: Any + Sync + Copy>(&self, prop: &ToPropRef<V>) -> V {
-        use std::sync::RwLockReadGuard;
         let v: RwLockReadGuard<V> = self[prop].read().unwrap();
         *v
     }
@@ -568,7 +567,7 @@ pub /* property! requires this */ mod test {
 
         #[test]
         fn test_aliased() {
-            use Universe;
+            use crate::Universe;
             foo::ALIAS.register();
             foo::BLAH.register();
             baz::ALIAS.register();

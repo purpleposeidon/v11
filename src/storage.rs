@@ -1,7 +1,7 @@
 //! Data structures for storing columnar elements.
 
-use Storable;
-use columns::TCol;
+use crate::Storable;
+use crate::columns::TCol;
 
 /// Stores data contiguously using the standard rust `Vec`.
 /// This is ideal for tables that do not have rows added to them often.

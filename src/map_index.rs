@@ -7,9 +7,9 @@ use std::hash::Hash;
 
 use num_traits::NumCast;
 
-use columns::TCol;
-use tables::GetTableName;
-use index::GenericRowId;
+use crate::columns::TCol;
+use crate::tables::GetTableName;
+use crate::index::GenericRowId;
 
 /// An iterator over the rows containing a searched-for element.
 pub struct Indexes<'a, C: TCol + 'a, T: GetTableName + 'a> {

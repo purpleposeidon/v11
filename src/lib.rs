@@ -102,14 +102,14 @@ impl<T> Storable for T where T: 'static + Send + Sync + Sized /* + !Drop */ {}
 
 pub type GuardedUniverse = Arc<RwLock<Universe>>;
 
-use domain::{DomainName, MaybeDomain};
+use crate::domain::{DomainName, MaybeDomain};
 
 /**
  * A context object whose reference should be passed around everywhere.
  * */
 pub struct Universe {
     #[doc(hidden)] pub domains: Vec<MaybeDomain>,
-    pub event_handlers: ::event::EventHandlers,
+    pub event_handlers: crate::event::EventHandlers,
 }
 
 /// Universe manipulation methods.

@@ -8,10 +8,10 @@ use serde::de::{DeserializeOwned};
 
 pub use v11_macros::*;
 
-use Universe;
-use intern;
-use domain::{DomainName, DomainId, MaybeDomain};
-use columns::AnyCol;
+use crate::Universe;
+use crate::intern;
+use crate::domain::{DomainName, DomainId, MaybeDomain};
+use crate::columns::AnyCol;
 
 impl Universe {
     #[doc(hidden)]
@@ -28,7 +28,7 @@ impl Universe {
 pub type Prototyper = fn() -> GenericColumn;
 
 
-use tracking;
+use crate::tracking;
 pub trait TTable: ::mopa::Any + Send + Sync {
     // A slightly annoying thing is that this trait can't have any parameters.
     // But this is okay. The impl bakes them in, and user code works with the concrete table.
@@ -181,7 +181,7 @@ impl GenericTable {
     }
 
     pub fn register(self) {
-        use domain::{GlobalProperties, clone_globals};
+        use crate::domain::{GlobalProperties, clone_globals};
         use std::collections::hash_map::Entry;
         let globals = clone_globals();
         let pmap: &mut GlobalProperties = &mut *globals.write().unwrap();
@@ -271,12 +271,12 @@ pub trait GetTableName: 'static + Send + Sync {
     fn get_domain() -> DomainName;
     fn get_name() -> TableName;
     fn get_guarantee() -> Guarantee;
-    fn get_generic_table(&Universe) -> &RwLock<GenericTable>;
+    fn get_generic_table(_: &Universe) -> &RwLock<GenericTable>;
     fn new_generic_table() -> GenericTable;
 }
 
-use event::Event;
-use tracking::SelectAny;
+use crate::event::Event;
+use crate::tracking::SelectAny;
 pub trait SerialExtraction: GetTableName {
     type Extraction: Serialize + DeserializeOwned;
 
@@ -293,5 +293,5 @@ pub trait LockedTable: Sized {
 }
 
 // FIXME: Why?
-pub use ::assert_sorted::AssertSorted;
-pub use ::index::*;
+pub use crate::assert_sorted::AssertSorted;
+pub use crate::index::*;

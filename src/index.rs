@@ -13,8 +13,8 @@ use std::ops::Deref;
 use num_traits::{ToPrimitive, One, Bounded};
 use num_traits::cast::FromPrimitive;
 
-use Universe;
-use tables::{GetTableName, LockedTable, GenericTable};
+use crate::Universe;
+use crate::tables::{GetTableName, LockedTable, GenericTable};
 
 
 /// Index to a row on some table.
@@ -67,8 +67,8 @@ impl<T: GetTableName> GenericRowId<T> where Self: ::serde::Serialize {
         Self::new(self.i - T::Idx::one())
     }
 
-    pub fn get_domain() -> ::domain::DomainName { T::get_domain() }
-    pub fn get_name() -> ::tables::TableName { T::get_name() }
+    pub fn get_domain() -> crate::domain::DomainName { T::get_domain() }
+    pub fn get_name() -> crate::tables::TableName { T::get_name() }
     pub fn get_generic_table(universe: &Universe) -> &RwLock<GenericTable> {
         let domain_id = Self::get_domain().get_id();
         universe.get_generic_table(domain_id, Self::get_name())
@@ -206,8 +206,8 @@ cmp!(CheckedRowId<'a, T>, GenericRowId<T::Row>);
 #[cfg(test)]
 mod test {
     use super::*;
-    use tables::{TableName, LockedTable, Guarantee};
-    use domain::DomainName;
+    use crate::tables::{TableName, LockedTable, Guarantee};
+    use crate::domain::DomainName;
 
     struct TestName;
     impl GetTableName for TestName {
@@ -370,8 +370,8 @@ impl<T: GetTableName> RowRange<GenericRowId<T>> {
 #[cfg(test)]
 mod row_range_test {
     use super::*;
-    use tables::{TableName, Guarantee};
-    use domain::DomainName;
+    use crate::tables::{TableName, Guarantee};
+    use crate::domain::DomainName;
     struct TestTable;
     impl GetTableName for TestTable {
         type Idx = usize;
@@ -538,7 +538,7 @@ impl<'a, T: LockedTable + 'a> Checkable for CheckedRowId<'a, T> {
 }
 
 
-use ::joincore::{JoinCore, Join};
+use crate::joincore::{JoinCore, Join};
 use std::collections::btree_map;
 
 pub type FreeList<T> = btree_map::BTreeMap<GenericRowId<T>, ()>;

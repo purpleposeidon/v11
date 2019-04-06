@@ -29,7 +29,7 @@ table! {
     [TEST/extra] {
         #[foreign_auto]
         #[index]
-        user: [::saveme::RowId; VecCol<::saveme::RowId>],
+        user: [saveme::RowId; VecCol<saveme::RowId>],
     }
 }
 
@@ -148,7 +148,7 @@ fn test() {
         universe.set(JSON_OUT, String::new());
         let saveme = saveme::read(universe);
         println!("Gonna select/save just one row!");
-        saveme.select_rows(universe, event::SERIALIZE, true, Some(::saveme::FIRST).into_iter());
+        saveme.select_rows(universe, event::SERIALIZE, true, Some(crate::saveme::FIRST).into_iter());
         println!("json saved:");
         let json = universe[JSON_OUT].read().unwrap();
         println!("{}", json);

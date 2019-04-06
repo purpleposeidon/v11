@@ -32,7 +32,7 @@ table! {
 mod cheese_nonce {
     context! {
         pub struct CheeseCtx {
-            pub stinkiness: stenches::Write,
+            pub stinkiness: crate::stenches::Write,
         }
     }
 }
@@ -40,9 +40,9 @@ use self::cheese_nonce::*;
 mod full_nonce {
     context! {
         pub struct FullCtx {
-            pub cheeses: cheeses::Read,
-            pub stinkiness: stenches::Write,
-            pub alcohols: wines::Read,
+            pub cheeses: crate::cheeses::Read,
+            pub stinkiness: crate::stenches::Write,
+            pub alcohols: crate::wines::Read,
         }
     }
 }
@@ -51,7 +51,7 @@ use self::full_nonce::*;
 mod reduced_nonce {
     context! {
         pub struct ReducedCtx {
-            pub cheeses: cheeses::Read,
+            pub cheeses: crate::cheeses::Read,
         }
     }
 }
@@ -61,8 +61,8 @@ property! { pub static TESTS/SUMPROP: usize = 10; }
 
 context! {
     pub struct WithPropsCtx {
-        pub sumprop: SUMPROP::Write,
-        pub cheeses: cheeses::Read,
+        pub sumprop: crate::SUMPROP::Write,
+        pub cheeses: crate::cheeses::Read,
     }
 }
 

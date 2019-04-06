@@ -5,8 +5,8 @@
 
 use std::ops::{Index, IndexMut};
 use std::marker::PhantomData;
-use Storable;
-use tables::{GetTableName, LockedTable, GenericRowId, CheckedRowId};
+use crate::Storable;
+use crate::tables::{GetTableName, LockedTable, GenericRowId, CheckedRowId};
 
 /// `Any` version of a column
 pub trait AnyCol: ::mopa::Any + Send + Sync {}
@@ -172,7 +172,7 @@ impl<'a, I, T: IndexMut<I> + 'a> IndexMut<I> for MutA<'a, T> {
 mod searching {
     use super::*;
     use std::hash::Hash;
-    use map_index::{Indexes, BTreeIndex};
+    use crate::map_index::{Indexes, BTreeIndex};
 
     macro_rules! search_on {
         ($ty:ident) => {

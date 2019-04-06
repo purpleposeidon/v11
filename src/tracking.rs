@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use Universe;
-use tables::GetTableName;
-use index::GenericRowId;
+use crate::Universe;
+use crate::tables::GetTableName;
+use crate::index::GenericRowId;
 use std::sync::{Arc, RwLock};
 
 /// Everything you need to define a [`Tracker`].
 pub mod prelude {
-    pub use ::Universe;
-    pub use ::tracking::{Tracker, SelectRows, SelectAny};
-    pub use ::event::{self, Event};
+    pub use crate::Universe;
+    pub use crate::tracking::{Tracker, SelectRows, SelectAny};
+    pub use crate::event::{self, Event};
 }
 
 /// Helper trait used to a parameter of a parameterized type.
@@ -85,7 +85,7 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
         self
             .as_ref()
             .map(|s| {
-                ::any_slice::AnySliceRef::from(s)
+                crate::any_slice::AnySliceRef::from(s)
             })
     }
 
@@ -125,7 +125,7 @@ impl<T: GetTableName> Select<Vec<GenericRowId<T>>> {
 
 pub type SelectRows<'a, T> = Select<&'a [GenericRowId<T>]>;
 pub type SelectOwned<T> = Select<Vec<GenericRowId<T>>>;
-pub type SelectAny<'a> = Select<::any_slice::AnySliceRef<'a>>;
+pub type SelectAny<'a> = Select<crate::any_slice::AnySliceRef<'a>>;
 
 pub enum SelectIter<'a, I, T>
 where
@@ -155,7 +155,7 @@ where
     }
 }
 
-use event::{self, Event};
+use crate::event::{self, Event};
 
 /// `Tracker`s are notified of structural changes to tables. This requires the 'consistent'
 /// guarantee on the foreign table, which is provided by `#[kind = "consistent"]`.

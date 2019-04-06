@@ -1,8 +1,8 @@
 use serde::ser::{Serialize, Serializer, SerializeSeq};
 use serde::de::{Deserialize, Deserializer, Visitor, SeqAccess};
 
-use columns::{Col, TCol};
-use tables::GetTableName;
+use crate::columns::{Col, TCol};
+use crate::tables::GetTableName;
 use std::fmt;
 
 impl<C, T> Serialize for Col<C, T>

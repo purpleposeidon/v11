@@ -12,7 +12,7 @@
 //! This module introduces [`context!`] to help with this.
 use std::os::raw::c_void;
 use std::any::TypeId;
-use Universe; // This could be parameterized to make this module v11-agnostic!
+use crate::Universe; // This could be parameterized to make this module v11-agnostic!
 
 
 #[doc(hidden)]
@@ -32,7 +32,7 @@ pub unsafe trait Lockable<'u> {
     /// It is very important that this name be unique per-type!
     /// It is relied upon to be unique per-type.
     const TYPE_NAME: &'static str;
-    fn lock(&'u Universe) -> Self where Self: 'u;
+    fn lock(_: &'u Universe) -> Self where Self: 'u;
     // What if we got a vtable? Each type should have a unique one...
 }
 

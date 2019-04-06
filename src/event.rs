@@ -74,9 +74,9 @@ events! {
 // Fallback event handlers must call methods on GenericTable, and its parameters must be cast
 // through &Any.
 
-use Universe;
-use tables::{GenericTable, GetTableName};
-use tracking::{SelectAny, SelectOwned, GuardedFlush};
+use crate::Universe;
+use crate::tables::{GenericTable, GetTableName};
+use crate::tracking::{SelectAny, SelectOwned, GuardedFlush};
 use std::sync::RwLock;
 
 
