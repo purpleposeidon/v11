@@ -431,6 +431,11 @@ impl<'a, T: LockedTable> CheckedIter<'a, T> {
             end: GenericRowId::new(self.end),
         }
     }
+
+    pub fn skip_fast(mut self, n: usize) -> Self {
+        self.i = (<T::Row as GetTableName>::Idx::from_usize(self.i.to_usize().unwrap() + n)).unwrap();
+        self
+    }
 }
 impl<'a, T: LockedTable> Iterator for CheckedIter<'a, T> {
     type Item = CheckedRowId<'a, T>;
@@ -457,6 +462,12 @@ impl<'a, T: LockedTable> Iterator for CheckedIter<'a, T> {
 pub struct UncheckedIter<T: GetTableName> {
     i: T::Idx,
     end: T::Idx,
+}
+impl<T: GetTableName> UncheckedIter<T> {
+    pub fn skip_fast(mut self, n: usize) -> Self {
+        self.i = (T::Idx::from_usize(self.i.to_usize().unwrap() + n)).unwrap();
+        self
+    }
 }
 impl<T: GetTableName> Iterator for UncheckedIter<T> {
     type Item = GenericRowId<T>;
@@ -549,6 +560,11 @@ impl<'a, T: LockedTable + 'a> ConsistentIter<'a, T> {
     pub fn with_deleted(self) -> CheckedIter<'a, T> {
         self.rows
     }
+
+    pub fn skip_fast(mut self, n: usize) -> Self {
+        self.rows = self.rows.skip_fast(n);
+        self
+    }
 }
 impl<'a, T: LockedTable + 'a> Iterator for ConsistentIter<'a, T> {
     type Item = CheckedRowId<'a, T>;
@@ -578,6 +594,11 @@ impl<'w, T: GetTableName + 'w> EditIter<'w, T> {
             range: range.iter_slow(),
             deleted: JoinCore::new(free_keys),
         }
+    }
+
+    pub fn skip_fast(mut self, n: usize) -> Self {
+        self.range = self.range.skip_fast(n);
+        self
     }
 }
 impl<'w, T: GetTableName + 'w> Iterator for EditIter<'w, T> {
