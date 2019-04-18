@@ -75,8 +75,10 @@ define_proc_macros! {
             use std::fs;
             use std::io::Write;
             fs::create_dir_all(output_path.parent().expect("no parent")).ok();
-            let mut out = fs::File::create(output_path).expect("unable to create dump file");
-            out.write(formatted.as_bytes()).expect("dump failed");
+            if fs::read_to_string(output_path).ok().as_ref() != Some(&formatted) {
+                let mut out = fs::File::create(output_path).expect("unable to create dump file");
+                out.write(formatted.as_bytes()).expect("dump failed");
+            }
             format!("include!({:?});", output_path)
         } else {
             ret
