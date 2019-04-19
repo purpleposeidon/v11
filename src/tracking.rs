@@ -17,7 +17,7 @@ impl<T: GetTableName> GetParam for GenericRowId<T> { type T = T; }
 
 /// Indicates whether all rows have been selected, or only some of them.
 /// (No selection is indicated by not receiving a call.)
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[derive(Serialize, Deserialize)]
 pub enum Select<I> {
     All,
@@ -93,6 +93,13 @@ impl<'a, T: GetTableName> Select<&'a [GenericRowId<T>]> {
         match self {
             Select::All => false,
             Select::These(ref rows) => rows.is_empty(),
+        }
+    }
+
+    pub fn to_owned(self) -> SelectOwned<T> {
+        match self {
+            Select::All => Select::All,
+            Select::These(rows) => Select::These(rows.iter().cloned().collect()),
         }
     }
 }
@@ -218,7 +225,8 @@ pub type GuardedFlush<T> = Arc<RwLock<Flush<T>>>;
 #[doc(hidden)]
 pub struct Flush<T: GetTableName> {
     trackers: Vec<Box<Tracker<Foreign=T>>>,
-    remapped: HashMap<GenericRowId<T>, GenericRowId<T>>,
+    identity_remapping: bool,
+    pub remapped: HashMap<GenericRowId<T>, GenericRowId<T>>,
 }
 use std::fmt;
 impl<T: GetTableName> fmt::Debug for Flush<T> {
@@ -230,6 +238,7 @@ impl<T: GetTableName> Default for Flush<T> {
     fn default() -> Self {
         Flush {
             trackers: Default::default(),
+            identity_remapping: false,
             remapped: HashMap::new(),
         }
     }
@@ -278,6 +287,10 @@ impl<T: GetTableName> Flush<T> {
         select
     }
     pub fn set_remapping(&mut self, remap: &[(GenericRowId<T>, GenericRowId<T>)]) {
+        if self.identity_remapping {
+            // FIXME: We ought to panic so that you must be less wasteful.
+            return;
+        }
         self.remapped.clear();
         let remap = remap
             .iter()
@@ -287,12 +300,16 @@ impl<T: GetTableName> Flush<T> {
             .extend(remap);
     }
     pub fn remap(&self, old: GenericRowId<T>) -> Option<GenericRowId<T>> {
+        if self.identity_remapping { return Some(old); }
         self
             .remapped
             .get(&old)
             .map(|&i| i)
     }
     pub fn has_remapping(&self) -> bool { !self.remapped.is_empty() }
+    pub fn set_identity_remap(&mut self) {
+        self.identity_remapping = true;
+    }
 
 
     pub fn register_tracker<R: Tracker<Foreign=T>>(&mut self, tracker: R) {

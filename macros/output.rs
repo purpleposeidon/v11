@@ -314,12 +314,30 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
             fn prototype(&self) -> Box<TTable> { Box::new(Self::new()) }
             fn get_flush_ref(&self) -> &::std::any::Any { &self.flush }
             fn get_flush_mut(&mut self) -> &mut ::std::any::Any { &mut self.flush }
+            fn set_identity_remap(&mut self) {
+                self.flush.write().unwrap().set_identity_remap();
+            }
 
             fn get_row_remover(&self) -> fn(&Universe, Event, SelectAny) {
                 Table::remove_rows
             }
 
             #SAVE_EXTRACTION
+
+            fn generic_select(
+                &self,
+                universe: &Universe,
+                event: Event,
+                selection: SelectAny,
+            ) {
+                let selection = downcast_any_selection(&selection);
+                select(
+                    universe,
+                    self.flush.clone(),
+                    event,
+                    selection.to_owned(),
+                )
+            }
         }
 
         #SERIAL_EXTRACT_IMPL
@@ -955,13 +973,6 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                             panic!("more changes added during flush");
                         }
                     }
-                    let flush = flush_lock.read().unwrap();
-                    if flush.has_remapping() {
-                        mem::forget(flush);
-                        if let Ok(mut flush) = flush_lock.try_write() {
-                            flush.set_remapping(&[]);
-                        }
-                    }
                 }
 
                 /// Flush table without releasing the lock. This will of course cause a deadlock if
@@ -1134,6 +1145,7 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         FOREIGN_ELEMENTS.push(FOREIGN_ELEMENT);
     }
     let FOREIGN_NAME_NONCE = &FOREIGN_NAME_NONCE;
+    let FOREIGN_NAME_NONCE2 = FOREIGN_NAME_NONCE;
     let FOREIGN_LOCAL_COL = &FOREIGN_LOCAL_COL;
     let FOREIGN_LOCAL_COL2 = FOREIGN_LOCAL_COL;
     let FOREIGN_LOCAL_COL3 = FOREIGN_LOCAL_COL;
@@ -1808,7 +1820,9 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
         #(
             row.#FOREIGN_LOCAL_COL = #FOREIGN_NAME_NONCE.1
                 .remap(row.#FOREIGN_LOCAL_COL2)
-                .unwrap_or_else(|| panic!("Row {:?} has no remapping", row.#FOREIGN_LOCAL_COL3));
+                .unwrap_or_else(|| {
+                    panic!("Row {:?} has no remapping. Available: {:#?}", row.#FOREIGN_LOCAL_COL3, #FOREIGN_NAME_NONCE2.1.remapped)
+                });
         )*
     };
     let MERGE_EXTRACT = if table.sorted {
@@ -1849,39 +1863,42 @@ pub fn write_out<W: Write>(table: Table, mut out: W) -> ::std::io::Result<()> {
                 event: Event,
             ) -> Result<(), &'static str> {
                 extract.validate()?;
-                // Foreign cols need to remap
-                #(
-                    let gt: &RwLock<GenericTable> = {
-                        type F = #FOREIGN_ELEMENTS;
-                        F::get_generic_table(self._universe)
-                    };
-                    let gt = gt.read().unwrap();
-                    let #FOREIGN_NAME_NONCE = {
-                        type F = #FOREIGN_ELEMENTS2;
-                        use std::marker::PhantomData;
-                        fn get_flush<T: GetTableName>(
-                            _: PhantomData<GenericRowId<T>>,
-                            gt: &GenericTable,
-                        ) -> &GuardedFlush<T> {
-                            // FIXME: Explain what explodes if this function is removed.
-                            gt.table
-                                .get_flush_ref()
-                                .downcast_ref()
-                                .expect("downcast failed")
-                        }
-                        let phantom: PhantomData<F> = PhantomData;
-                        let r = (
-                            &*gt,
-                            get_flush(phantom, &*gt),
-                        );
-                        (r.0, r.1.read().unwrap())
-                    };
-                )*
-                let no_trackers = self._table.flush.read().unwrap().trackers_is_empty();
-                // Push
-                let mut remap: Vec<(RowId, RowId)> = Vec::with_capacity(extract.data.#COL0.inner().len());
+                let mut remap: Vec<(RowId, RowId)>;
+                {
+                    // Foreign cols need to remap
+                    #(
+                        let gt: &RwLock<GenericTable> = {
+                            type F = #FOREIGN_ELEMENTS;
+                            F::get_generic_table(self._universe)
+                        };
+                        let gt = gt.read().unwrap();
+                        let #FOREIGN_NAME_NONCE = {
+                            type F = #FOREIGN_ELEMENTS2;
+                            use std::marker::PhantomData;
+                            fn get_flush<T: GetTableName>(
+                                _: PhantomData<GenericRowId<T>>,
+                                gt: &GenericTable,
+                            ) -> &GuardedFlush<T> {
+                                // FIXME: Explain what explodes if this function is removed.
+                                gt.table
+                                    .get_flush_ref()
+                                    .downcast_ref()
+                                    .expect("downcast failed")
+                            }
+                            let phantom: PhantomData<F> = PhantomData;
+                            let r = (
+                                &*gt,
+                                get_flush(phantom, &*gt),
+                            );
+                            (r.0, r.1.read().unwrap())
+                        };
+                    )*
+                    let no_trackers = self._table.flush.read().unwrap().trackers_is_empty();
+                    // Push
+                    remap = Vec::with_capacity(extract.data.#COL0.inner().len());
 
-                #MERGE_EXTRACT
+                    #MERGE_EXTRACT
+                }
 
                 // Flush
                 if self._changes.as_slice().is_empty() { return Ok(()); }

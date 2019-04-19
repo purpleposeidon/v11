@@ -42,6 +42,7 @@ pub trait TTable: ::mopa::Any + Send + Sync {
     fn prototype(&self) -> Box<TTable>;
     fn get_flush_ref(&self) -> &Any;
     fn get_flush_mut(&mut self) -> &mut Any;
+    fn set_identity_remap(&mut self);
 
     fn get_row_remover(&self) -> fn(&Universe, Event, SelectAny);
 
@@ -53,6 +54,13 @@ pub trait TTable: ::mopa::Any + Send + Sync {
         universe: &Universe,
         selection: tracking::SelectAny,
     ) -> Option<Box<::erased_serde::Serialize>>;
+
+    fn generic_select(
+        &self,
+        universe: &Universe,
+        event: Event,
+        selection: tracking::SelectAny,
+    );
 }
 mopafy!(TTable);
 
